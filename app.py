@@ -256,6 +256,7 @@ if res:
         revision_banner(cid)
     marks = {f["sig"]: f for f in HIST.findings(cid)} if cid else {}
     ship = History.shipment_of(res)
+    sigs = History.sigs(res.findings)
     names = [r["file"] for r in rows]
     pick = st.selectbox(t("file_filter"), [None] + names,
                         format_func=lambda n: t("all_files") if n is None else
@@ -267,7 +268,7 @@ if res:
     st.caption(t("legend"))
     for i, f in shown:
         msg = " — ".join(f.text(l) for l in langs)
-        sig = History.sig(f)
+        sig = sigs[i - 1]
         mk = marks.get(sig, {"status": "open", "note": ""})
         badge = "" if mk["status"] == "open" else f"{status_label(mk['status'])} · "
         title = f"{ICON[f.severity]} **#{i}** {badge}{msg}"
@@ -277,8 +278,8 @@ if res:
             if cid:
                 s1, s2 = st.columns([1, 2])
                 new_st = s1.selectbox(t("status"), STATUSES, index=STATUSES.index(mk["status"]),
-                                      format_func=status_label, key=f"st_{cid}_{sig}")
-                new_note = s2.text_input(t("note_in"), value=mk["note"], key=f"nt_{cid}_{sig}")
+                                      format_func=status_label, key=f"st_{cid}_{i}_{sig}")
+                new_note = s2.text_input(t("note_in"), value=mk["note"], key=f"nt_{cid}_{i}_{sig}")
                 if (new_st, new_note) != (mk["status"], mk["note"]):
                     HIST.set_mark(ship, sig, new_st, new_note)
                     st.rerun()

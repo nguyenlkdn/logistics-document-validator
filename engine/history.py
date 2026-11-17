@@ -2,7 +2,7 @@
 
 - A shipment is identified by its invoice no. Checking it again with changed files creates a new revision;
   checking the very same files again reuses the existing record.
-- A finding's identity (sig) = rule + document type + message + current value, so the same problem is
+- A finding's identity (sig) = rule + document type + message + current value (+ -2, -3 for repeats), so the same problem is
   recognised again in the next revision. Status marks are stored per shipment + sig and therefore carry over.
 - Status: open (default) | fixed | not_error | waiting. A finding that disappears in a later revision is
   shown as resolved automatically.
@@ -10,6 +10,7 @@
 import hashlib
 import json
 import sqlite3
+from collections import Counter
 from contextlib import closing
 from datetime import datetime
 from pathlib import Path
@@ -53,6 +54,17 @@ class History:
         kind = f.docs[0].kind if f.docs else ""
         return hashlib.sha1(f"{f.key}|{kind}|{f.text('en')}|{f.current}".encode()).hexdigest()[:16]
 
+    @classmethod
+    def sigs(cls, findings) -> list[str]:
+        """One unique id per finding. The same problem twice in one document (e.g. two identical address typos)
+        gets -2, -3 ... in order, so ids stay unique within a check and stable across revisions."""
+        seen, out = Counter(), []
+        for f in findings:
+            b = cls.sig(f)
+            seen[b] += 1
+            out.append(b if seen[b] == 1 else f"{b}-{seen[b]}")
+        return out
+
     def record(self, res, version: str = "") -> int:
         """Save a check and return its id. The same files as the latest revision -> that revision's id."""
         ship = self.shipment_of(res)
@@ -74,9 +86,9 @@ class History:
             db.executemany(
                 "INSERT INTO findings (check_id, no, sig, key, severity, doc, doc_kind, page, current, suggested,"
                 " msg_en, msg_vi) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                [(cid, i, self.sig(f), f.key, f.severity, f.doc_names[0] if f.docs else "",
+                [(cid, i, sig, f.key, f.severity, f.doc_names[0] if f.docs else "",
                   f.docs[0].kind if f.docs else "", f.page, f.current, f.suggested, f.text("en"), f.text("vi"))
-                 for i, f in enumerate(res.findings, 1)])
+                 for i, (f, sig) in enumerate(zip(res.findings, self.sigs(res.findings)), 1)])
             return cid
 
     def set_mark(self, shipment: str, sig: str, status: str, note: str = ""):
