@@ -121,6 +121,10 @@ def _extract_ci(d: Doc):
     d.f["sailing"] = (_first(L, r"Sailing On Or About\s*:\s*(\d.+?)(?:\s{2,}|$)", conv=parse_date)
                       or _after(L, r"SAILING ON OR ABOUT", r"^\s*(\d{1,2}/\d{1,2}/\d{4})", conv=parse_date))
     d.f["containers"] = _first(L, r"TOTAL CONTAINER\s*:\s*(\d+)\s*x", conv=int)
+    for _, l, m in _search(L, r"TOTAL CONTAINER\s*:\s*((?:\d+\s*[xX]\s*\d{2}\s*'?\s*[A-Z]{2}[\s+,&]*)+)"):
+        d.lists["cntr_types"] = [F(l, m, 1)]
+        break
+    d.f["goods"] = _first(L, r'"?TOSHIBA"?\s*BRAND\s+([A-Z][A-Z ]*?[A-Z])\s*(?:\s{2,}|$)')
     pos = set()
     for _, l, m in _search(L, PO_RE, 0):
         pos.update(re.findall(PO_RE, l.text))
@@ -209,6 +213,44 @@ def _extract_bl(d: Doc):
     d.f["ctn"] = _first(L, r"\b([\d,]+)\s*CARTONS\b", conv=num)
     d.f["invoice_no"] = _first(L, r"INVOICE NO\.?\s*([A-Z0-9]{8,})")
     d.f["hs"] = _first(L, r"HS CODE:?\s*([\d.]+)")
+    _extract_bl_cargo(d)
+
+
+def _extract_bl_cargo(d: Doc):
+    """Containers (number / seal / type), summary like 3X40'HC, total in words, attach-sheet loads,
+    shipping-mark models, goods description, final destination, place of delivery."""
+    L = d.lines
+    rx = r"\b([A-Z]{4}\d{7})\s*/\s*([A-Z0-9]+)\s*/\s*(\d{2}[A-Z]{2})\b"
+    d.lists["cntr"] = [Field((m[1], m[3]), m[3], l, m.start(3), m.end(3))      # value = (container no., type)
+                       for _, l, _m in _search(L, rx, 0) for m in [re.search(rx, l.text)]]
+    d.f["cntr_summary"] = _first(L, r"\b(\d+\s*X\s*\d{2}\s*'?\s*[A-Z]{2}(?:\s*[+&,]\s*\d+\s*X\s*\d{2}\s*'?\s*[A-Z]{2})*)\b", flags=0)
+    for _, l, m in _search(L, r"^\s*((?:[A-Z]+[\- ])*[A-Z]+)\s*\((\d+)\)\s*CONTAINER\(S\)\s*ONLY", 0):
+        d.f["cntr_words"] = Field(m[1], l.text[m.start(1):m.end(2) + 1], l, m.start(1), m.end(2) + 1)
+        d.f["cntr_words_n"] = F(l, m, 2, int(m[2]))
+        break
+    d.lists["cntr_load"] = [Field((m[1], num(m[2]), num(m[3]), num(m[5])), m[4], l, m.start(4), m.end(4))
+                            for _, l, m in _search(L, r"([A-Z]{4}\d{7})\s*//\s*\S+\s*//\s*([\d,]+)\s*CARTONS?\s*//"
+                                                      r"\s*([\d,.]+)\s*KGS\s*//\s*(([\d,.]+)\s*CBM)", 0)]
+    marks, inside = [], False
+    for l in L:
+        if re.search(r"SHIPPING MARK", l.text):
+            inside = True
+            continue
+        if inside and re.search(r"FINAL DESTINATION|AS PER ATTACHED|FREIGHT|\[ Total number", l.text):
+            break
+        if inside:
+            m = re.match(r"\s*(" + MODEL_RE[2:] + r")", l.text)
+            if m:
+                marks.append(F(l, m, 1))
+    d.lists["marks_models"] = marks
+    g = _first(L, r'"?TOSHIBA"?\s*BRAND\s+([A-Z][A-Z ]*?[A-Z])\s*(?:\s{2,}|$)')
+    if g:                                       # a word split over two lines ("HOT PO" + "T"): read it whole
+        nxt = L[L.index(g.line) + 1] if L.index(g.line) + 1 < len(L) else None
+        if nxt and re.fullmatch(r"\s*[A-Z]{1,3}\s*", nxt.text) and g.end == len(g.line.text.rstrip()):
+            g = Field(g.value + nxt.text.strip(), g.raw, g.line, g.start, g.end)
+    d.f["goods"] = g
+    d.f["final_dest"] = _first(L, r"FINAL DESTINATION\s*:\s*([A-Z][A-Z .]*?)\s*(?:,|$)", flags=0)
+    d.f["delivery"] = _after(L, r"\[ Place of Delivery \]", r"\s{2,}([A-Z][A-Z ]*?)(?=,|\s{2,}|$)")
 
 
 def _extract_co(d: Doc):

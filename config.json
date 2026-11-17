@@ -150,6 +150,14 @@
     "ctn_words": {
       "en": "number of cartons in words",
       "vi": "số thùng bằng chữ"
+    },
+    "invoice": {
+      "en": "invoice",
+      "vi": "hóa đơn"
+    },
+    "bl_summary": {
+      "en": "B/L summary",
+      "vi": "dòng tổng trên B/L"
     }
   },
   "messages": {
@@ -368,6 +376,93 @@
     "PL_RANGE_COUNT": {
       "en": "Packing list {model}: range has {have} cartons but {qty} sets ÷ {per} per carton = {cnt} cartons",
       "vi": "Packing List {model}: dải có {have} thùng nhưng {qty} bộ ÷ {per} bộ/thùng = {cnt} thùng"
+    },
+    "CNTR_WORDS": {
+      "en": "B/L total containers in words should be {n}",
+      "vi": "Tổng số container bằng chữ trên B/L phải là {n}",
+      "note_en": "Counted from the container lines on the B/L",
+      "note_vi": "Đếm theo các dòng container trên B/L"
+    },
+    "CNTR_COUNT": {
+      "en": "B/L container count should be {n} (container lines listed)",
+      "vi": "Số container trên B/L phải là {n} (theo các dòng container)"
+    },
+    "CNTR_TYPE": {
+      "en": "Container {no}: type does not match {ref} ({src})",
+      "vi": "Container {no}: loại không khớp {ref} ({src})",
+      "note_en": "Size and type of each container line must match the invoice / B/L summary (HQ = HC, GP = DC)",
+      "note_vi": "Kích cỡ và loại từng container phải khớp hóa đơn / dòng tổng trên B/L (HQ = HC, GP = DC)"
+    },
+    "CNTR_SUMMARY": {
+      "en": "B/L container summary does not match the invoice ({ref})",
+      "vi": "Dòng tổng container trên B/L không khớp hóa đơn ({ref})"
+    },
+    "CNTR_CAPACITY": {
+      "en": "Container {no} ({type}): {cbm} CBM does not fit (about {cap} CBM max)",
+      "vi": "Container {no} ({type}): {cbm} CBM vượt sức chứa (tối đa khoảng {cap} CBM)",
+      "note_en": "Check the container type or the attach sheet",
+      "note_vi": "Kiểm tra loại container hoặc bảng kê kèm theo"
+    },
+    "CNTR_ATTACH_SUM": {
+      "en": "B/L attach sheet: containers' {label} do not add up to the B/L total",
+      "vi": "Bảng kê B/L: tổng {label} các container không khớp tổng trên B/L"
+    },
+    "BL_MARKS_MODEL": {
+      "en": "B/L shipping mark: model {model} is not on the invoice",
+      "vi": "Ký mã hiệu B/L: model {model} không có trên hóa đơn"
+    },
+    "BL_GOODS_DESC": {
+      "en": "B/L goods description ≠ invoice",
+      "vi": "Mô tả hàng trên B/L ≠ hóa đơn"
+    },
+    "BL_DESTINATION": {
+      "en": "B/L final destination {dest} is not in {ref} (port of discharge / delivery)",
+      "vi": "Nơi đến cuối cùng {dest} trên B/L không thuộc {ref} (cảng dỡ / nơi giao hàng)"
+    },
+    "CNTR_TYPE_CBM": {
+      "en": "Container {no}: type does not match {ref} ({src}); its {cbm} CBM cannot fit a {size}' container (max about {cap} CBM)",
+      "vi": "Container {no}: loại không khớp {ref} ({src}); {cbm} CBM không thể chứa trong container {size}' (tối đa khoảng {cap} CBM)",
+      "note_en": "Size and type of each container line must match the invoice / B/L summary (HQ = HC, GP = DC)",
+      "note_vi": "Kích cỡ và loại từng container phải khớp hóa đơn / dòng tổng trên B/L (HQ = HC, GP = DC)"
     }
+  },
+  "cities": {
+    "HO CHI MINH CITY": [
+      "HO CHI MINH",
+      "HOCHIMINH",
+      "HCM",
+      "HCMC",
+      "SAIGON",
+      "SGN",
+      "CAT LAI",
+      "CATLAI",
+      "HIEP PHUOC",
+      "TAN CANG",
+      "VICT",
+      "VNSGN",
+      "VNCLI"
+    ],
+    "HAI PHONG": [
+      "HAIPHONG",
+      "HP",
+      "HPH",
+      "DINH VU",
+      "LACH HUYEN",
+      "VNHPH"
+    ],
+    "DA NANG": [
+      "DANANG",
+      "DAD",
+      "TIEN SA",
+      "VNDAD"
+    ],
+    "CAI MEP": [
+      "CAI MEP",
+      "VUNG TAU",
+      "BA RIA VUNG TAU",
+      "TCIT",
+      "CMIT",
+      "VNCMP"
+    ]
   }
 }

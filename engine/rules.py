@@ -322,6 +322,119 @@ def r_hs(ci, co, bl, out):
                            _v(hs_bl_f), heads.most_common(1)[0][0], at(bl, hs_bl_f)))
 
 
+CNTR_CBM = {("20", "DC"): 33.2, ("40", "DC"): 67.7, ("40", "HC"): 76.3}   # usable volume, m3 (approx.)
+
+
+def _cntr(t: str) -> tuple:
+    """'40HQ' / "40'HC" / '20GP' -> ('40', 'HC') / ('20', 'DC')."""
+    m = re.search(r"(\d{2})\s*'?\s*([A-Z]{2})", t.upper())
+    if not m:
+        return None
+    kind = {"HQ": "HC", "GP": "DC", "ST": "DC"}.get(m[2], m[2])
+    return m[1], kind
+
+
+def _cntr_mix(text: str) -> Counter:
+    """'3x40HQ' / "1X20'DC + 2X40'HC" -> Counter({('40','HC'): 3, ...})."""
+    return Counter({_cntr(t): int(n) for n, t in re.findall(r"(\d+)\s*[xX]\s*(\d{2}\s*'?\s*[A-Z]{2})", text or "")})
+
+
+def r_containers(ci, bl, out):
+    """B/L container block: count in words and figures, each container's type vs the summary / invoice,
+    volume per container vs its type, and the attach sheet adding up to the B/L totals."""
+    if not bl:
+        return
+    lines = bl.lists.get("cntr", [])
+    n_lines = len(lines)
+    fig = bl.f.get("containers")
+    ref_n = n_lines or (fig.value if fig else None)
+    w, wn = bl.f.get("cntr_words"), bl.f.get("cntr_words_n")
+    if w and ref_n:
+        words_n = words_to_number(w.value)
+        if words_n != ref_n or wn.value != ref_n:
+            out.append(Finding("CNTR_WORDS", "ERROR", [bl], dict(n=ref_n), w.raw,
+                               f"{number_to_words(ref_n).upper()} ({ref_n})", at(bl, w)))
+    if fig and n_lines and fig.value != n_lines:
+        out.append(Finding("CNTR_COUNT", "ERROR", [bl], dict(n=n_lines), str(fig.value), str(n_lines), at(bl, fig)))
+    ci_types = ci.lists.get("cntr_types", []) if ci else []
+    summ = bl.f.get("cntr_summary")
+    expect = _cntr_mix(ci_types[0].value) if ci_types else _cntr_mix(summ.value if summ else "")
+    expect_txt = (ci_types[0].value if ci_types else summ.value if summ else "")
+    src = "@invoice" if ci_types else "@bl_summary"
+    loads = {x.value[0]: x for x in bl.lists.get("cntr_load", [])}
+    if expect and lines:
+        have = Counter(_cntr(x.value[1]) for x in lines)
+        extra = have - expect                         # types the B/L lists more often than expected
+        missing = expect - have
+        for x in lines:
+            t = _cntr(x.value[1])
+            if extra.get(t, 0) > 0:
+                extra[t] -= 1
+                sug = next(iter(missing.elements()), None)
+                if sug:
+                    missing[sug] -= 1
+                ld = loads.get(x.value[0])
+                cap = CNTR_CBM.get(t)
+                over = bool(ld and cap and ld.value[3] > cap)
+                out.append(Finding("CNTR_TYPE_CBM" if over else "CNTR_TYPE", "ERROR", [bl] + ([ci] if ci_types else []),
+                                   dict(no=x.value[0], ref=expect_txt, src=src, cbm=f"{ld.value[3]:,.2f}" if ld else "",
+                                        cap=f"{cap:g}" if cap else "", size=t[0]), x.value[1],
+                                   (sug[0] + sug[1]) if sug else "", at(bl, x) + (at(ci, ci_types[0], "ref") if ci_types else [])))
+    if summ and ci_types and _cntr_mix(summ.value) != expect:
+        out.append(Finding("CNTR_SUMMARY", "ERROR", [bl, ci], dict(ref=expect_txt), summ.value, expect_txt,
+                           at(bl, summ) + at(ci, ci_types[0], "ref")))
+    flagged = {f.params.get("no") for f in out if f.key in ("CNTR_TYPE", "CNTR_TYPE_CBM")}
+    for x in lines:                                   # a container that cannot hold what the attach sheet says
+        t, ld = _cntr(x.value[1]), loads.get(x.value[0])
+        cap = CNTR_CBM.get(t)
+        if ld and cap and ld.value[3] > cap and x.value[0] not in flagged:
+            out.append(Finding("CNTR_CAPACITY", "WARNING", [bl], dict(no=x.value[0], type=x.value[1], cbm=f"{ld.value[3]:,.2f}",
+                                                                        cap=f"{cap:g}"), x.value[1], "", at(bl, x) + at(bl, ld, "ref")))
+    if loads:
+        for k, i, label in (("ctn", 1, "@ctn"), ("gw", 2, "@gw"), ("cbm", 3, "@cbm")):
+            tot = bl.f.get(k)
+            s_ = sum(x.value[i] for x in loads.values())
+            if tot and not _close(s_, tot.value, 0.01):
+                out.append(Finding("CNTR_ATTACH_SUM", "ERROR", [bl], dict(label=label), f"{s_:,.2f}".rstrip("0").rstrip("."),
+                                   tot.raw, at(bl, tot, "ref") + [x for ld in loads.values() for x in at(bl, ld)]))
+
+
+def r_bl_cargo(ci, co, bl, out):
+    """B/L shipping marks, goods description and final destination against the invoice."""
+    if not (ci and bl):
+        return
+    models = [m for m in {it.get("model") for it in ci.items} | {p.get("model") for p in ci.pl_items} if m]
+    for f in bl.lists.get("marks_models", []):
+        if f.value not in models:
+            near = difflib.get_close_matches(f.value, models, n=1, cutoff=0.75)
+            out.append(Finding("BL_MARKS_MODEL", "ERROR" if near else "WARNING", [bl, ci], dict(model=f.value),
+                               f.value, near[0] if near else "", at(bl, f)))
+    g, cg = bl.f.get("goods"), ci.f.get("goods")
+    if g and cg and _norm_words(g.value) != _norm_words(cg.value):
+        out.append(Finding("BL_GOODS_DESC", "ERROR", [bl, ci], {}, g.value, cg.value, at(bl, g) + at(ci, cg, "ref")))
+    fd = bl.f.get("final_dest")
+    if fd:
+        ref_f = bl.f.get("delivery") or bl.f.get("pod") or ci.f.get("pod")
+        a, b = _city(fd.value), _city(ref_f.value) if ref_f else None
+        if a and b and a != b:
+            sug = (ci.f.get("pod") or ref_f).value
+            out.append(Finding("BL_DESTINATION", "ERROR", [bl], dict(dest=fd.value, ref=b), fd.value, sug,
+                               at(bl, fd) + at(bl, ref_f, "ref")))
+
+
+def _norm_words(t: str) -> str:
+    return re.sub(r"[^A-Z]", "", (t or "").upper())
+
+
+def _city(place: str) -> str | None:
+    """Port / place name -> its city group from config "cities" (e.g. CAT LAI -> HO CHI MINH CITY)."""
+    p = _norm_words(place)
+    for city, names in CONFIG.get("cities", {}).items():
+        if p in {_norm_words(n) for n in [city] + names}:
+            return city
+    return None
+
+
 def _pairs(ci, co) -> list:
     """[(form_d_item, pl_item)]: same position when both list one line per PO, else a unique model match."""
     if not (ci and co):
@@ -545,6 +658,8 @@ def validate(docs: list[Doc]) -> list[Finding]:
     r_vessel(ci, bl, co, out)
     r_co(ci, co, bl, out)
     r_hs(ci, co, bl, out)
+    r_containers(ci, bl, out)
+    r_bl_cargo(ci, co, bl, out)
     r_pl_ranges(ci, co, out)
     r_co_packages(ci, co, out)
     r_pod(docs, out)
