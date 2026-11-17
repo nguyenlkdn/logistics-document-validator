@@ -23,7 +23,7 @@ def render():
         st.info(t("no_hist"))
         return
     tmp = Path(tempfile.gettempdir()) / "LDV_feedback.xlsx"
-    a.download_button(t1("export"), state.HIST.export(tmp).read_bytes(), file_name="LDV_feedback.xlsx",
+    a.download_button(t1("export"), lambda: state.HIST.export(tmp).read_bytes(), file_name="LDV_feedback.xlsx",
                       icon=":material/download:", width="stretch",
                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
@@ -73,7 +73,7 @@ def render():
             state.go("report")
     xl = folder / "report.xlsx" if folder else None
     if xl and xl.exists():
-        b2.download_button(t1("download"), xl.read_bytes(), file_name=f"{c['name']}_report.xlsx", width="stretch",
+        b2.download_button(t1("download"), lambda xl=xl: xl.read_bytes(), file_name=f"{c['name']}_report.xlsx", width="stretch",
                            icon=":material/download:",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     if folder and folder.exists():

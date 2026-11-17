@@ -20,6 +20,7 @@ engine/
   evidence.py          page screenshots: red = wrong value, green = reference
   report.py            report.xlsx (Findings · Extracted data · Not recognised) + report.md
   review_report.py     review report (PDF / Excel / HTML) with reviewer sign-off; saved in <report folder>/reports/
+  search.py            global search (Ctrl+K) over the history
   compare.py           cross-check of the same fields across documents (map: config.json "compare")
   session.py           review.json in each report folder: reopen a review without checking again
   history.py           history.db: checks, revisions, reviewer status/notes (kept apart from findings)
@@ -41,6 +42,8 @@ tests/run_baseline.py  regression test
 ```bash
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python tests/run_baseline.py            # must print ALL PASS
+.venv/bin/python tests/run_unit.py                # review features (cross-check, sign-off, reports, search)
+.venv/bin/python tests/ui_smoke.py                # optional, browser walk-through (pip install playwright)
 .venv/bin/python -m streamlit run app.py
 ```
 After an intended change in results: review the new output manually, then `tests/run_baseline.py --update`.

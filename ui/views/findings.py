@@ -40,10 +40,11 @@ def render():
         return
 
     # ---- filters
-    f1, f2 = st.columns([4, 6], vertical_alignment="bottom")
-    sev = f1.pills(t("flt_sev"), SEVERITY, selection_mode="multi", key="fm_sev",
-                   format_func=lambda x: f"{ui.ICON[x]} {sev_short(x)}")
-    stt = f2.pills(t("flt_status"), state.STATUSES, selection_mode="multi", key="fm_status", format_func=status_label)
+    with st.container(horizontal=True, gap="medium", vertical_alignment="bottom"):      # wraps on narrow screens
+        sev = st.pills(t("flt_sev"), SEVERITY, selection_mode="multi", key="fm_sev", width="content",
+                       format_func=lambda x: f"{ui.ICON[x]} {sev_short(x)}")
+        stt = st.pills(t("flt_status"), state.STATUSES, selection_mode="multi", key="fm_status", width="content",
+                       format_func=status_label)
     g1, g2, g3, g4 = st.columns([2.2, 2.6, 2.4, 3], vertical_alignment="bottom")
     kinds = g1.multiselect(t1("col_kind"), KINDS, key="fm_kind", format_func=lambda k: kind_label(k, short=True),
                            placeholder=t1("hs_all"))
@@ -82,7 +83,7 @@ def render():
         table, hide_index=True, width="stretch", on_select="rerun", selection_mode="multi-row", key=f"fm_tbl_{sig}",
         height=min(38 + 35 * len(table), 520),
         column_order=["id", "sev", "status", "msg", "doc", "kind", "page", "cur", "sug", "note", "ts"],
-        column_config={"id": st.column_config.TextColumn(t1("fm_id"), width=150),
+        column_config={"id": st.column_config.TextColumn(t1("fm_id"), width=180),
                        "sev": st.column_config.TextColumn(t1("severity"), width=90),
                        "status": st.column_config.TextColumn(t1("status"), width=120),
                        "msg": st.column_config.TextColumn(t1("fm_finding"), width="large"),
@@ -95,7 +96,7 @@ def render():
 
     a, b = st.columns([5, 1.4], vertical_alignment="bottom")
     with b:
-        st.download_button(t1("fm_export"), excel(rows), file_name="LDV_findings.xlsx", icon=":material/download:",
+        st.download_button(t1("fm_export"), lambda rows=rows: excel(rows), file_name="LDV_findings.xlsx", icon=":material/download:",
                            width="stretch", mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     with a:
         if not picked:

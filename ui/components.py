@@ -7,7 +7,8 @@ from engine.rules import SEVERITY
 
 from .i18n import sev_short, t1
 
-COLOR = dict(ERROR="#d93025", WARNING="#e8710a", MINOR="#c99700", INFO="#1a73e8", RESOLVED="#188038",
+# MINOR is dark enough to read as text on white (contrast about 5:1)
+COLOR = dict(ERROR="#d93025", WARNING="#e8710a", MINOR="#8a6700", INFO="#1a73e8", RESOLVED="#188038",
              WAITING="#8e6c00", MUTED="#5f6368")
 TINT = dict(ERROR="#fce8e6", WARNING="#feefe3", MINOR="#fef7e0", INFO="#e8f0fe", RESOLVED="#e6f4ea", MUTED="#f1f3f4",
             WAITING="#fef7e0")
@@ -90,6 +91,11 @@ CSS = """
 
   div[class*="st-key-ev_"] button {justify-content: flex-start; text-align: left; padding-left: 0;}
   div[class*="st-key-ev_"] button p {text-align: left; font-size: .84rem;}
+
+  /* icon-only buttons: the label stays for screen readers but is not shown */
+  div.st-key-pg_prev button p, div.st-key-pg_next button p, div.st-key-fprev button p, div.st-key-fnext button p,
+  div.st-key-fclose button p {position: absolute !important; width: 1px; height: 1px; overflow: hidden;
+        clip: rect(0 0 0 0); white-space: nowrap;}
 
   /* page viewer */
   .ldv-viewer {overflow: auto; background: #e8eaed; border: 1px solid #dadce0; border-radius: 6px; padding: 12px;}

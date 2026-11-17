@@ -100,17 +100,14 @@ def _lang():
 
 def report(s, cid):
     st.subheader(t("rep_report"))
-    o1, o2 = st.columns([2, 5], vertical_alignment="top")
-    with o1:
-        st.segmented_control(t1("rep_lang"), ["en", "vi", "both"], key="rep_lang",
+    with st.container(horizontal=True, gap="large", vertical_alignment="bottom"):      # wraps on narrow screens
+        st.segmented_control(t1("rep_lang"), ["en", "vi", "both"], key="rep_lang", width="content",
                              default=st.session_state.get("lang") or "en",
                              format_func=lambda k: {"en": "English", "vi": "Tiếng Việt", "both": "EN + VI"}[k])
-    with o2:
-        x1, x2, x3, x4 = st.columns(4)
-        info = x1.toggle(t1("rep_info"), value=False, key="rep_info")
-        only_open = x2.toggle(t1("rep_open"), value=False, key="rep_only_open")
-        snaps = x3.toggle(t1("rep_snaps"), value=True, key="rep_snaps")
-        cross = x4.toggle(t1("rep_cross"), value=True, key="rep_cross")
+        info = st.toggle(t1("rep_info"), value=False, key="rep_info", width="content")
+        only_open = st.toggle(t1("rep_open"), value=False, key="rep_only_open", width="content")
+        snaps = st.toggle(t1("rep_snaps"), value=True, key="rep_snaps", width="content")
+        cross = st.toggle(t1("rep_cross"), value=True, key="rep_cross", width="content")
     opts = dict(lang=_lang(), info=info, only_open=only_open, snapshots=snaps, crosscheck=cross)
     if not s.get("out_dir") or not Path(s["out_dir"]).exists():
         st.warning(t("missing_folder"))
@@ -130,9 +127,22 @@ def report(s, cid):
     st.caption(t("rep_where", path=str(Path(s["out_dir"]) / "reports")))
 
     if st.toggle(t1("rep_preview"), value=True, key="rep_show_preview"):
-        g = rr.gather(s, state.HIST, cid)
-        doc = rr.build_html(s, g["marks"], g["trails"], g["cmp"], g["signoff"], opts, images="base64")
-        st.iframe(doc, height=900)
+        st.iframe(preview_html(s, cid, opts), height=900)
+
+
+def preview_html(s, cid, opts) -> str:
+    """The report preview, rebuilt only when the review, a decision, the sign-off or an option changed."""
+    import hashlib
+    import json
+    g = rr.gather(s, state.HIST, cid)
+    sig = hashlib.sha1(json.dumps([s.get("out_dir"), s.get("revision"), g["marks"], g["trails"], g["signoff"], opts],
+                                  default=str, sort_keys=True).encode()).hexdigest()
+    return _cached_html(sig, s, g, opts)
+
+
+@st.cache_data(show_spinner=False, max_entries=6)              # _-arguments are not hashed: sig is the key
+def _cached_html(sig: str, _s, _g, _opts) -> str:
+    return rr.build_html(_s, _g["marks"], _g["trails"], _g["cmp"], _g["signoff"], _opts, images="base64")
 
 
 def earlier(s):
@@ -144,5 +154,5 @@ def earlier(s):
         a, b, c = st.columns([5, 2, 1.4], vertical_alignment="center")
         a.markdown(f"`{p.name}`")
         b.caption(datetime.fromtimestamp(p.stat().st_mtime).strftime("%Y-%m-%d %H:%M") + f" · {p.stat().st_size // 1024} KB")
-        c.download_button(t1("rep_dl"), p.read_bytes(), file_name=p.name, mime=MIME.get(p.suffix[1:], "application/octet-stream"),
+        c.download_button(t1("rep_dl"), lambda p=p: p.read_bytes(), file_name=p.name, mime=MIME.get(p.suffix[1:], "application/octet-stream"),
                           key=f"dl_{p.name}", icon=":material/download:", width="stretch")

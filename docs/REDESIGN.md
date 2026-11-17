@@ -59,6 +59,8 @@ ui/state.py             open review (session dict), reviewer marks, counts, per-
 ui/components.py        CSS, chips, stepper, verdict, tiles (clickable numbers), bars, stats
 engine/review_report.py review report: HTML (preview / export), PDF via MuPDF Story, Excel; files in <report folder>/reports/
 engine/compare.py       cross-document comparison on a stored session (field map in config.json)
+engine/search.py        global search index over history.db + review.json files
+ui/search.py            Ctrl+K search dialog
 ui/viewer.py            page viewer: cached page images, overlay boxes, search, text layer, focus scroll, keys
 ui/views/*.py           one render() per page; they read state and engine results
 engine/session.py       review.json writer/loader (+ fallback for checks saved by ≤ 1.3 from history.db)
@@ -81,7 +83,7 @@ unrecognised items, highlight boxes per document. The extracted fields are alrea
 | 3 Findings management | Findings page: every finding of the open review, of all shipments (latest revision) or of all revisions; filters for severity, status, document type, rule, date, keyword; multi-select → set status and/or comment in one go, open one in the workspace; Excel export of the filtered list. New statuses *In review* and *Accepted – no action*; reviewer name (Settings, no login) and a per-finding activity trail (`mark_log`) | **done** |
 | 4 Cross-document comparison | Cross-check page: 16 fields × Invoice / Packing list / Sales contract / B/L / Form D (invoice no., date, PO, vessel, POL, POD, sailing, goods, HS, quantity, amount, G.W., N.W., CBM, cartons, containers) with match / mismatch / not read / not applicable / no document; goods lines by model (quantity on 4 documents, price on invoice and contract); click a value → its page in the workspace; dashboard link with the number of differing fields. Logic in `engine/compare.py`, field map in `config.json` `compare` | **done** |
 | 5 Report center | Report page: reviewer sign-off (Approved / Approved with exception / Returned for correction; plain approval refused while an error is open, enforced in `History.sign`; exception and return need a reason; every sign-off kept), report options (EN / VI / both, Info findings, only unresolved, evidence snapshots, cross-check), live preview, PDF (A4, page footer, Vietnamese font from the system), Excel (Summary, Documents, Findings with reviewer columns and trail, Cross-check) and self-contained HTML; earlier reports of the review listed for download; History page *Report* button. Report sections: executive summary, document inventory, findings summary, detailed findings, cross-document comparison, conclusion — automated result and reviewer conclusion shown apart | **done** |
-| 6 Polish & QA | Ctrl+K search, keyboard navigation, accessibility, large packages, UI regression (Playwright) next to the baseline test | |
+| 6 Polish & QA | Ctrl+K global search (reviews, reference numbers read from the documents, finding IDs and texts, documents; `engine/search.py`); keyboard: ↑/↓/k/j/Esc in the workspace, Ctrl+K anywhere; accessibility: icon-only buttons keep a hidden text label, darker Minor colour (about 5:1); toolbars wrap on narrow windows (checked at 1366×768); downloads are generated only when clicked, report preview cached; `LDV_PROFILE=1` logs each page's server time (all pages 4–70 ms on the test history); tests: `tests/run_unit.py` (engine-level, 6 checks) and `tests/ui_smoke.py` (browser workflow, 9 steps, optional Playwright) | **done** |
 
 ## 6. Backend gaps (to build before the matching UI)
 
@@ -104,3 +106,13 @@ unrecognised items, highlight boxes per document. The extracted fields are alrea
 - `history.db` schema: unchanged; checks from v1.3 reopen through the fallback (no on-page boxes for those).
 - Right-click *Send to*, tray launcher, updater, `?job=` hand-off: unchanged behaviour.
 - Original PDFs and the HS Excel are only read.
+
+## 8. Tests
+
+| Command | What it checks | Needs |
+|---|---|---|
+| `.venv/bin/python tests/run_baseline.py` | engine output (findings + extracted values) of every test set is unchanged | test sets |
+| `.venv/bin/python tests/run_unit.py` | review.json, cross-check never contradicts the rules, reviewer trail, sign-off rule, PDF/Excel/HTML in 3 languages, search | test sets |
+| `.venv/bin/python tests/ui_smoke.py [--shots DIR]` | the whole workflow in a real browser, every page in EN / VI / both, 1366×768 | test sets, `pip install playwright`, Chrome |
+
+All three run on temporary folders; the PC's history, reports and HS list are not touched.

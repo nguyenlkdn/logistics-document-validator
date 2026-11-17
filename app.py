@@ -5,9 +5,11 @@ Run:  Start.bat   (or: python -m streamlit run app.py)
 The pages live in ui/views/; analysis stays in engine/ (the UI only reads its results).
 """
 import json
+import os
 import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import streamlit as st
@@ -63,7 +65,11 @@ nav = st.navigation({t1("sec_review"): [P["dashboard"], P["new"], P["review"], P
 logo = Path(__file__).resolve().parent / "ldv.png"
 if logo.exists():
     st.logo(str(logo), size="large")
+from ui import search as gsearch                                   # noqa: E402
+
 with st.sidebar:
+    if st.button(t1("gs_btn"), icon=":material/search:", shortcut="Ctrl+K", width="stretch", key="gs_open"):
+        gsearch.open_dialog()
     s = state.current()
     st.markdown(f'<div class="ldv-label">{ui.esc(t1("workspace"))}</div>', unsafe_allow_html=True)
     if s:
@@ -87,4 +93,9 @@ with st.sidebar:
 
 if job_done and nav is not P["dashboard"]:
     st.switch_page(P["dashboard"])
-nav.run()
+if os.environ.get("LDV_PROFILE"):                  # developer aid: how long each page takes on the server
+    _t0 = time.perf_counter()
+    nav.run()
+    print(f"[LDV_PROFILE] {nav.title}: {time.perf_counter() - _t0:.3f}s", file=sys.stderr, flush=True)
+else:
+    nav.run()

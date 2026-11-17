@@ -115,7 +115,7 @@ def render():
         b1, b2 = st.columns(2)
         xl = s.get("excel_path")
         if xl and Path(xl).exists():
-            b1.download_button(t1("download"), Path(xl).read_bytes(), file_name=f"{s['name']}_report.xlsx",
+            b1.download_button(t1("download"), lambda xl=xl: Path(xl).read_bytes(), file_name=f"{s['name']}_report.xlsx",
                                icon=":material/download:", width="stretch",
                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         if s.get("out_dir") and Path(s["out_dir"]).exists() and b2.button(
@@ -129,14 +129,12 @@ def render():
     _init("w_sev", "f_sev", list(SEVERITY))
     _init("w_status", "f_status", list(STATUSES))
     _init("w_q", "f_q", "")
-    f1, f2, f3 = st.columns([4.1, 7.2, 2.4], vertical_alignment="bottom")
-    with f1:
-        sev = st.pills(t("flt_sev"), SEVERITY, selection_mode="multi", key="w_sev",
+    with st.container(horizontal=True, gap="medium", vertical_alignment="bottom"):      # wraps on narrow screens
+        sev = st.pills(t("flt_sev"), SEVERITY, selection_mode="multi", key="w_sev", width="content",
                        format_func=lambda x: f"{ui.ICON[x]} {sev_short(x)}")
-    with f2:
-        stt = st.pills(t("flt_status"), STATUSES, selection_mode="multi", key="w_status", format_func=status_label)
-    with f3:
-        q = st.text_input(t("flt_search"), key="w_q", placeholder=t1("flt_search_ph"))
+        stt = st.pills(t("flt_status"), STATUSES, selection_mode="multi", key="w_status", format_func=status_label,
+                       width="content")
+        q = st.text_input(t("flt_search"), key="w_q", placeholder=t1("flt_search_ph"), width=260)
     st.session_state.update(f_sev=sev, f_status=stt, f_q=q)
     sev, stt = set(sev or SEVERITY), set(stt or STATUSES)
     status_of = lambda f: mk.get(f["sig"], {}).get("status", "open")
@@ -197,24 +195,25 @@ def page_view(s, doc, sel, base):
         for l in locs_of(s, f):
             if l["doc"] == doc and l["role"] == "wrong":
                 on_page.setdefault(l["page"], set()).add(f["no"])
-    c1, c2, c3, c4 = st.columns([0.55, 1.7, 0.55, 3.5], vertical_alignment="center", gap="small")
-    c1.button("", icon=":material/chevron_left:", key="pg_prev", on_click=_page, args=(-1, n), disabled=pno == 0,
-              help=t1("pg_prev"), width="stretch")
-    c2.selectbox(t1("page"), list(range(1, n + 1)), key="v_page", label_visibility="collapsed",
-                 format_func=lambda p: f"{t1('page').capitalize()} {p} / {n}"
-                                       + (f"  ·  {len(on_page[p - 1])} ⚑" if on_page.get(p - 1) else ""))
-    c3.button("", icon=":material/chevron_right:", key="pg_next", on_click=_page, args=(1, n), disabled=pno >= n - 1,
-              help=t1("pg_next"), width="stretch")
-    c4.segmented_control(t1("zoom"), viewer.ZOOMS, key="v_zoom", label_visibility="collapsed", width="stretch",
-                         format_func=lambda z: {"fit_width": t1("fit_width"), "fit_page": t1("fit_page")}.get(z, f"{z}%"))
+    with st.container(horizontal=True, gap="small", vertical_alignment="center"):      # wraps on narrow screens
+        st.button(t1("pg_prev"), icon=":material/chevron_left:", key="pg_prev", on_click=_page, args=(-1, n),
+                  disabled=pno == 0, help=t1("pg_prev"), width="content")
+        st.selectbox(t1("page"), list(range(1, n + 1)), key="v_page", label_visibility="collapsed", width=170,
+                     format_func=lambda p: f"{t1('page').capitalize()} {p} / {n}"
+                                           + (f"  ·  {len(on_page[p - 1])} ⚑" if on_page.get(p - 1) else ""))
+        st.button(t1("pg_next"), icon=":material/chevron_right:", key="pg_next", on_click=_page, args=(1, n),
+                  disabled=pno >= n - 1, help=t1("pg_next"), width="content")
+        st.segmented_control(t1("zoom"), viewer.ZOOMS, key="v_zoom", label_visibility="collapsed", width="content",
+                             format_func=lambda z: {"fit_width": t1("fit_width"), "fit_page": t1("fit_page")}.get(z, f"{z}%"))
     zoom = st.session_state.get("v_zoom") or "fit_width"
 
-    s1, s2 = st.columns([3, 1.6], vertical_alignment="center", gap="small")
-    find = s1.text_input(t1("find_in_doc"), key="v_find", placeholder=t1("find_in_doc"), label_visibility="collapsed",
-                         icon=":material/search:").strip()
+    with st.container(horizontal=True, gap="small", vertical_alignment="center"):
+        find = st.text_input(t1("find_in_doc"), key="v_find", placeholder=t1("find_in_doc"), label_visibility="collapsed",
+                             icon=":material/search:", width="stretch").strip()
+        st.download_button(t1("orig_pdf"), lambda path=path: Path(path).read_bytes(), file_name=doc,
+                           mime="application/pdf", icon=":material/picture_as_pdf:", width="content", key="dl_pdf",
+                           help=t1("orig_pdf_help"))
     hits = viewer.search(path, mtime, find) if len(find) >= 2 else {}
-    s2.download_button(t1("orig_pdf"), Path(path).read_bytes(), file_name=doc, mime="application/pdf",
-                       icon=":material/picture_as_pdf:", width="stretch", key="dl_pdf", help=t1("orig_pdf_help"))
     if len(find) >= 2:
         if hits:
             pages = sorted(hits)
@@ -254,7 +253,7 @@ def finding_panel(s, sel, listed, base, mk, cid, doc, scope):
     else:
         st.caption(t("pick_finding"))
 
-    top = st.columns([3, 2.4], vertical_alignment="center")
+    top = st.columns([2, 3], vertical_alignment="center")
     top[0].markdown(f'<div class="ldv-label">{ui.esc(t1("k_findings"))} · {len(listed)}</div>', unsafe_allow_html=True)
     key = f"w_scope_{scope}"
     top[1].segmented_control(t1("scope"), ["doc", "all"], default=scope, key=key, label_visibility="collapsed",
@@ -290,13 +289,13 @@ def detail(s, f, mk, cid, order):
             x, y, z = st.columns(3, gap="small")
             i = order.index(f["no"]) if f["no"] in order else -1
             with x, st.container(key="fprev"):
-                st.button("", icon=":material/keyboard_arrow_up:", on_click=_step, args=(order, -1, s),
+                st.button(t1("prev_finding"), icon=":material/keyboard_arrow_up:", on_click=_step, args=(order, -1, s),
                           disabled=i == 0 or not order, help=t1("prev_finding"), width="stretch")
             with y, st.container(key="fnext"):
-                st.button("", icon=":material/keyboard_arrow_down:", on_click=_step, args=(order, 1, s),
+                st.button(t1("next_finding"), icon=":material/keyboard_arrow_down:", on_click=_step, args=(order, 1, s),
                           disabled=i == len(order) - 1 or not order, help=t1("next_finding"), width="stretch")
             with z, st.container(key="fclose"):
-                st.button("", icon=":material/close:", on_click=_close, help=t1("close_panel"), width="stretch")
+                st.button(t1("close_panel"), icon=":material/close:", on_click=_close, help=t1("close_panel"), width="stretch")
         st.markdown(f'<div style="font-weight:620;font-size:1rem;line-height:1.35;margin:.1rem 0 .4rem 0">'
                     f'{ui.esc(msg(f))}</div>', unsafe_allow_html=True)
 

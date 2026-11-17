@@ -14,7 +14,7 @@ from .rules import CONFIG, SEVERITY
 
 OPEN = ("open", "in_review", "waiting")
 DONE = ("fixed", "accepted", "not_error")
-COLOR = dict(ERROR="#d93025", WARNING="#e8710a", MINOR="#b08600", INFO="#1a73e8")
+COLOR = dict(ERROR="#d93025", WARNING="#e8710a", MINOR="#8a6700", INFO="#1a73e8")
 TINT = dict(ERROR="#fce8e6", WARNING="#feefe3", MINOR="#fef7e0", INFO="#e8f0fe", OK="#e6f4ea", GREY="#f1f3f4")
 
 TXT = {
