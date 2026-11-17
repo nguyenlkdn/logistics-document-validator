@@ -29,6 +29,7 @@ class Result:
     doc_files: dict = field(default_factory=dict)
     marks: dict = field(default_factory=dict)      # document name -> finding locations (preview highlights)
     fingerprint: str = ""          # hash of the PDF contents: same files -> same fingerprint (history)
+    kinds: dict = field(default_factory=dict)      # file name -> document type set by the user
 
 
 def report_root() -> Path:
@@ -58,25 +59,30 @@ def collect(inputs: list[Path], workdir: Path) -> list[Path]:
 
 
 def check(inputs: list[Path], name: str | None = None, out_root: Path | None = None,
-          with_evidence: bool = True, keep_workdir: bool = False) -> Result:
+          with_evidence: bool = True, keep_workdir: bool = False, kinds: dict | None = None) -> Result:
+    """kinds: {file name: CI|SC|BL|CO} for documents whose type the user corrected (default: automatic)."""
+    kinds = {k: v for k, v in (kinds or {}).items() if v}
     master.refresh()                               # the HS master Excel may have been edited since last time
     workdir = Path(tempfile.mkdtemp(prefix="ldv_"))
     pdfs = collect(inputs, workdir)
     fp = hashlib.sha1("".join(sorted(hashlib.sha1(p.read_bytes()).hexdigest() for p in pdfs
                                      if p.suffix.lower() == ".pdf")).encode()).hexdigest()
+    if kinds:                                      # a corrected document type gives a different result: new revision
+        fp = hashlib.sha1((fp + repr(sorted(kinds.items()))).encode()).hexdigest()
     docs, skipped = [], []
     for p in pdfs:
         if p.suffix.lower() != ".pdf":
             skipped.append(p)
             continue
-        d = load(p)
+        d = load(p, kinds.get(p.name))
         (docs if d else skipped).append(d or p)
     findings = validate(docs)
     if not name:
         ci = next((d for d in docs if d.kind == "CI" and d.f.get("invoice_no")), None)
         name = ci.f["invoice_no"].value if ci else (inputs[0].stem if inputs else "shipment")
     name = re.sub(r"[^\w\-. ]", "_", name).strip() or "shipment"
-    res = Result(name, docs, skipped, findings, unrecognised(docs, skipped), workdir=workdir, fingerprint=fp)
+    res = Result(name, docs, skipped, findings, unrecognised(docs, skipped), workdir=workdir, fingerprint=fp,
+                 kinds={k: v for k, v in kinds.items() if any(d.name == k for d in docs)})
 
     out = (out_root or report_root()) / f"{name}_{datetime.now():%Y%m%d-%H%M%S}"
     (out / "evidence").mkdir(parents=True, exist_ok=True)

@@ -34,6 +34,7 @@ def app_version() -> str:
 def build(res) -> dict:
     """Serialise a Result (call after the report folder is complete)."""
     import pymupdf
+    from .evidence import locations
     from .history import History
     out = Path(res.out_dir)
     rel = lambda p: str(Path(p).resolve().relative_to(out.resolve())).replace("\\", "/")
@@ -46,19 +47,19 @@ def build(res) -> dict:
         except Exception:
             pages = None
         docs.append(dict(
-            name=d.name, kind=d.kind, pages=pages, is_draft=d.is_draft,
+            name=d.name, kind=d.kind, kind_set_by_user=d.name in (res.kinds or {}), pages=pages, is_draft=d.is_draft,
             file=rel(copy) if copy else None,
             fields={k: dict(value=_plain(v), page=_page(v)) for k, v in d.f.items()},
             items=[{k: _plain(v) for k, v in it.items()} for it in d.items],
             pl_items=[{k: _plain(v) for k, v in it.items()} for it in d.pl_items]))
-    findings = []
+    findings, locs = [], locations(res.findings)
     for i, (f, sig) in enumerate(zip(res.findings, History.sigs(res.findings)), 1):
         findings.append(dict(
             no=i, sig=sig, key=f.key, severity=f.severity,
             doc=f.doc_names[0] if f.docs else "", doc_kind=f.docs[0].kind if f.docs else "",
             related=f.doc_names[1:], page=f.page, current=f.current, suggested=f.suggested,
             msg_en=f.text("en"), msg_vi=f.text("vi"), note_en=f.note("en"), note_vi=f.note("vi"),
-            evidence=[rel(p) for p in f.evidence]))
+            evidence=[rel(p) for p in f.evidence], locs=locs[i - 1]))
     return dict(schema=SCHEMA, name=res.name, shipment=History.shipment_of(res),
                 created=datetime.now().isoformat(timespec="seconds"), version=app_version(),
                 fingerprint=res.fingerprint, docs=docs, findings=findings,

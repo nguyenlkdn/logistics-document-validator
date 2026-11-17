@@ -13,7 +13,7 @@ within seconds and any discrepancy reachable in a few clicks. The engine (`engin
 | Output | report folder per check: `report.xlsx`, `report.md`, `evidence/`, `documents/` (copies of the PDFs) |
 | History | `history.db` (SQLite): checks, revisions per invoice no., findings, reviewer marks (open / fixed / not_error / waiting + note) keyed by a stable finding signature |
 | Reference data | HS master Excel → `master_hs.json` (+ import log), re-imported automatically when the Excel changes |
-| UI (before) | one 400-line `app.py`: sidebar holds language, page switch, severity filter, report path, HS import; main page holds upload, results, preview, findings |
+| UI (before Phase 1) | one 400-line `app.py`: sidebar holds language, page switch, severity filter, report path, HS import; main page holds upload, results, preview, findings |
 
 **Choice: stay on Streamlit and restructure it.** A React/Node frontend would need a build toolchain and a second
 server on a PC without admin rights, and would duplicate the Python engine's data model. Streamlit 1.67 provides
@@ -54,7 +54,8 @@ ui/i18n.py              T{key: (en, vi)}, t() / t1(), severity / kind / message 
 ui/state.py             open review (session dict), reviewer marks, counts, per-document rows,
                         filters kept outside widget keys (so the dashboard can set them), go(page)
 ui/components.py        CSS, chips, stepper, verdict, tiles (clickable numbers), bars, stats
-ui/views/*.py           one render() per page; they read state and engine results, never PDFs directly
+ui/viewer.py            page viewer: cached page images, overlay boxes, search, text layer, focus scroll, keys
+ui/views/*.py           one render() per page; they read state and engine results
 engine/session.py       review.json writer/loader (+ fallback for checks saved by ≤ 1.3 from history.db)
 ```
 
@@ -71,7 +72,7 @@ unrecognised items, highlight boxes per document. The extracted fields are alrea
 | Phase | Scope | Status |
 |---|---|---|
 | 1 UI foundation | layout + navigation, new review with inventory, dashboard, findings page with filters, history search + reopen, reference data with import preview, centralised strings, blue theme | **done** |
-| 2 Review workspace | three-pane: document list · page viewer (page nav, zoom, fit width) · finding panel (expected/actual, evidence, related doc). Clicking a finding jumps to its page and box; ↑/↓ moves between findings | next |
+| 2 Review workspace | three panes: document list · page viewer (page nav, fit width / fit page / 100–200 %, find in document, selectable text, original PDF download) · finding panel (found / expected, document, compared with, evidence links to the value and the reference value, what to check, status + note, snapshots). Clicking a finding opens its page and centres its box; ↑/↓ (or k/j) move between findings, Esc closes the panel. Document type can be corrected before analysis | **done** |
 | 3 Findings management | cross-document table of findings, bulk status change, statuses *In review* / *Accepted* (mapping onto existing marks), reviewer name + timestamp, comment history | |
 | 4 Cross-document comparison | field × document grid (invoice no., consignee, qty, G.W., N.W., CBM, cartons, vessel, POL/POD, dates, HS) from `review.json` fields; match / mismatch / missing / not applicable; click a cell → page | |
 | 5 Report center | preview, PDF + Excel + HTML export, EN / VI / both, include/exclude Info or resolved, automated vs reviewer sections, sign-off with explicit exception note for open errors | |
@@ -81,9 +82,10 @@ unrecognised items, highlight boxes per document. The extracted fields are alrea
 
 | Needed for | Missing | Plan |
 |---|---|---|
-| Correcting a document's type (Phase 2) | `extract.load()` always classifies by itself | `load(path, kind=None)` override + `check(..., kinds={file: kind})`; re-run analysis for that review |
-| Exact highlight for every finding (Phase 2) | boxes exist only for findings with a located "wrong" value; reference ("green") boxes are not stored for the full-page view | store all `locs` (role, page, bbox) in `review.json` |
-| Fast page viewer (Phase 2) | pages are rendered to PNG at 110 dpi for the whole document | render per page on demand, cache by (file, page, zoom) |
+| Correcting a document's type (Phase 2) | — | **done**: `load(path, kind)`, `check(..., kinds=)`; the choice is part of the fingerprint (new revision) and shown as ✎ |
+| Highlights for both sides of a finding (Phase 2) | — | **done**: every location (role, page, bbox) stored in `review.json` (`evidence.locations`). Many rules record only the value to check, so the reference box exists only where a rule locates it (4 of 20 boxes in a typical set); adding reference locations to more rules is engine work |
+| Fast page viewer (Phase 2) | — | **done**: one page rendered on demand, cached per (file, page, resolution); boxes, search hits and the text layer are HTML overlays |
+| Correcting a type after analysis | unrecognised PDFs are not copied into the report folder | copy every input file to `documents/`, then allow "change type and check again" from the workspace |
 | Statuses *In review* / *Accepted* (Phase 3) | `STATUSES` = open, fixed, not_error, waiting | add values; old marks keep their meaning |
 | Reviewer identity, comment history (Phase 3) | `marks` keeps only the last status + note | `mark_log` table (who, when, from → to, note); no login, so the name comes from Settings |
 | Comparison grid (Phase 4) | fields are not mapped to one vocabulary across CI/SC/BL/CO | field map in `config.json` (field → key per document kind, unit) |

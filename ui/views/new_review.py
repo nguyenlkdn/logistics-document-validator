@@ -89,14 +89,32 @@ def render():
     st.subheader(t("inventory"))
     mark = {"ok": "✅", "warn": "⚠️", "error": "⛔"}
     has_zip = any(r["inside"] for r in rows)
-    table = [{t1("col_file"): r["name"], **({t1("col_in"): r["inside"]} if has_zip else {}),
-              t1("col_type"): kind_label(r["kind"]) if r["kind"] else "—", t1("col_pages"): r["pages"],
-              t1("col_size"): ui.size_txt(r["size"]), t1("col_status"): f"{mark[r['level']]} {r['status']}"}
-             for r in rows]
-    st.dataframe(table, hide_index=True, width="stretch",
-                 column_config={t1("col_file"): st.column_config.TextColumn(width="large"),
-                                t1("col_status"): st.column_config.TextColumn(width="large")})
-    st.caption(t("inv_hint"))
+    none = "—"
+    labels = {kind_label(k): k for k in KINDS}
+    import pandas as pd
+    df = pd.DataFrame([{"file": r["name"], "in": r["inside"], "type": kind_label(r["kind"]) if r["kind"] else none,
+                        "pages": r["pages"], "size": ui.size_txt(r["size"]),
+                        "status": f"{mark[r['level']]} {r['status']}"} for r in rows])
+    sig = hashlib.sha1("|".join(f"{f.name}:{f.size}" for f in files).encode()).hexdigest()[:10]
+    edited = st.data_editor(
+        df, hide_index=True, width="stretch", key=f"inv_{sig}",
+        disabled=["file", "in", "pages", "size", "status"],
+        column_order=["file"] + (["in"] if has_zip else []) + ["type", "pages", "size", "status"],
+        column_config={"file": st.column_config.TextColumn(t1("col_file"), width="large"),
+                       "in": t1("col_in"),
+                       "type": st.column_config.SelectboxColumn(t1("col_type"), options=[none, *labels], required=True,
+                                                                help=t1("type_help")),
+                       "pages": t1("col_pages"), "size": t1("col_size"),
+                       "status": st.column_config.TextColumn(t1("col_status"), width="large")})
+    st.caption(t("inv_hint") + " " + t("type_hint"))
+    kinds = {}
+    for r, (_, e) in zip(rows, edited.iterrows()):
+        chosen = labels.get(e["type"])
+        if r["name"].lower().endswith(".pdf") and r["level"] != "error" and chosen and chosen != r["kind"]:
+            kinds[r["name"]] = chosen
+            r["kind"], r["level"] = chosen, "ok"
+    if kinds:
+        st.info(t("type_changed", files=", ".join(kinds)), icon=":material/edit:")
     found = {r["kind"] for r in rows if r["level"] == "ok"}
     for k in KINDS:
         if k not in found:
@@ -111,7 +129,7 @@ def render():
                 p.write_bytes(f.getvalue())
                 paths.append(p)
             zips = [f for f in files if f.name.lower().endswith(".zip")]
-            state.run_check(paths, name=Path(zips[0].name).stem if zips else None)
+            state.run_check(paths, name=Path(zips[0].name).stem if zips else None, kinds=kinds)
             st.session_state.pop("job_files", None)
             box.update(label=t("run_done"), state="complete")
         state.go("dashboard")

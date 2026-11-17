@@ -78,6 +78,39 @@ CSS = """
   div[class*="st-key-docbtn_"] button p {font-size: .84rem; margin: 0; line-height: 1.3; overflow-wrap: anywhere;
         text-align: left;}
   div.st-key-docnav {position: sticky; top: 3.8rem;}
+  div[class*="st-key-fbtn_"] button {width: 100%; justify-content: flex-start; text-align: left; padding: .3rem .55rem;
+        border: 1px solid transparent; background: transparent; min-height: 0;}
+  div[class*="st-key-fbtn_"] button:hover {background: #eef1f4;}
+  div[class*="st-key-fbtn_"] button[kind="primary"] {background: #e8f0fe; color: #174ea6; border-color: #d2e3fc;}
+  div[class*="st-key-fbtn_"] button > div, div[class*="st-key-fbtn_"] button [data-testid="stMarkdownContainer"]
+        {width: 100%; justify-content: flex-start; text-align: left;}
+  div[class*="st-key-fbtn_"] button p {font-size: .83rem; margin: 0; line-height: 1.3; text-align: left;}
+
+  div[class*="st-key-ev_"] button {justify-content: flex-start; text-align: left; padding-left: 0;}
+  div[class*="st-key-ev_"] button p {text-align: left; font-size: .84rem;}
+
+  /* page viewer */
+  .ldv-viewer {overflow: auto; background: #e8eaed; border: 1px solid #dadce0; border-radius: 6px; padding: 12px;}
+  .ldv-viewer:focus {outline: 2px solid #aecbfa;}
+  .ldv-page {position: relative; margin: 0 auto; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.2);
+             container-type: inline-size;}
+  .ldv-page img {width: 100%; display: block; user-select: none; -webkit-user-drag: none;}
+  .ldv-box {position: absolute; border: 2px solid; border-radius: 2px; pointer-events: none; z-index: 1;}
+  .ldv-box.ldv-ref {border-style: dashed;}
+  .ldv-box.ldv-focus {border-width: 3px; z-index: 3;}
+  .ldv-tag {position: absolute; bottom: 100%; left: -2px; color: #fff; font: 600 11px/15px sans-serif; padding: 0 4px;
+            border-radius: 2px 2px 0 0; white-space: nowrap;}
+  .ldv-hit {position: absolute; background: rgba(251,188,4,.42); pointer-events: none; z-index: 1;}
+  .ldv-text {position: absolute; inset: 0; z-index: 2; overflow: hidden; font-size: 1px; line-height: 0;}
+  .ldv-text span {position: absolute; color: transparent; white-space: pre; line-height: 1; cursor: text;
+                  font-family: Arial, sans-serif;}
+  .ldv-text span::selection {background: rgba(26,115,232,.32); color: transparent;}
+  .ldv-detail {border: 1px solid #e3e5e8; border-radius: 6px; padding: .7rem .85rem; background: #fff;}
+  .ldv-detail .t {font-weight: 620; font-size: .98rem; margin: .35rem 0 .5rem 0; line-height: 1.35;}
+  .ldv-kv {display: grid; grid-template-columns: auto 1fr; gap: .15rem .8rem; font-size: .86rem; margin: .2rem 0 .5rem 0;}
+  .ldv-kv .k {color: #5f6368;}
+  .ldv-kv code {font-size: .84rem;}
+  .ldv-val {font-family: ui-monospace, Consolas, monospace; font-size: .86rem; padding: 0 .3rem; border-radius: 3px;}
 </style>
 """
 

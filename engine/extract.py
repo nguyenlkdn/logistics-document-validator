@@ -342,11 +342,12 @@ def _co_item_details(block: list) -> dict:
 EXTRACTORS = dict(CI=_extract_ci, SC=_extract_sc, BL=_extract_bl, CO=_extract_co)
 
 
-def load(path: Path) -> Doc | None:
+def load(path: Path, kind: str | None = None) -> Doc | None:
+    """Read and extract one PDF. kind: type chosen by the user (overrides the automatic classification)."""
     pdf = pymupdf.open(path)
     lines = doc_lines(pdf)
     full = "\n".join(l.text for l in lines)
-    kind = classify(full)
+    kind = kind if kind in EXTRACTORS else classify(full)
     if not kind:
         return None
     raw_all = "\n".join(p.get_text() for p in pdf)   # includes rotated text, e.g. a diagonal DRAFT watermark

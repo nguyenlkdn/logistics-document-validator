@@ -102,6 +102,12 @@ class History:
                            " ts=excluded.ts", (shipment, sig, status, note, datetime.now().isoformat(timespec="seconds")))
 
     # ------------------------------------------------------------------ read
+    def marks(self, shipment: str) -> dict:
+        """Reviewer decisions of a shipment: sig -> {status, note, ts}."""
+        with closing(self._db()) as db:
+            rows = db.execute("SELECT sig, status, note, ts FROM marks WHERE shipment=?", (shipment,)).fetchall()
+            return {r["sig"]: dict(status=r["status"], note=r["note"] or "", ts=r["ts"]) for r in rows}
+
     def check(self, cid: int) -> dict | None:
         with closing(self._db()) as db:
             r = db.execute("SELECT * FROM checks WHERE id=?", (cid,)).fetchone()

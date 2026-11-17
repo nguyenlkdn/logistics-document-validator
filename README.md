@@ -27,7 +27,8 @@ ui/
   i18n.py              every UI string (EN / VI / both)
   state.py             open review, reviewer marks, filters, page switching
   components.py        styling, severity chips, workflow stepper, number tiles, bars
-  views/               dashboard · new_review · review (findings) · history · reference · settings
+  viewer.py            page viewer: page image + HTML boxes, search, selectable text (PDF is only read)
+  views/               dashboard · new_review · review (workspace) · history · reference · settings
 docs/REDESIGN.md       UI modernisation: assessment and phased plan
 tests/baseline/        test sets + expected.json (confidential, local only, not in git)
 tests/run_baseline.py  regression test

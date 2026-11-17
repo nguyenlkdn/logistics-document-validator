@@ -39,11 +39,13 @@ def open_check(cid: int) -> bool:
     s["revision"], s["check_ts"] = c["revision"], c["ts"]
     st.session_state["session"], st.session_state["check_id"] = s, cid
     reset_filters()
+    for k in ("f_doc", "f_sel", "f_scope", "v_page", "v_find", "v_focus_last"):
+        st.session_state.pop(k, None)
     return True
 
 
-def run_check(paths: list[Path], name: str | None = None) -> int:
-    res = check(paths, name=name)
+def run_check(paths: list[Path], name: str | None = None, kinds: dict | None = None) -> int:
+    res = check(paths, name=name, kinds=kinds)
     cid = HIST.record(res, VERSION)
     open_check(cid)
     return cid
@@ -51,10 +53,8 @@ def run_check(paths: list[Path], name: str | None = None) -> int:
 
 def marks() -> dict:
     """sig -> {status, note} for the open review (reviewer decisions, stored apart from the findings)."""
-    cid = check_id()
-    if not cid:
-        return {}
-    return {f["sig"]: dict(status=f["status"], note=f["note"]) for f in HIST.findings(cid)}
+    s = current()
+    return HIST.marks(s["shipment"]) if s else {}
 
 
 def set_mark(sig: str, status: str, note: str):
@@ -100,10 +100,12 @@ def reset_filters():
 def show_findings(sev=None, status=None, doc=None):
     """Open the findings page with these filters (used by the dashboard numbers and tables)."""
     reset_filters()
+    st.session_state["f_scope"] = "doc" if doc else "all"
+    st.session_state.pop("f_sel", None)
     if sev:
         st.session_state["f_sev"] = list(sev)
     if status:
         st.session_state["f_status"] = list(status)
     if doc:
-        st.session_state["f_doc"] = doc
+        st.session_state.update(f_doc=doc, v_page=1)
     go("review")

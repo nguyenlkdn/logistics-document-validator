@@ -51,6 +51,26 @@ def marks(findings) -> dict:
     return out
 
 
+def locations(findings) -> list[list[dict]]:
+    """Every located value of every finding: [{doc, page (0-based), bbox, role}] per finding, role = wrong | ref.
+    Unlike marks(), reference values (green) are kept too, so a viewer can show both sides of a comparison."""
+    out, pdfs = [], {}
+    for f in findings:
+        locs = []
+        for loc in f.locs:
+            pdf = pdfs.setdefault(loc.doc.path, pymupdf.open(loc.doc.path))
+            pno = _resolve_page(pdf, loc)
+            if pno is None:
+                continue
+            for r in _rects(pdf[pno], loc):
+                locs.append(dict(doc=loc.doc.name, page=pno, bbox=[round(r.x0, 1), round(r.y0, 1), round(r.x1, 1),
+                                                                   round(r.y1, 1)], role=loc.role))
+        out.append(locs)
+    for pdf in pdfs.values():
+        pdf.close()
+    return out
+
+
 def annotated_pages(path, page_marks, dpi: int = 110) -> list[bytes]:
     """PNG per page with a box in the severity colour and a "#n" tag on each marked value (in memory only)."""
     with pymupdf.open(path) as doc:
