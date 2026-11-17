@@ -28,7 +28,7 @@ ui/
   state.py             open review, reviewer marks, filters, page switching
   components.py        styling, severity chips, workflow stepper, number tiles, bars
   viewer.py            page viewer: page image + HTML boxes, search, selectable text (PDF is only read)
-  views/               dashboard · new_review · review (workspace) · history · reference · settings
+  views/               dashboard · new_review · review (workspace) · findings · history · reference · settings
 docs/REDESIGN.md       UI modernisation: assessment and phased plan
 tests/baseline/        test sets + expected.json (confidential, local only, not in git)
 tests/run_baseline.py  regression test
@@ -65,7 +65,8 @@ Tests use their own copy `tests/baseline/master_hs.xlsx` (ignored by git), never
 ## History
 Every check is saved in `history.db` (SQLite) in the report folder. A shipment = its invoice no.; a new check of the
 same invoice with changed files = next revision, compared with the previous one (fixed / still there / new).
-Each finding can be marked Open, Fixed, Not an error or Waiting for supplier, with a note. Marks carry over to later
+Each finding can be marked Open, In review, Waiting for supplier, Fixed, Accepted (no action) or Not an error, with a
+note; every change is logged in `mark_log` with the reviewer's name (Settings) and time. Marks carry over to later
 revisions. The *Review history* page lists, searches and filters all checks, reopens one (from its `review.json`,
 no re-analysis) and exports a feedback Excel.
 

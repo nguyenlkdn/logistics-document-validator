@@ -129,7 +129,7 @@ def render():
     _init("w_sev", "f_sev", list(SEVERITY))
     _init("w_status", "f_status", list(STATUSES))
     _init("w_q", "f_q", "")
-    f1, f2, f3 = st.columns([5, 5.5, 3], vertical_alignment="bottom")
+    f1, f2, f3 = st.columns([4.1, 7.2, 2.4], vertical_alignment="bottom")
     with f1:
         sev = st.pills(t("flt_sev"), SEVERITY, selection_mode="multi", key="w_sev",
                        format_func=lambda x: f"{ui.ICON[x]} {sev_short(x)}")
@@ -340,14 +340,28 @@ def detail(s, f, mk, cid, order):
                 state.set_mark(f["sig"], new_st, new_note)
                 st.toast(t1("saved_marks"))
                 st.rerun()
-            if mk.get("ts"):
-                st.caption(t1("decided_at", when=mk["ts"].replace("T", " ")))
+            trail = state.HIST.log(s["shipment"], f["sig"])
+            if trail:
+                with st.expander(f"{t1('activity')} ({len(trail)})"):
+                    activity(trail)
         crops = [p for p in f.get("evidence_paths", []) if Path(p).exists()]
         if crops:
             with st.expander(f"{t1('snapshots')} ({len(crops)})"):
                 st.caption(t("legend"))
                 for p in crops:
                     st.image(p, width="stretch")
+
+
+def activity(trail: list[dict]):
+    """Reviewer trail of one finding: when, who, status change, note."""
+    for e in trail:
+        who = f" · <b>{ui.esc(e['who'])}</b>" if e.get("who") else ""
+        change = (f"{ui.esc(status_label(e['old_status']))} → <b>{ui.esc(status_label(e['status']))}</b>"
+                  if e["old_status"] != e["status"] else t1("note_changed"))
+        line = f"<span style='color:#5f6368'>{e['ts'].replace('T', ' ')}</span>{who} · {change}"
+        if e.get("note"):
+            line += f"<br><span style='color:#3c4043'>“{ui.esc(e['note'])}”</span>"
+        st.markdown(f"<div style='font-size:.83rem;margin-bottom:.35rem'>{line}</div>", unsafe_allow_html=True)
 
 
 def revision_banner(cid):

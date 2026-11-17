@@ -9,9 +9,11 @@ from .i18n import sev_short, t1
 
 COLOR = dict(ERROR="#d93025", WARNING="#e8710a", MINOR="#c99700", INFO="#1a73e8", RESOLVED="#188038",
              WAITING="#8e6c00", MUTED="#5f6368")
-TINT = dict(ERROR="#fce8e6", WARNING="#feefe3", MINOR="#fef7e0", INFO="#e8f0fe", RESOLVED="#e6f4ea", MUTED="#f1f3f4")
+TINT = dict(ERROR="#fce8e6", WARNING="#feefe3", MINOR="#fef7e0", INFO="#e8f0fe", RESOLVED="#e6f4ea", MUTED="#f1f3f4",
+            WAITING="#fef7e0")
 ICON = dict(ERROR="🔴", WARNING="🟠", MINOR="🟡", INFO="🔵")
-STATUS_COLOR = dict(open="MUTED", waiting="WARNING", fixed="RESOLVED", not_error="MUTED")
+STATUS_COLOR = dict(open="MUTED", in_review="INFO", waiting="WAITING", fixed="RESOLVED", accepted="RESOLVED",
+                    not_error="MUTED")
 
 CSS = """
 <style>
@@ -147,9 +149,9 @@ def stepper(s: dict | None, c: dict | None = None):
     if not s:
         states, extra = ["now", "", "", "", ""], ["", "", "", "", ""]
     else:
-        handled = c["fixed"] + c["not_error"] if c else 0
+        handled = c["done"] if c else 0
         todo = c["actionable"] if c else 0
-        reviewed = c and (handled + c["waiting"]) > 0
+        reviewed = c and (handled + c["waiting"] + c["in_review"]) > 0
         resolved = todo == 0 or handled == todo
         states = ["done", "done", "done" if reviewed or todo == 0 else "now",
                   "done" if resolved else ("now" if reviewed else ""), "done" if s.get("excel_path") else ""]

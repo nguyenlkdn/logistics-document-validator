@@ -4,8 +4,11 @@
   checking the very same files again reuses the existing record.
 - A finding's identity (sig) = rule + document type + message + current value (+ -2, -3 for repeats), so the same problem is
   recognised again in the next revision. Status marks are stored per shipment + sig and therefore carry over.
-- Status: open (default) | fixed | not_error | waiting. A finding that disappears in a later revision is
-  shown as resolved automatically.
+- Status: open (default) | in_review | waiting | fixed | accepted | not_error. open, in_review and waiting still need
+  work; fixed (resolved), accepted (real but no action required) and not_error (false alarm) are done.
+  A finding that disappears in a later revision is shown as resolved automatically.
+- Every change of status or note is appended to mark_log (who, when, from -> to, note): the reviewer's trail.
+  The automated findings themselves are never changed.
 """
 import hashlib
 import json
@@ -15,7 +18,10 @@ from contextlib import closing
 from datetime import datetime
 from pathlib import Path
 
-STATUSES = ["open", "fixed", "not_error", "waiting"]
+STATUSES = ["open", "in_review", "waiting", "fixed", "accepted", "not_error"]
+OPEN = ("open", "in_review", "waiting")          # still needs work
+DONE = ("fixed", "accepted", "not_error")
+_OPEN_SQL = "('open','in_review','waiting')"
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS checks (
@@ -26,7 +32,10 @@ CREATE TABLE IF NOT EXISTS findings (
   doc TEXT, doc_kind TEXT, page INTEGER, current TEXT, suggested TEXT, msg_en TEXT, msg_vi TEXT);
 CREATE TABLE IF NOT EXISTS marks (
   shipment TEXT, sig TEXT, status TEXT, note TEXT, ts TEXT, PRIMARY KEY (shipment, sig));
+CREATE TABLE IF NOT EXISTS mark_log (
+  id INTEGER PRIMARY KEY, shipment TEXT, sig TEXT, ts TEXT, who TEXT, old_status TEXT, status TEXT, note TEXT);
 CREATE INDEX IF NOT EXISTS findings_check ON findings(check_id);
+CREATE INDEX IF NOT EXISTS mark_log_sig ON mark_log(shipment, sig);
 CREATE INDEX IF NOT EXISTS checks_shipment ON checks(shipment);
 """
 
@@ -91,15 +100,31 @@ class History:
                  for i, (f, sig) in enumerate(zip(res.findings, self.sigs(res.findings)), 1)])
             return cid
 
-    def set_mark(self, shipment: str, sig: str, status: str, note: str = ""):
+    def set_mark(self, shipment: str, sig: str, status: str, note: str = "", who: str = "") -> bool:
+        """Record a reviewer decision. Returns False if nothing changed. Every change goes to mark_log."""
         assert status in STATUSES
+        note = note or ""
+        now = datetime.now().isoformat(timespec="seconds")
         with closing(self._db()) as db, db:
+            old = db.execute("SELECT status, note FROM marks WHERE shipment=? AND sig=?", (shipment, sig)).fetchone()
+            old_st, old_note = (old["status"], old["note"] or "") if old else ("open", "")
+            if (old_st, old_note) == (status, note):
+                return False
             if status == "open" and not note:
                 db.execute("DELETE FROM marks WHERE shipment=? AND sig=?", (shipment, sig))
             else:
                 db.execute("INSERT INTO marks (shipment, sig, status, note, ts) VALUES (?,?,?,?,?)"
                            " ON CONFLICT(shipment, sig) DO UPDATE SET status=excluded.status, note=excluded.note,"
-                           " ts=excluded.ts", (shipment, sig, status, note, datetime.now().isoformat(timespec="seconds")))
+                           " ts=excluded.ts", (shipment, sig, status, note, now))
+            db.execute("INSERT INTO mark_log (shipment, sig, ts, who, old_status, status, note) VALUES (?,?,?,?,?,?,?)",
+                       (shipment, sig, now, who, old_st, status, note if note != old_note else None))
+            return True
+
+    def log(self, shipment: str, sig: str) -> list[dict]:
+        """The reviewer trail of one finding, newest first."""
+        with closing(self._db()) as db:
+            rows = db.execute("SELECT * FROM mark_log WHERE shipment=? AND sig=? ORDER BY id DESC", (shipment, sig))
+            return [dict(r) for r in rows.fetchall()]
 
     # ------------------------------------------------------------------ read
     def marks(self, shipment: str) -> dict:
@@ -118,7 +143,7 @@ class History:
         with closing(self._db()) as db:
             rows = db.execute(
                 "SELECT c.*, (SELECT COUNT(*) FROM findings f LEFT JOIN marks m ON m.shipment=c.shipment AND m.sig=f.sig"
-                "  WHERE f.check_id=c.id AND f.severity!='INFO' AND COALESCE(m.status,'open') IN ('open','waiting'))"
+                f"  WHERE f.check_id=c.id AND f.severity!='INFO' AND COALESCE(m.status,'open') IN {_OPEN_SQL})"
                 " AS n_open FROM checks c ORDER BY c.ts DESC LIMIT ?", (limit,)).fetchall()
             return [dict(r) for r in rows]
 
@@ -129,6 +154,21 @@ class History:
                 " JOIN checks c ON c.id=f.check_id LEFT JOIN marks m ON m.shipment=c.shipment AND m.sig=f.sig"
                 " WHERE f.check_id=? ORDER BY f.no", (cid,)).fetchall()
             return [dict(r) for r in rows]
+
+    def all_findings(self, latest_only: bool = True, check_id: int | None = None) -> list[dict]:
+        """Findings across reviews with check info and reviewer status. latest_only: newest revision of each shipment."""
+        where, args = [], []
+        if check_id:
+            where.append("c.id=?")
+            args.append(check_id)
+        elif latest_only:
+            where.append("c.revision=(SELECT MAX(revision) FROM checks c2 WHERE c2.shipment=c.shipment)")
+        sql = ("SELECT f.*, c.id AS check_id, c.ts, c.shipment, c.revision, c.out_dir, COALESCE(m.status,'open') AS status,"
+               " COALESCE(m.note,'') AS note, m.ts AS mark_ts FROM findings f JOIN checks c ON c.id=f.check_id"
+               " LEFT JOIN marks m ON m.shipment=c.shipment AND m.sig=f.sig"
+               + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY c.ts DESC, f.no")
+        with closing(self._db()) as db:
+            return [dict(r) for r in db.execute(sql, args).fetchall()]
 
     def compare(self, cid: int) -> dict | None:
         """Against the previous revision of the same shipment: resolved / still there / new findings."""

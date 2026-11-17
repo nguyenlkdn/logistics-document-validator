@@ -27,6 +27,8 @@ def render():
         ui.verdict(t("verdict_errors", n=c["open_error"]), "ERROR", small)
     elif c["open_warning"]:
         ui.verdict(t("verdict_warn", n=c["open_warning"]), "WARNING", small)
+    elif gaps:                                       # nothing open, but not everything could be checked
+        ui.verdict(t("verdict_gaps_only", n=len(gaps)), "WARNING")
     else:
         ui.verdict(t("verdict_ok"), "RESOLVED", small)
 
@@ -55,15 +57,14 @@ def render():
         ui.label(t1("k_progress"))
         cols = st.columns(3)
         with cols[0]:
-            if ui.tile("open", c["open"], t1("k_open"), "ERROR" if c["open_error"] else "MUTED", disabled=not c["open"]):
-                state.show_findings(status=["open"])
+            if ui.tile("open", c["todo"], t1("k_open"), "ERROR" if c["open_error"] else "MUTED", disabled=not c["todo"]):
+                state.show_findings(status=["open", "in_review"])
         with cols[1]:
             if ui.tile("waiting", c["waiting"], t1("k_waiting"), "WAITING", disabled=not c["waiting"]):
                 state.show_findings(status=["waiting"])
         with cols[2]:
-            done = c["fixed"] + c["not_error"]
-            if ui.tile("resolved", done, t1("k_resolved"), "RESOLVED", disabled=not done):
-                state.show_findings(status=["fixed", "not_error"])
+            if ui.tile("resolved", c["done"], t1("k_resolved"), "RESOLVED", disabled=not c["done"]):
+                state.show_findings(status=list(state.DONE))
     st.caption(t("click_hint"))
 
     # ---- distribution, progress, documents
@@ -74,10 +75,10 @@ def render():
         ui.bars([(sev_label(sev), c[sev], sev) for sev in SEVERITY], max([c[sev] for sev in SEVERITY] + [1]))
         st.write("")
         st.subheader(t("k_progress"))
-        done = c["fixed"] + c["not_error"]
-        st.caption(t("progress_txt", done=done, n=c["actionable"]))
-        ui.stack([(t1("st_fixed"), c["fixed"], "RESOLVED"), (t1("st_not_error"), c["not_error"], "MUTED"),
-                  (t1("st_waiting"), c["waiting"], "WAITING"), (t1("st_open"), c["open"], "ERROR")])
+        st.caption(t("progress_txt", done=c["done"], n=c["actionable"]))
+        ui.stack([(t1("st_fixed"), c["fixed"], "RESOLVED"), (t1("st_accepted"), c["accepted"], "RESOLVED"),
+                  (t1("st_not_error"), c["not_error"], "MUTED"), (t1("st_waiting"), c["waiting"], "WAITING"),
+                  (t1("st_in_review"), c["in_review"], "INFO"), (t1("st_open"), c["open"], "ERROR")])
     with r:
         st.subheader(t("docs_status"))
         st.caption(t("docs_click"))

@@ -3,16 +3,36 @@ from pathlib import Path
 
 import streamlit as st
 
-from engine import check, report_root, session
-from engine.history import History
+import json
+
+from engine import check, master, report_root, session
+from engine.history import DONE, OPEN, STATUSES, History
 from engine.rules import SEVERITY
 
 APP = Path(__file__).resolve().parent.parent
 VERSION = (APP / "VERSION").read_text(encoding="utf-8").strip() if (APP / "VERSION").exists() else "dev"
 HIST = History(report_root() / "history.db")
 PAGES: dict = {}                     # key -> st.Page, filled by app.py
-OPEN = ("open", "waiting")           # statuses that still need work
-DONE = ("fixed", "not_error")
+# ------------------------------------------------------------------ local UI settings (no login: the name is typed once)
+def _ui_file() -> Path:
+    return master.data_dir() / "ui_settings.json"
+
+
+def ui_settings() -> dict:
+    try:
+        return json.loads(_ui_file().read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+
+def save_ui_settings(**kw):
+    d = ui_settings() | kw
+    _ui_file().parent.mkdir(parents=True, exist_ok=True)
+    _ui_file().write_text(json.dumps(d, ensure_ascii=False, indent=1), encoding="utf-8")
+
+
+def reviewer() -> str:
+    return ui_settings().get("reviewer", "")
 
 
 def go(page: str):
@@ -57,9 +77,8 @@ def marks() -> dict:
     return HIST.marks(s["shipment"]) if s else {}
 
 
-def set_mark(sig: str, status: str, note: str):
-    s = current()
-    HIST.set_mark(s["shipment"], sig, status, note)
+def set_mark(sig: str, status: str, note: str, shipment: str | None = None) -> bool:
+    return HIST.set_mark(shipment or current()["shipment"], sig, status, note, who=reviewer())
 
 
 def counts(s: dict, mk: dict | None = None) -> dict:
@@ -69,8 +88,10 @@ def counts(s: dict, mk: dict | None = None) -> dict:
     c = {sev: sum(f["severity"] == sev for f in fs) for sev in SEVERITY}
     c["total"] = len(fs)
     actionable = [f for f in fs if f["severity"] != "INFO"]
-    for k in ("open", "waiting", "fixed", "not_error"):
+    for k in STATUSES:
         c[k] = sum(st_of(f) == k for f in actionable)
+    c["todo"] = sum(c[k] for k in ("open", "in_review"))
+    c["done"] = sum(c[k] for k in DONE)
     c["actionable"] = len(actionable)
     c["open_error"] = sum(f["severity"] == "ERROR" and st_of(f) in OPEN for f in fs)
     c["open_warning"] = sum(f["severity"] == "WARNING" and st_of(f) in OPEN for f in fs)
@@ -95,6 +116,20 @@ def reset_filters():
         st.session_state.pop(k, None)
     for k in [k for k in st.session_state if str(k).startswith("w_")]:
         del st.session_state[k]
+
+
+def open_finding(cid: int, no: int) -> bool:
+    """Open a review in the workspace with one finding selected (its document and page shown)."""
+    if not open_check(cid):
+        return False
+    s = current()
+    f = next((x for x in s["findings"] if x["no"] == no), None)
+    if f:
+        from .views.review import target
+        doc, page = target(s, f)
+        st.session_state.update(f_sel=no, f_doc=doc, v_page=page, f_scope="all")
+    go("review")
+    return True
 
 
 def show_findings(sev=None, status=None, doc=None):

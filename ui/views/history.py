@@ -111,7 +111,6 @@ def quick_edit(c):
     for f, (_, row) in zip(fs, edited.iterrows()):
         stt, nt = back[row["status"]], row["note"] or ""
         if (stt, nt) != (f["status"], f["note"]):
-            state.HIST.set_mark(c["shipment"], f["sig"], stt, nt)
-            changed += 1
+            changed += state.set_mark(f["sig"], stt, nt, shipment=c["shipment"])
     if changed:
         st.toast(t1("saved_marks"))

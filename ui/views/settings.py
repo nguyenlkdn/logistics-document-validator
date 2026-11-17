@@ -13,6 +13,13 @@ def render():
     st.subheader(t("lang"))
     st.segmented_control(t("lang"), list(LANGS), format_func=LANGS.get, key="lang_settings",
                          default=st.session_state.get("lang", "en"), on_change=_sync, label_visibility="collapsed")
+    st.subheader(t("set_name"))
+    name = st.text_input(t("set_name"), value=state.reviewer(), help=t1("set_name_help"), label_visibility="collapsed",
+                         max_chars=60)
+    st.caption(t("set_name_help"))
+    if name.strip() != state.reviewer():
+        state.save_ui_settings(reviewer=name.strip())
+        st.toast(t1("set_saved"))
     st.subheader(t("set_folders"))
     st.markdown(f"**{t1('set_reports')}:** `{report_root()}`")
     st.markdown(f"**{t1('set_data')}:** `{master.data_dir()}`")
