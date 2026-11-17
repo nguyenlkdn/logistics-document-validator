@@ -153,9 +153,12 @@ def stepper(s: dict | None, c: dict | None = None):
         todo = c["actionable"] if c else 0
         reviewed = c and (handled + c["waiting"] + c["in_review"]) > 0
         resolved = todo == 0 or handled == todo
+        from engine.review_report import history as made
+        n_rep = len(made(s))
         states = ["done", "done", "done" if reviewed or todo == 0 else "now",
-                  "done" if resolved else ("now" if reviewed else ""), "done" if s.get("excel_path") else ""]
-        extra = ["", "", "", f"{handled}/{todo}" if todo else "", "Excel" if s.get("excel_path") else ""]
+                  "done" if resolved else ("now" if reviewed else ""),
+                  "done" if n_rep else ("now" if resolved else "")]
+        extra = ["", "", "", f"{handled}/{todo}" if todo else "", str(n_rep) if n_rep else ""]
     keys = ["step_upload", "step_analyze", "step_review", "step_resolve", "step_report"]
     parts = []
     for i, (k, stt, ex) in enumerate(zip(keys, states, extra)):

@@ -64,10 +64,13 @@ def render():
     c = rows[sel[0]]
     st.subheader(f"{c['shipment']} — {t1('rev')} {c['revision']}")
     folder = Path(c["out_dir"]) if c.get("out_dir") else None
-    b1, b2, b3, _ = st.columns([2, 2, 2, 3])
+    b1, b4, b2, b3, _ = st.columns([2, 2, 2, 2, 1])
     if b1.button(t1("open_review"), type="primary", icon=":material/open_in_new:", width="stretch"):
         if state.open_check(c["id"]):
             state.go("dashboard")
+    if b4.button(t1("hist_report"), icon=":material/description:", width="stretch"):
+        if state.open_check(c["id"]):
+            state.go("report")
     xl = folder / "report.xlsx" if folder else None
     if xl and xl.exists():
         b2.download_button(t1("download"), xl.read_bytes(), file_name=f"{c['name']}_report.xlsx", width="stretch",

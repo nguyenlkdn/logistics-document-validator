@@ -22,6 +22,7 @@ STATUSES = ["open", "in_review", "waiting", "fixed", "accepted", "not_error"]
 OPEN = ("open", "in_review", "waiting")          # still needs work
 DONE = ("fixed", "accepted", "not_error")
 _OPEN_SQL = "('open','in_review','waiting')"
+SIGNOFF = ("approved", "approved_exception", "returned")   # reviewer conclusion per check
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS checks (
@@ -34,6 +35,9 @@ CREATE TABLE IF NOT EXISTS marks (
   shipment TEXT, sig TEXT, status TEXT, note TEXT, ts TEXT, PRIMARY KEY (shipment, sig));
 CREATE TABLE IF NOT EXISTS mark_log (
   id INTEGER PRIMARY KEY, shipment TEXT, sig TEXT, ts TEXT, who TEXT, old_status TEXT, status TEXT, note TEXT);
+CREATE TABLE IF NOT EXISTS signoff (
+  id INTEGER PRIMARY KEY, check_id INTEGER REFERENCES checks(id), ts TEXT, who TEXT, result TEXT, note TEXT,
+  open_errors INTEGER, open_warnings INTEGER);
 CREATE INDEX IF NOT EXISTS findings_check ON findings(check_id);
 CREATE INDEX IF NOT EXISTS mark_log_sig ON mark_log(shipment, sig);
 CREATE INDEX IF NOT EXISTS checks_shipment ON checks(shipment);
@@ -119,6 +123,33 @@ class History:
             db.execute("INSERT INTO mark_log (shipment, sig, ts, who, old_status, status, note) VALUES (?,?,?,?,?,?,?)",
                        (shipment, sig, now, who, old_st, status, note if note != old_note else None))
             return True
+
+    def sign(self, check_id: int, result: str, note: str = "", who: str = "") -> int:
+        """Record the reviewer's conclusion for one check (revision). A package can only be 'approved' when no error
+        is open; with open errors the reviewer must choose 'approved_exception' and write the reason."""
+        if result not in SIGNOFF:
+            raise ValueError(f"unknown sign-off result: {result}")
+        c = self.check(check_id)
+        if not c:
+            raise ValueError(f"no check {check_id}")
+        fs = self.findings(check_id)
+        errors = sum(f["severity"] == "ERROR" and f["status"] in OPEN for f in fs)
+        warnings = sum(f["severity"] == "WARNING" and f["status"] in OPEN for f in fs)
+        if result == "approved" and errors:
+            raise ValueError(f"{errors} error(s) still open: record an exception with a reason instead")
+        if result in ("approved_exception", "returned") and not (note or "").strip():
+            raise ValueError("a reason is required")
+        with closing(self._db()) as db, db:
+            cur = db.execute("INSERT INTO signoff (check_id, ts, who, result, note, open_errors, open_warnings)"
+                             " VALUES (?,?,?,?,?,?,?)", (check_id, datetime.now().isoformat(timespec="seconds"), who,
+                                                          result, (note or "").strip(), errors, warnings))
+            return cur.lastrowid
+
+    def signoffs(self, check_id: int) -> list[dict]:
+        """Sign-offs of a check, newest first (earlier ones are kept: the trail is never rewritten)."""
+        with closing(self._db()) as db:
+            rows = db.execute("SELECT * FROM signoff WHERE check_id=? ORDER BY id DESC", (check_id,)).fetchall()
+            return [dict(r) for r in rows]
 
     def log(self, shipment: str, sig: str) -> list[dict]:
         """The reviewer trail of one finding, newest first."""
