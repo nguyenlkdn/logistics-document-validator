@@ -279,12 +279,6 @@
       "en": "Form D item {no}: HS {hs} is not under B/L HS {hs_bl}",
       "vi": "C/O mục {no}: mã HS {hs} không thuộc nhóm HS {hs_bl} trên B/L"
     },
-    "CO_FOB_VALUE": {
-      "en": "Form D box 9 shows quantity only; FOB value is given only as a grand total",
-      "vi": "Ô 9 của C/O chỉ ghi số lượng; trị giá FOB chỉ ghi tổng",
-      "note_en": "Some VN customs officers require FOB value per item when RVC criterion is used",
-      "note_vi": "Một số cán bộ hải quan VN yêu cầu trị giá FOB từng mục khi áp dụng tiêu chí RVC"
-    },
     "PORT_NAME": {
       "en": "Port of discharge not in standard form",
       "vi": "Tên cảng dỡ hàng chưa theo chuẩn"

@@ -280,9 +280,8 @@ def r_co(ci, co, bl, out):
         if a and bv is not None and not _close(a.value, bv):
             out.append(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label=f"@{k}"), a.raw, f"{bv:,.2f}".rstrip("0").rstrip("."),
                                at(co, a) + at(ci, b, "ref")))
-    if len(co.items) > 1:                         # one item → the grand total already is the item value
-        out.append(Finding("CO_FOB_VALUE", "INFO", [co], {}, "", "",
-                           [x for it in co.items for x in at(co, it["qty"])]))
+    # Box 9 showing quantity (SET / PCS) instead of a per-item FOB value is normal practice, not a finding:
+    # only the values themselves are checked (CO_QTY per item, CO_TOTAL for the totals).
 
 
 def r_hs(ci, co, bl, out):
