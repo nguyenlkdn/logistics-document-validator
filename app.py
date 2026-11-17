@@ -52,6 +52,11 @@ T = {
     "total": ("Total", "Tổng"),
     "file_filter": ("Show file", "Hiển thị file"),
     "all_files": ("All files", "Tất cả file"),
+    "click_file": ("Click a file to show only its findings and preview the document. Click it again to show all files.",
+                   "Bấm vào một file để xem lỗi của file đó và xem trước chứng từ. Bấm lại để xem tất cả."),
+    "preview": ("Document preview", "Xem trước chứng từ"),
+    "pages": ("pages", "trang"),
+    "showing": ("Showing findings of", "Đang hiển thị lỗi của"),
     "version": ("Version", "Phiên bản"),
     "from_menu": ("Checked from right-click menu", "Kiểm tra từ menu chuột phải"),
     "nav": ("Page", "Trang"),
@@ -103,6 +108,14 @@ with st.sidebar:
     show = st.multiselect(t("filter"), SEVERITY, default=SEVERITY, format_func=lambda s: f"{ICON[s]} {sev_label(s)}")
     st.caption(f"{t('saved')}:\n\n`{report_root()}`")
     st.caption(f"{t('version')} {VERSION}")
+
+@st.cache_data(show_spinner=False, max_entries=20)
+def page_images(path: str, mtime: float) -> list[bytes]:
+    """PNG of every page of a PDF (cached per file version)."""
+    import pymupdf
+    with pymupdf.open(path) as doc:
+        return [pg.get_pixmap(dpi=110).tobytes("png") for pg in doc]
+
 
 def status_label(k):
     return t(f"st_{k}")
@@ -237,9 +250,18 @@ if res:
         c.metric(f"{ICON[s]} {sev_label(s)}", sum(f.severity == s for f in res.findings))
 
     st.markdown(f"**{t('by_file')}**")
+    st.caption(t("click_file"))
     rows = per_file(res)
-    st.dataframe([{t("file_col"): r["file"], **{f"{ICON[s]} {sev_label(s)}": r[s] for s in SEVERITY},
-                   t("total"): r["total"]} for r in rows], hide_index=True, width="stretch")
+    ev = st.dataframe([{t("file_col"): r["file"], **{f"{ICON[s]} {sev_label(s)}": r[s] for s in SEVERITY},
+                        t("total"): r["total"]} for r in rows], hide_index=True, width="stretch",
+                      on_select="rerun", selection_mode="single-row", key=f"pf_{st.session_state.get('check_id')}")
+    picked = rows[ev.selection.rows[0]]["file"] if ev and ev.selection and ev.selection.rows else None
+    if picked and res.doc_files.get(picked) and Path(res.doc_files[picked]).exists():
+        pdf = Path(res.doc_files[picked])
+        imgs = page_images(str(pdf), pdf.stat().st_mtime)
+        with st.expander(f"📄 {t('preview')}: {picked} ({len(imgs)} {t('pages') if len(imgs) > 1 else t('page')})", expanded=True):
+            for n, png in enumerate(imgs, 1):
+                st.image(png, caption=f"{t('page')} {n}", width="stretch")
 
     c1, c2, _ = st.columns([2, 2, 3])
     c1.download_button(f"⬇️ {t('download')}", res.excel.read_bytes(), file_name=f"{res.name}_report.xlsx",
@@ -257,10 +279,9 @@ if res:
     marks = {f["sig"]: f for f in HIST.findings(cid)} if cid else {}
     ship = History.shipment_of(res)
     sigs = History.sigs(res.findings)
-    names = [r["file"] for r in rows]
-    pick = st.selectbox(t("file_filter"), [None] + names,
-                        format_func=lambda n: t("all_files") if n is None else
-                        f"{n}  ({next(r['total'] for r in rows if r['file'] == n)})")
+    pick = picked
+    if pick:
+        st.info(f"{t('showing')}: **{pick}**")
     shown = [(i, f) for i, f in enumerate(res.findings, 1)
              if f.severity in show and (pick is None or f.doc_names[0] == pick)]
     if not res.findings:
