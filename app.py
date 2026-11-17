@@ -83,7 +83,7 @@ VERSION = _vf.read_text(encoding="utf-8").strip() if _vf.exists() else "dev"
 HIST = History(report_root() / "history.db")
 
 with st.sidebar:
-    lang_choice = st.radio(T["lang"][0], ["English", "Tiếng Việt", "Both / Cả hai"], index=2)
+    lang_choice = st.radio(T["lang"][0], ["English", "Tiếng Việt", "Both / Cả hai"], index=0)
     langs = {"English": ["en"], "Tiếng Việt": ["vi"]}.get(lang_choice, ["en", "vi"])
     L = 0 if langs[0] == "en" else 1
 
