@@ -3,6 +3,7 @@
 Run:  Start.bat   (or: python -m streamlit run app.py)
 """
 import json
+from datetime import datetime
 import os
 import re
 import subprocess
@@ -160,6 +161,24 @@ def page_images(path: str, mtime: float, marks: tuple) -> list[bytes]:
     return annotated_pages(path, marks)
 
 
+def scroll_to_preview():
+    """Scroll the page so the document preview starts right under the pinned 'Findings by file' table."""
+    import streamlit.components.v1 as components
+    components.html(f"""<script>/* {datetime.now().timestamp()} */
+    const doc = window.parent.document;
+    function go(tries) {{
+      const el = doc.querySelector('div.st-key-pf_preview');
+      const main = doc.querySelector('[data-testid="stMain"]');
+      const pin = doc.querySelector('div.st-key-pf_sticky');
+      if (!el || !main || el.getBoundingClientRect().height < 50) {{ if (tries < 50) setTimeout(() => go(tries + 1), 100); return; }}
+      const pinH = pin ? pin.parentElement.getBoundingClientRect().height : 0;
+      const y = el.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop - (60 + pinH + 8);
+      main.scrollTo({{top: Math.max(0, y), behavior: 'smooth'}});
+    }}
+    go(0);
+    </script>""", height=0)
+
+
 def status_label(k):
     return t(f"st_{k}")
 
@@ -311,10 +330,15 @@ if res:
         pdf = Path(res.doc_files[picked])
         mk = tuple(m for m in res.marks.get(picked, []) if m[5] in show)
         imgs = page_images(str(pdf), pdf.stat().st_mtime, mk)
-        with st.expander(f"📄 {t('preview')}: {picked} ({len(imgs)} {t('pages') if len(imgs) > 1 else t('page')})", expanded=True):
-            st.caption(t("boxes"))
-            for n, png in enumerate(imgs, 1):
-                st.image(png, caption=f"{t('page')} {n}", width="stretch")
+        with st.container(key="pf_preview"):
+            with st.expander(f"📄 {t('preview')}: {picked} ({len(imgs)} {t('pages') if len(imgs) > 1 else t('page')})", expanded=True):
+                st.caption(t("boxes"))
+                for n, png in enumerate(imgs, 1):
+                    st.image(png, caption=f"{t('page')} {n}", width="stretch")
+    if picked != st.session_state.get("pf_last"):        # a file was (re)picked: bring its preview to the top
+        st.session_state["pf_last"] = picked
+        if picked:
+            scroll_to_preview()
 
     c1, c2, _ = st.columns([2, 2, 3])
     c1.download_button(f"⬇️ {t('download')}", res.excel.read_bytes(), file_name=f"{res.name}_report.xlsx",
