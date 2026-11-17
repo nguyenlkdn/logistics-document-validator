@@ -54,6 +54,32 @@ def _ttl_ci(l, m=None) -> dict:
     return out
 
 
+_BRAND = r'("?[A-Z][A-Z0-9&.\-]*"?\s+BRAND)\s+$'
+_LEGAL = r"(?:CO\.?,?\s*LTD\.?|COMPANY\s+LIMITED|LIMITED|INC\.?|CORP(?:ORATION)?\.?|PTE\.?\s*LTD\.?)"
+
+
+def _goods_full(L, g: Field | None) -> Field | None:
+    """Full goods description: the brand written before the product name ('"ACME" BRAND WASHING MACHINE'),
+    on the same line or at the end of the line above."""
+    if not g or not g.value:
+        return None
+    before = g.line.text[:g.start]
+    m = re.search(_BRAND, before)
+    if not m and not before.strip() and g.line in L:
+        i = L.index(g.line)
+        prev = L[i - 1].text if i else ""
+        m2 = re.search(r'("?[A-Z][A-Z0-9&.\-]*"?)\s*$', prev)
+        if re.match(r"\s*BRAND\b", g.line.text[:g.start] + g.line.text[g.start:]) and m2:
+            return Field(f"{m2[1]} {g.line.text[g.start:g.end].strip()} ".strip(), g.raw, g.line, g.start, g.end)
+    if not m:
+        m = re.search(r'("?[A-Z][A-Z0-9&.\-]*"?)\s*$', before) if re.search(r"\bBRAND\s*$", before) else None
+    if not m:
+        return Field(g.value, g.raw, g.line, g.start, g.end)
+    start = m.start(1)
+    full = re.sub(r"\s+", " ", f"{g.line.text[start:g.start].strip()} {g.value}")
+    return Field(full, g.line.text[start:g.end], g.line, start, g.end)
+
+
 def _cur_field(d: Doc):
     cs = d.lists.get("currency", [])
     if cs:
@@ -61,10 +87,32 @@ def _cur_field(d: Doc):
         d.f["currency"] = Field(", ".join(codes), cs[0].raw, cs[0].line, cs[0].start, cs[0].end)
 
 
-def extra_ci(d: Doc):
+PL_HEADER = ("consignee", "shipper", "vessel", "pol", "pod", "sailing", "payment", "origin", "goods_full", "pos",
+             "containers", "incoterm", "freight")
+
+
+def _pl_header(d: Doc, pl: list):
+    """The packing list repeats the invoice header: read it on its own, as pl_<field> (rule PL_HEADER, cross-check)."""
+    from .extract import _extract_ci
+    sub = Doc(d.path, "CI", pl, d.page_width, d.is_draft)
+    _extract_ci(sub)
+    extra_ci(sub, header_only=True)
+    for k in PL_HEADER:
+        if sub.f.get(k) and sub.f[k].value not in (None, "", []):
+            d.f["pl_" + k] = sub.f[k]
+    if sub.f.get("absent"):
+        a = [x for x in sub.f["absent"].value.split(", ") if x in PL_HEADER]
+        if a:
+            prev = d.f["absent"].value.split(", ") if d.f.get("absent") else []
+            d.f["absent"] = Field(", ".join(prev + ["pl_" + x for x in a]), "", d.lines[0], 0, 0)
+
+
+def extra_ci(d: Doc, header_only: bool = False):
     L = d.lines
     pl_start = next((i for i, l in enumerate(L) if "PACKING LIST" in l.text.upper()), len(L))
     inv, pl = L[:pl_start], L[pl_start:]
+    if header_only:                                # the packing-list part on its own: its header is all of it
+        inv = L
     # every TTL line: the cover page repeats the attachment's totals
     d.lists["ci_ttls"] = [x for _, l, _m in _search(inv, r"^\s*(?:TTL|TOTAL)\b") for x in [_ttl_ci(l)] if x]
     ttls = []
@@ -119,8 +167,37 @@ def extra_ci(d: Doc):
                 marks.append(F(l, m, 1))
     d.lists["marks_models"] = marks
     # header of every page: invoice no. and date (the invoice and the packing list repeat it)
+    # seller / shipper: the company line signing the invoice (last company name that is not the buyer)
+    buyer = re.sub(r"[^A-Z]", "", (d.f["consignee"].value if d.f.get("consignee") else "").upper())[:12]
+    sig = [(l, m) for _, l, m in _search(inv, r"^\s*([A-Z][A-Za-z0-9&().,'\- ]*?" + _LEGAL + r")\s*$")
+           if not buyer or not re.sub(r"[^A-Z]", "", m[1].upper()).startswith(buyer)]
+    if sig:
+        l, m = sig[-1]
+        d.f["shipper"] = F(l, m, 1)
+    d.f["goods_full"] = _goods_full(inv or L, d.f.get("goods"))
+    fob = d.lists.get("fob") or []
+    if fob:
+        d.f["incoterm"] = Field("FOB " + fob[0].value.upper(), fob[0].raw, fob[0].line, fob[0].start, fob[0].end)
+    # fields this invoice layout does not print at all (no label anywhere): "not on this document", not "not read"
+    whole = "\n".join(l.text for l in L)
+    if not d.f.get("origin"):                      # origin only in the shipping marks: 'MADE IN THAILAND'
+        d.f["origin"] = _first(inv or L, r"\bMADE IN\s+([A-Z][A-Z ]*?[A-Z])\s*(?:\s{2,}|$)", flags=0)
+    d.f["freight"] = _first(inv or L, r"\bFREIGHT\s+(COLLECT|PREPAID)\b")
+    absent = [k for k, rx in (("vessel", r"SHIPPED BY|VESSEL|\bVOY|\bPER\s+S\.?S\.?\b|\bM/?V\b"),
+                              ("containers", r"CONTAINER|\bCNTR|\b\d+\s*X\s*\d{2}\s*'?\s*(?:HC|GP|DC|HQ)\b"),
+                              ("incoterm", r"\b(?:FOB|FCA|EXW|CFR|CIF|CPT|CIP|DAP|DPU|DDP|INCOTERMS?)\b"),
+                              ("freight", r"\bFREIGHT\b"),
+                              ("origin", r"\bORIGIN\b|MADE IN"))
+              if not d.f.get(k) and not re.search(rx, whole, re.I)]
+    if not d.f.get("total_qty") and not any(re.search(r"[\d,]+\s*(?:SET\(S\)|SETS?|PCS|PIECES?|UNITS?)\b", l.text, re.I)
+                                            for _, l, _m in _search(inv, r"^\s*(?:TTL|TOTAL)\b")):
+        absent.append("total_qty")                   # the invoice part has no quantity total, only line quantities
+    if absent:
+        d.f["absent"] = Field(", ".join(absent), "", L[0], 0, 0)
     d.lists["headers"] = [dict(no=F(l, m, 1), date=F(l, m, 2, parse_date(m[2])))
                           for _, l, m in _search(L, r"INVOICE NO\.?\s*([A-Z0-9]{8,})\s+DATE\s*:\s*(\d{1,2}/\d{1,2}/\d{4})")]
+    if not header_only and 0 < pl_start < len(L):
+        _pl_header(d, pl)
 
 
 def extra_sc(d: Doc):
@@ -128,6 +205,18 @@ def extra_sc(d: Doc):
     d.f["seller"] = _first(L, r"The Seller\s*:\s*(.+?)\s*$")
     d.f["buyer"] = _first(L, r"The Buyer\s*:\s*(.+?)\s*$")
     d.f["origin"] = _first(L, r"COUNTRY OF ORIGIN\s+([A-Za-z][A-Za-z ]*?)\s*$")
+    for i, l, _m in _search(L, r"^\s*NO\.?\s+DESCRIPTION\b"):            # goods heading under the table header
+        for nl in L[i + 1:i + 3]:
+            seg = re.split(r"\s{2,}", nl.text.strip())[0]           # 'ACME WASHING MACHINES   FOB PORT A'
+            if re.fullmatch(r'[A-Z"][A-Z0-9" &/\-]*[A-Z]', seg) and not re.match(r"\s*\d", nl.text):
+                k = nl.text.find(seg)
+                d.f["goods_full"] = Field(seg, seg, nl, k, k + len(seg))
+                break
+        break
+    fob = d.lists.get("fob") or []
+    if fob:
+        d.f["incoterm"] = Field("FOB " + fob[0].value.upper(), fob[0].raw, fob[0].line, fob[0].start, fob[0].end)
+        d.f["fob_port"] = fob[0]                   # a contract names its loading port only in the Incoterm
     d.lists["currency"] = [c for c in _money_cur(L) if not re.search(r"A/C No", c.line.text, re.I)]   # bank account line
     _cur_field(d)
 
@@ -145,6 +234,28 @@ def extra_bl(d: Doc):
     pod_l = d.f.get("pod").line if d.f.get("pod") else None
     m = re.search(r"^[A-Z ]+,\s*([A-Z][A-Z ]+?)(?:\s{2,}|$)", pod_l.text) if pod_l else None
     d.f["dest_country"] = F(pod_l, m, 1) if m else None
+    d.f["goods_full"] = _goods_full(L, d.f.get("goods"))
+    d.f["freight"] = _first(L, r"\bFREIGHT\s+(COLLECT|PREPAID)\b")
+    d.f["origin"] = _first(L, r"\bMADE IN\s+([A-Z][A-Z ]*?[A-Z])\s*(?:\s{2,}|$)", flags=0)    # in the shipping marks
+    whole = "\n".join(l.text for l in L)
+    absent = [k for k, rx in (("origin", r"MADE IN|\bORIGIN\b"), ("freight", r"\bFREIGHT\s+(?:COLLECT|PREPAID)"))
+              if not d.f.get(k) and not re.search(rx, whole, re.I)]
+    if absent:                                     # not printed on this B/L: "not on this document", not "not read"
+        d.f["absent"] = Field(", ".join(absent), "", L[0], 0, 0)
+    if not d.f.get("bl_qty"):                      # quantity per invoice, one line each: add them up
+        rows = list(_search(L, r"^\s*[\d,]+\s*CARTON\(?S?\)?\s+([\d,]+)\s*(PCS|PIECES?|SETS?|UNITS?)\s*$", 0))
+        if rows:
+            d.lists["bl_qty_rows"] = [F(l, m, 1, num(m[1])) for _, l, m in rows]
+            total = sum(f.value for f in d.lists["bl_qty_rows"])
+            _, l, m = rows[0]
+            if len(rows) == 1:
+                d.f["bl_qty"] = F(l, m, 1, total)
+            else:                                  # one field over all the quantities: the evidence box covers them
+                from .pdftext import Line
+                spans = [sp for f in d.lists["bl_qty_rows"] if f.page == l.page for sp in f.line.spans_for(f.start, f.end)]
+                both = Line(l.page, l.y, spans)
+                d.f["bl_qty"] = Field(total, f"{total:,.0f}", both, 0, len(both.text))
+            d.f["bl_unit"] = F(l, m, 2)
     # every invoice the B/L covers: one B/L can carry several invoices, one 'INVOICE NO.' line each
     d.lists["invoice_nos"] = [F(l, m, 1) for _, l, m in _search(L, r"INVOICE NO\.?\s*([A-Z0-9]{8,})")]
     if len(d.lists["invoice_nos"]) > 1:            # cross-check shows them all

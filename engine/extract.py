@@ -337,6 +337,10 @@ def _co_item_details(block: list) -> dict:
     m = re.search(r"\bBRAND\s+(.+?)\s*(?:\(\s*1\s*CARTON|MODEL\s*:|$)", col)
     if m:
         goods = m[1].strip()
+        pk = re.search(r"\s(?:(?:" + "|".join(sorted(NUMBER_WORDS)) + r")[\- ]?)+\s*\([\d,]+\)\s*(?:CARTON|CASE|PALLET|PACKAGE|BOX)",
+                       " " + goods)
+        if pk:                                # the package count of box 7 follows the name in the column text
+            goods = goods[:max(pk.start() - 1, 0)].strip() or goods
         loc = None
         for x in block:                       # box the line holding the end of the goods name
             tail = goods.split()[-1]
@@ -345,6 +349,10 @@ def _co_item_details(block: list) -> dict:
                 ln = len(goods) if goods in x.text else len(tail)
                 loc = Field(goods, x.text[k:k + ln], x, k, k + ln)
         out["goods"] = loc or Field(goods, goods, head, 0, 0)
+        # full description with the brand: '... CARTON(S) OF "ACME" BRAND ELECTRIC KETTLE' (any line wrapping)
+        b = re.search(r'("?[A-Z][A-Z0-9&.\-]*"?)\s+BRAND\s+' + re.escape(goods), col)
+        full = f"{b[1]} BRAND {goods}" if b else goods
+        out["goods_full"] = Field(full, out["goods"].raw, out["goods"].line, out["goods"].start, out["goods"].end)
     return out
 
 

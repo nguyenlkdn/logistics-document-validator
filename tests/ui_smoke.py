@@ -166,7 +166,10 @@ def run(p, url, zip_path, shots):
 
     def crosscheck():
         nav("Cross-check")
-        assert p.locator("[data-testid=stDataFrame]").count() >= 1, "no comparison table"
+        assert p.locator("table.ldv-xc tbody tr").count() >= 5, "no comparison table"
+        p.locator("[data-testid=stExpander] summary", has_text="Where does a value come from?").click()
+        wait(1.5)
+        assert p.get_by_role("button", name="Open this page").count() >= 1, "no source of the selected value"
         shot("04_crosscheck")
     step("cross-check table", crosscheck, p)
 

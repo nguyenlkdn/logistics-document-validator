@@ -689,7 +689,7 @@ def validate(docs: list[Doc]) -> list[Finding]:
     return out
 
 
-_SHARED_TOTALS = ("BL_VS_PL", "INVOICE_REF", "CONTAINERS")   # B/L figures that cover all invoices of the package
+_SHARED_TOTALS = ("BL_VS_PL", "BL_QTY", "INVOICE_REF", "CONTAINERS")   # B/L figures that cover all invoices of the package
 
 
 def _pair_score(d: Doc, ci: Doc) -> int:
@@ -749,6 +749,12 @@ def _validate_multi(docs: list[Doc], cis: list[Doc]) -> list[Finding]:
             if not _close(b.value, total, 0.0005):
                 out.append(Finding("BL_VS_PL", "ERROR", [bl] + cis, dict(label=f"@{k}"), b.raw, fmt_like(total, b.raw),
                                    at(bl, b) + [l for c, p in zip(cis, ps) for l in at(c, p, "ref")]))
+        q, ps = bl.f.get("bl_qty"), [c.f.get("total_qty") or c.f.get("pl_total_qty") for c in cis]
+        if q and all(ps):
+            total = sum(p.value for p in ps)
+            if not _close(q.value, total):
+                out.append(Finding("BL_QTY", "ERROR", [bl] + cis, {}, q.raw, fmt_like(total, q.raw),
+                                   at(bl, q) + [l for c, p in zip(cis, ps) for l in at(c, p, "ref")]))
     return out
 
 
@@ -763,7 +769,7 @@ def _bl_invoices(docs: list[Doc], cis: list[Doc], out: list):
         for n in extra:
             out.append(Finding("BL_INVOICE_EXTRA", "WARNING", [bl], dict(inv=n), n, "", at(bl, listed[n])))
         if extra:                                         # its weights / CBM / cartons include the missing invoice
-            out[:] = [f for f in out if not (f.key == "BL_VS_PL" and f.docs[0] is bl)]
+            out[:] = [f for f in out if not (f.key in ("BL_VS_PL", "BL_QTY") and f.docs[0] is bl)]
         if len(cis) > 1:
             for n, c in inv.items():
                 if n not in listed:

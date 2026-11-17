@@ -186,6 +186,46 @@
     "shipper": {
       "en": "Shipper / exporter",
       "vi": "Người gửi hàng / xuất khẩu"
+    },
+    "vessel": {
+      "en": "vessel / voyage",
+      "vi": "tàu / chuyến"
+    },
+    "pol": {
+      "en": "port of loading",
+      "vi": "cảng xếp hàng"
+    },
+    "pod": {
+      "en": "port of discharge",
+      "vi": "cảng dỡ hàng"
+    },
+    "sailing": {
+      "en": "sailing date",
+      "vi": "ngày tàu chạy"
+    },
+    "payment": {
+      "en": "payment terms",
+      "vi": "điều kiện thanh toán"
+    },
+    "origin": {
+      "en": "country of origin",
+      "vi": "xuất xứ"
+    },
+    "goods": {
+      "en": "goods description",
+      "vi": "mô tả hàng hóa"
+    },
+    "containers": {
+      "en": "number of containers",
+      "vi": "số container"
+    },
+    "incoterm": {
+      "en": "Incoterm",
+      "vi": "điều kiện giao hàng"
+    },
+    "freight": {
+      "en": "freight term",
+      "vi": "điều kiện cước"
     }
   },
   "messages": {
@@ -487,6 +527,24 @@
       "en": "ETA is before the sailing date",
       "vi": "Ngày dự kiến đến (ETA) trước ngày tàu chạy"
     },
+    "SC_GOODS_DESC": {
+      "en": "Goods on the Sales Contract ≠ invoice",
+      "vi": "Mô tả hàng hóa trên Hợp đồng ≠ hóa đơn",
+      "note_en": "Brand, quote marks and plural are ignored",
+      "note_vi": "Đã bỏ qua nhãn hiệu, dấu ngoặc kép và số nhiều"
+    },
+    "PL_HEADER": {
+      "en": "Packing list {label} ≠ invoice",
+      "vi": "{label} trên Packing List ≠ hóa đơn",
+      "note_en": "The packing list repeats the invoice header; the invoice is the reference",
+      "note_vi": "Packing List lặp lại phần đầu hóa đơn; lấy hóa đơn làm chuẩn"
+    },
+    "FREIGHT_TERM": {
+      "en": "Freight term ≠ {want} expected with {term}",
+      "vi": "Điều kiện cước ≠ {want} theo {term}",
+      "note_en": "FOB / FCA / EXW: freight collect; CFR / CIF / CPT / CIP / DAP / DDP: freight prepaid",
+      "note_vi": "FOB / FCA / EXW: cước trả sau; CFR / CIF / CPT / CIP / DAP / DDP: cước trả trước"
+    },
     "BL_INVOICE_MISSING": {
       "en": "Invoice {inv} is in this package but not named on the B/L",
       "vi": "Hóa đơn {inv} có trong bộ chứng từ nhưng không có trên B/L"
@@ -620,7 +678,7 @@
     ]
   },
   "compare": {
-    "_doc": "Cross-document comparison. columns = document sources (PL is the packing-list part of the CI file). src maps column -> extracted field (items.X = values of X over the line items). type: text | party (company name; CO., LTD. = COMPANY LIMITED) | terms (payment terms; 'By' and punctuation ignored) | number | date | set | port | vessel | hs | po (reference tokens of 8+ letters/digits, so 'PR123456789012/10' = PR123456789012) | docref (reference no.; a value cut off at a line end matches the full number it starts, as in rule CO_INVOICE_NO). A column missing from src = not applicable for that field.",
+    "_doc": "Cross-document comparison. columns = document sources (PL is the packing-list part of the CI file). src maps column -> extracted field (items.X = values of X over the line items). type: text | party (company name; CO., LTD. = COMPANY LIMITED) | terms (payment terms; 'By' and punctuation ignored) | goods (words of the description; quotes, BRAND, AND and plurals ignored; one side may list the goods one item at a time) | number | date | set | port | vessel | hs | po (reference tokens of 8+ letters/digits, so 'PR123456789012/10' = PR123456789012) | docref (reference no.; a value cut off at a line end matches the full number it starts, as in rule CO_INVOICE_NO). A column missing from src = not applicable for that field.",
     "columns": [
       {
         "id": "CI",
@@ -662,6 +720,7 @@
         "unit": "",
         "src": {
           "CI": "consignee",
+          "PL": "pl_consignee",
           "SC": "buyer",
           "BL": "consignee",
           "CO": "consignee"
@@ -674,6 +733,8 @@
         "type": "party",
         "unit": "",
         "src": {
+          "CI": "shipper",
+          "PL": "pl_shipper",
           "SC": "seller",
           "BL": "shipper",
           "CO": "exporter"
@@ -710,6 +771,7 @@
         "unit": "",
         "src": {
           "CI": "pos",
+          "PL": "pl_pos",
           "SC": "sc_no"
         }
       },
@@ -721,8 +783,33 @@
         "unit": "",
         "src": {
           "CI": "vessel",
+          "PL": "pl_vessel",
           "BL": "vessel",
           "CO": "vessel"
+        }
+      },
+      {
+        "id": "incoterm",
+        "en": "Incoterm",
+        "vi": "Điều kiện giao hàng",
+        "type": "text",
+        "unit": "",
+        "src": {
+          "CI": "incoterm",
+          "PL": "pl_incoterm",
+          "SC": "incoterm"
+        }
+      },
+      {
+        "id": "freight",
+        "en": "Freight",
+        "vi": "Cước vận chuyển",
+        "type": "text",
+        "unit": "",
+        "src": {
+          "CI": "freight",
+          "PL": "pl_freight",
+          "BL": "freight"
         }
       },
       {
@@ -733,6 +820,8 @@
         "unit": "",
         "src": {
           "CI": "pol",
+          "PL": "pl_pol",
+          "SC": "fob_port",
           "BL": "pol"
         }
       },
@@ -744,6 +833,7 @@
         "unit": "",
         "src": {
           "CI": "pod",
+          "PL": "pl_pod",
           "BL": "pod",
           "CO": "pod"
         }
@@ -756,6 +846,7 @@
         "unit": "",
         "src": {
           "CI": "sailing",
+          "PL": "pl_sailing",
           "CO": "departure"
         }
       },
@@ -763,11 +854,14 @@
         "id": "goods",
         "en": "Goods description",
         "vi": "Mô tả hàng hóa",
-        "type": "text",
+        "type": "goods",
         "unit": "",
         "src": {
-          "CI": "goods",
-          "BL": "goods"
+          "CI": "goods_full|goods",
+          "PL": "pl_goods_full",
+          "SC": "goods_full",
+          "BL": "goods_full|goods",
+          "CO": "items.goods_full|items.goods"
         }
       },
       {
@@ -859,6 +953,7 @@
         "unit": "",
         "src": {
           "CI": "containers",
+          "PL": "pl_containers",
           "BL": "containers"
         }
       },
@@ -870,7 +965,9 @@
         "unit": "",
         "src": {
           "CI": "origin",
+          "PL": "pl_origin",
           "SC": "origin",
+          "BL": "origin",
           "CO": "origin"
         }
       },
@@ -894,6 +991,7 @@
         "unit": "",
         "src": {
           "CI": "payment",
+          "PL": "pl_payment",
           "SC": "payment"
         }
       }

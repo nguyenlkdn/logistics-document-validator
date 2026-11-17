@@ -243,15 +243,21 @@ T = {
     "cmp_missing": ("not read", "không đọc được"),
     "cmp_nodoc": ("no document", "không có chứng từ"),
     "cmp_legend": ("Red: differs from the other documents. Yellow: should be on this document but was not read. "
-                   "“·”: not on this kind of document. Click a value to see where it comes from.",
+                   "“·”: not printed on this document (this kind of document or this layout). “Where does a value come from?” below opens its page.",
                    "Đỏ: khác các chứng từ còn lại. Vàng: phải có trên chứng từ này nhưng không đọc được. "
-                   "“·”: không có trên loại chứng từ này. Bấm vào một giá trị để xem nguồn."),
+                   "“·”: chứng từ này không ghi thông tin này (theo loại hoặc mẫu chứng từ). Mục “Giá trị này lấy từ đâu?” bên dưới mở trang gốc."),
     "cmp_odd": ("differs from the other documents", "khác các chứng từ còn lại"),
+    "cmp_colors": ("Text colours: the same value has the same colour in every document; with several invoices each "
+                   "document's figure is on its own line, then the total (Σ).",
+                   "Màu chữ: cùng một giá trị có cùng màu trên mọi chứng từ; khi có nhiều hóa đơn, số liệu từng chứng từ "
+                   "nằm trên một dòng riêng, sau đó là tổng (Σ)."),
+    "cmp_source": ("Where does a value come from?", "Giá trị này lấy từ đâu?"),
+    "cmp_doc": ("Document", "Chứng từ"),
     "cmp_open": ("Open this page", "Mở trang này"),
     "cmp_open_line": ("Open {doc}, page {page}", "Mở {doc}, trang {page}"),
     "cmp_missing_txt": ("This value should be on this document but LDV could not read it. Check the document by hand.",
                         "Giá trị này phải có trên chứng từ nhưng LDV không đọc được. Hãy kiểm tra thủ công."),
-    "cmp_na_txt": ("This information is not on this kind of document.", "Loại chứng từ này không có thông tin này."),
+    "cmp_na_txt": ("This information is not printed on this document (its kind or its layout).", "Chứng từ này không ghi thông tin này (theo loại hoặc mẫu chứng từ)."),
     "cmp_nodoc_txt": ("This kind of document is not in the package.", "Bộ chứng từ không có loại chứng từ này."),
     "cmp_lines": ("Goods lines by model", "Dòng hàng theo model"),
     "cmp_lines_sub": ("Quantity per model on each document and the unit price on the invoice and the sales contract.",

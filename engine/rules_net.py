@@ -15,6 +15,9 @@ Between documents:
   ORIGIN, CO_IMPORT_COUNTRY       country of origin and importing country agree
   PARTY_NAME                      consignee / shipper names agree (legal-form spelling ignored)
   CURRENCY, PAYMENT_TERMS         same currency; same payment terms on invoice and contract
+  SC_GOODS_DESC                   goods named on the contract = goods on the invoice
+  PL_HEADER                       packing-list header = invoice header (consignee, vessel, ports, terms, P/O …)
+  FREIGHT_TERM                    freight COLLECT / PREPAID agrees on invoice, packing list, B/L and with the Incoterm
 
 Where several documents state the same thing, the value most of them agree on is the reference and the document
 that differs is blamed. Nothing is reported when a value was not read.
@@ -46,6 +49,14 @@ def _party(name: str) -> str:
 
 def _terms(t: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", re.sub(r"^\s*BY\s+", "", (t or "").upper()))
+
+
+def _goods_words(t: str) -> set:
+    """Words of a goods description: quotes, BRAND, AND, OF and plural S ignored ('ACME WASHING MACHINES' =
+    '"ACME" BRAND WASHING MACHINE')."""
+    words = re.sub(r"[^A-Z0-9 ]", " ", (t or "").upper()).split()
+    return {w[:-1] if len(w) > 3 and w.endswith("S") and not w.endswith("SS") else w
+            for w in words if w not in ("BRAND", "AND", "OF", "THE")}
 
 
 def _odd_ones(entries: list, norm) -> tuple[list, str | None]:
@@ -223,9 +234,10 @@ def r_marks(ci, bl, co, out):
                                ", ".join(f.value for f in lst), ", ".join(models), at(d, lst[-1])))
 
 
-def r_origin(ci, scs, co, out):
+def r_origin(ci, scs, co, out, bl=None):
     entries = ([(co, f) for f in co.lists.get("origin", [])] if co else []) + \
-              ([(ci, ci.f.get("origin"))] if ci else []) + [(s, s.f.get("origin")) for s in scs]
+              ([(ci, ci.f.get("origin"))] if ci else []) + [(s, s.f.get("origin")) for s in scs] + \
+              ([(bl, bl.f.get("origin"))] if bl else [])          # B/L: 'MADE IN ...' in the marks
     odd, ref = _odd_ones(entries, lambda v: str(v).upper().strip())
     for d, f in odd:
         out.append(Finding("ORIGIN", "ERROR", [d], dict(origin=f.value, ref=ref.upper()), f.value, ref.upper(), at(d, f)))
@@ -275,6 +287,91 @@ def r_payment(ci, scs, out):
                                at(ci, a) + at(s, b, "ref")))
 
 
+def r_sc_goods(ci, scs, out):
+    """Goods named on the Sales Contract = goods on the invoice (one may name more products than the other)."""
+    ref = ci.f.get("goods_full") or ci.f.get("goods") if ci else None
+    if not ref:
+        return
+    want = _goods_words(ref.value)
+    for sc in scs:
+        g = sc.f.get("goods_full")
+        have = _goods_words(g.value) if g else set()
+        if have and not (have <= want or want <= have):
+            out.append(Finding("SC_GOODS_DESC", "ERROR", [sc, ci], {}, g.value, ref.value, at(sc, g) + at(ci, ref, "ref")))
+
+
+def _same_val(k: str, a, b) -> bool:
+    if k in ("consignee", "shipper"):
+        return _party(a) == _party(b)
+    if k == "payment":
+        return _terms(a) == _terms(b)
+    if k == "goods_full":
+        return _goods_words(a) == _goods_words(b)
+    if k in ("pol", "pod", "origin", "incoterm", "freight"):
+        n = lambda v: re.sub(r"[^A-Z]", "", str(v).upper())
+        return n(a) == n(b)
+    if k == "pos":
+        return set(a or []) == set(b or [])
+    return a == b
+
+
+PL_LABELS = dict(consignee="@consignee", shipper="@shipper", vessel="@vessel", pol="@pol", pod="@pod",
+                 sailing="@sailing", payment="@payment", origin="@origin", goods_full="@goods", pos="@po",
+                 containers="@containers", incoterm="@incoterm", freight="@freight")
+
+
+_ELSEWHERE = dict(consignee=(("SC", "buyer"), ("BL", "consignee"), ("CO", "consignee")),
+                  shipper=(("SC", "seller"), ("BL", "shipper"), ("CO", "exporter")),
+                  vessel=(("BL", "vessel"), ("CO", "vessel")), pol=(("BL", "pol"), ("SC", "fob_port")),
+                  pod=(("BL", "pod"), ("CO", "pod")), sailing=(("CO", "departure"),), payment=(("SC", "payment"),),
+                  origin=(("SC", "origin"), ("CO", "origin"), ("BL", "origin")),
+                  goods_full=(("SC", "goods_full"), ("BL", "goods_full")), pos=(("SC", "pos"),),
+                  containers=(("BL", "containers"),), incoterm=(("SC", "incoterm"),), freight=(("BL", "freight"),))
+
+
+def r_pl_header(ci, others, out):
+    """The packing list repeats the invoice header: consignee, shipper, vessel, ports, dates, terms, P/O … must be the
+    same. (Invoice no. and date on every page: DOC_HEADER.) When the other documents agree with the packing list, the
+    invoice is the odd one out and the cross-document rule (ORIGIN, PARTY_NAME, …) reports it instead."""
+    if not ci:
+        return
+    from .extract_net import PL_HEADER
+    for k in PL_HEADER:
+        a, b = ci.f.get(k), ci.f.get("pl_" + k)
+        if not (a and b and a.value not in (None, "", []) and b.value not in (None, "", [])) or _same_val(k, a.value, b.value):
+            continue
+        if any(d.kind == kind and d.f.get(fk) and _same_val(k, d.f[fk].value, b.value)
+               for kind, fk in _ELSEWHERE.get(k, ()) for d in others):
+            continue
+        if True:
+            show = lambda f: ", ".join(f.value) if isinstance(f.value, list) else (
+                f"{f.value[0]} V.{f.value[1]}" if isinstance(f.value, tuple) else
+                f"{f.value:%d/%m/%Y}" if hasattr(f.value, "strftime") else str(f.value))
+            out.append(Finding("PL_HEADER", "ERROR", [ci], dict(label=PL_LABELS[k]), show(b), show(a),
+                               at(ci, b) + at(ci, a, "ref")))
+
+
+_COLLECT = ("EXW", "FCA", "FAS", "FOB")             # buyer pays the main freight
+_PREPAID = ("CFR", "CIF", "CPT", "CIP", "DAP", "DPU", "DDP")
+
+
+def r_freight(ci, bl, out):
+    """Freight COLLECT / PREPAID on invoice, packing list and B/L agree with each other and with the Incoterm."""
+    inco = (ci.f.get("incoterm") if ci else None)
+    term = inco.value.split()[0] if inco else None
+    want = "COLLECT" if term in _COLLECT else "PREPAID" if term in _PREPAID else None
+    entries = [(d, d.f.get(k)) for d, k in ((ci, "freight"), (ci, "pl_freight"), (bl, "freight")) if d and d.f.get(k)]
+    if not entries:
+        return
+    if not want:
+        odd, ref = _odd_ones(entries, lambda v: str(v).upper())
+        want = ref.upper() if odd and ref else None
+    for d, f in entries:
+        if want and f.value.upper() != want:
+            out.append(Finding("FREIGHT_TERM", "ERROR", [d], dict(term=term or want, want=want), f"FREIGHT {f.value}",
+                               f"FREIGHT {want}", at(d, f) + (at(ci, inco, "ref") if inco else [])))
+
+
 def _line_loc(doc, f: Field):
     from .rules import Loc
     return Loc(doc, f.line.page, f.line.bbox, None)
@@ -291,8 +388,11 @@ def validate_net(docs, ci, bl, co, scs, out):
     r_lines(ci, out)
     r_co_model(ci, co, out)
     r_marks(ci, bl, co, out)
-    r_origin(ci, scs, co, out)
+    r_origin(ci, scs, co, out, bl)
     r_import_country(co, bl, out)
     r_parties(ci, scs, bl, co, out)
     r_currency(ci, scs, co, out)
     r_payment(ci, scs, out)
+    r_sc_goods(ci, scs, out)
+    r_pl_header(ci, [d for d in docs if d is not ci], out)
+    r_freight(ci, bl, out)

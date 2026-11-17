@@ -54,6 +54,9 @@ def _norm(v: str, typ: str):
         return re.sub(r"[^A-Z0-9]", "", s)
     if typ == "hs":
         return master.digits(s)
+    if typ == "goods":                            # same words as rule SC_GOODS_DESC (quotes, BRAND, plurals ignored)
+        from .rules_net import _goods_words
+        return " ".join(sorted(_goods_words(s)))
     if typ in ("party", "terms"):                 # same normalisation as the PARTY_NAME / PAYMENT_TERMS rules
         from .rules_net import _party, _terms
         return _party(s) if typ == "party" else _terms(s)
@@ -61,7 +64,13 @@ def _norm(v: str, typ: str):
 
 
 def _values(doc: dict, src: str, typ: str) -> tuple[list[str], int | None]:
-    """Raw values of one source in one document, and the page where the first one sits."""
+    """Raw values of one source in one document, and the page where the first one sits. 'a|b': the first one read."""
+    if "|" in src:
+        for alt in src.split("|"):
+            v, p = _values(doc, alt, typ)
+            if v:
+                return v, p
+        return [], None
     if src.startswith("items."):
         key = src.split(".", 1)[1]
         vals, page = [], None
@@ -73,15 +82,22 @@ def _values(doc: dict, src: str, typ: str) -> tuple[list[str], int | None]:
                         vals.append(a)
                 page = page or it.get("_page")
         return vals, page
-    fields = doc.get("fields", {})
-    f = next((fields[k] for k in src.split("|") if fields.get(k)), None)      # "a|b": first one that was read
+    f = doc.get("fields", {}).get(src)
     if not f or f.get("value") in (None, ""):
         return [], None
     return _atoms(f["value"], typ), f.get("page")
 
 
+def _absent(d: dict, src: str) -> bool:
+    """The document's layout does not print this field at all (extract_net marks it), so it is not 'not read'."""
+    a = (d.get("fields", {}).get("absent") or {}).get("value") or ""
+    return any(k.strip() in a.split(", ") for k in src.split("|"))
+
+
 def _cell(docs: list[dict], src: str, typ: str) -> dict:
     vals, pages, names = [], [], []
+    if docs and all(_absent(d, src) for d in docs):
+        return dict(state="na")
     for d in docs:
         v, p = _values(d, src, typ)
         if v:
@@ -90,13 +106,16 @@ def _cell(docs: list[dict], src: str, typ: str) -> dict:
             names.append(d["name"])
     if not vals:
         return dict(state="missing", doc=docs[0]["name"], page=None)
+    # every document's own values, for the table (one line each, coloured per value)
+    parts = [dict(doc=n, page=p, show=[fmt(a, typ) for a in v], norm=[_norm(a, typ) for a in v])
+             for n, p, v in zip(names, pages, vals)]
     if typ == "number" and len(vals) > 1:                     # e.g. two sales contracts: add them up
         total = sum(_num(v[0]) or 0 for v in vals)
         flat = [str(total)]
     else:
         flat = list(dict.fromkeys(a for v in vals for a in v))
-    return dict(state="value", raw=flat, show=", ".join(fmt(a, typ) for a in flat),
-                norm=[_norm(a, typ) for a in flat], doc=names[0], docs=names, page=pages[0])
+    return dict(state="value", raw=flat, show=", ".join(fmt(a, typ) for a in flat), items=[fmt(a, typ) for a in flat],
+                norm=[_norm(a, typ) for a in flat], doc=names[0], docs=names, page=pages[0], parts=parts)
 
 
 def _same(a: list, b: list, typ: str) -> bool:
@@ -106,6 +125,9 @@ def _same(a: list, b: list, typ: str) -> bool:
         heads = [x for x in a + b if x]
         short = min(heads, key=len) if heads else ""
         return bool(short) and all(x.startswith(short) for x in heads)       # 8516 covers 8516.10.11
+    if typ == "goods":                     # one document names the goods together, another one item at a time
+        wa, wb = set(" ".join(a).split()), set(" ".join(b).split())
+        return bool(wa and wb) and (wa <= wb or wb <= wa)
     if typ == "docref":                    # Form D box 10 may cut the invoice no. at the line end (rule CO_INVOICE_NO)
         pre = lambda x, ys: any(y.startswith(x) or x.startswith(y) for y in ys if min(len(x), len(y)) >= 8)
         return all(pre(x, b) for x in a) and all(pre(y, a) for y in b)
