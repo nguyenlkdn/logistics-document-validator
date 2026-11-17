@@ -1,6 +1,6 @@
 """Check GitHub Releases for a newer LDV version and install it (asks first). Standard library only.
 
-Called by Start.bat before the app starts:
+Used by ldv_tray.pyw (asks in a Windows message box) or from a console:
   python updater.py            # check, ask Y/N, update
   python updater.py --yes      # update without asking
 Exit codes: 0 = nothing changed (up to date, declined, offline, error), 10 = updated.
@@ -75,44 +75,53 @@ def install(data: bytes, old: str) -> int:
     return n
 
 
-def main() -> int:
+def check_and_update(ask, say=print) -> int:
+    """ask(text) -> bool asks the user; say(text) reports progress. Returns 10 if updated, else 0."""
     if (APP / ".git").exists():
         return 0                                          # developer checkout: update with git instead
     cur = current_version()
-    print(f"LDV version {cur} - checking for updates / Dang kiem tra cap nhat...")
+    say(f"LDV version {cur} - checking for updates / Dang kiem tra cap nhat...")
     try:
         rel = latest()
     except Exception as e:                                # offline, proxy, GitHub down: just start the app
-        print(f"  Update check skipped / Bo qua kiem tra cap nhat ({type(e).__name__})")
+        say(f"  Update check skipped / Bo qua kiem tra cap nhat ({type(e).__name__})")
         return 0
     if not rel or parse(rel["version"]) <= parse(cur):
-        print("  Up to date / Da la ban moi nhat")
+        say("  Up to date / Da la ban moi nhat")
         return 0
 
-    print(f"\n  New version {rel['version']} is available / Co phien ban moi {rel['version']}")
-    if rel["notes"]:
-        print("  " + "\n  ".join(rel["notes"].splitlines()[:15]))
-    if "--yes" not in sys.argv:
-        try:
-            ans = input("\n  Update now? / Cap nhat ngay? [Y/N]: ").strip().lower()
-        except EOFError:
-            ans = "n"
-        if ans not in ("y", "yes", "c", "co"):
-            print("  Skipped / Da bo qua")
-            return 0
-
+    notes = "\n".join(rel["notes"].splitlines()[:15])
+    if not ask(f"New version {rel['version']} is available (you have {cur}).\n"
+               f"Co phien ban moi {rel['version']} (ban dang dung {cur}).\n\n{notes}\n\n"
+               "Update now? / Cap nhat ngay?"):
+        say("  Skipped / Da bo qua")
+        return 0
     try:
-        print("  Downloading / Dang tai...")
+        say("  Downloading / Dang tai...")
         data = _get(rel["url"], timeout=120)
         if rel["sha256"] and hashlib.sha256(data).hexdigest() != rel["sha256"]:
-            print("  [ERROR] Download is corrupted, not installed / File tai ve bi loi, khong cai dat")
+            say("  [ERROR] Download is corrupted, not installed / File tai ve bi loi, khong cai dat")
             return 0
         n = install(data, cur)
     except Exception as e:
-        print(f"  [ERROR] Update failed, keeping version {cur} / Cap nhat that bai, giu ban {cur}: {e}")
+        say(f"  [ERROR] Update failed, keeping version {cur} / Cap nhat that bai, giu ban {cur}: {e}")
         return 0
-    print(f"  Updated to {rel['version']} ({n} files) / Da cap nhat len {rel['version']}")
+    say(f"  Updated to {rel['version']} ({n} files) / Da cap nhat len {rel['version']}")
     return 10
+
+
+def _ask_console(text: str) -> bool:
+    print("\n  " + text.replace("\n", "\n  "))
+    if "--yes" in sys.argv:
+        return True
+    try:
+        return input("  [Y/N]: ").strip().lower() in ("y", "yes", "c", "co")
+    except EOFError:
+        return False
+
+
+def main() -> int:
+    return check_and_update(_ask_console)
 
 
 if __name__ == "__main__":

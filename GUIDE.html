@@ -44,21 +44,21 @@ Kiểm tra bộ chứng từ lô hàng (Invoice/Packing List, Hợp đồng, B/L
 <div class="cols">
 <div><h3>English</h3>
 <ol>
-  <li>Double-click <b>Start.bat</b>. A black window opens and the browser shows the app. <b>Keep the black window open</b> while working.</li>
+  <li>Double-click <b>LDV</b> on the Desktop (or <b>Start.bat</b>). The browser shows the app, and a blue <b>LDV</b> icon appears next to the clock (it may be under the <b>^</b> arrow). LDV keeps running in the background; closing the browser tab does not stop it.</li>
   <li>Drag in <b>one</b> shipment: the <code>.zip</code> file, or all its PDF files.</li>
   <li>Click <b>Check documents</b>.</li>
   <li>Read the findings. Click a finding to see the page screenshot.</li>
   <li>Click <b>Download Excel report</b> if you need to send it.</li>
-  <li>To stop: close the black window.</li>
+  <li>To reopen or stop: right-click the <b>LDV</b> icon next to the clock and choose <b>Open LDV</b> or <b>Quit LDV</b>.</li>
 </ol></div>
 <div><h3>Tiếng Việt</h3>
 <ol>
-  <li>Bấm đúp <b>Start.bat</b>. Một cửa sổ đen mở ra và trình duyệt hiện chương trình. <b>Giữ cửa sổ đen mở</b> trong lúc làm việc.</li>
+  <li>Bấm đúp <b>LDV</b> trên Desktop (hoặc <b>Start.bat</b>). Trình duyệt hiện chương trình và biểu tượng <b>LDV</b> màu xanh xuất hiện cạnh đồng hồ (có thể nằm trong mũi tên <b>^</b>). LDV chạy nền; đóng tab trình duyệt không tắt chương trình.</li>
   <li>Kéo thả <b>một</b> lô hàng: file <code>.zip</code>, hoặc tất cả file PDF của lô.</li>
   <li>Bấm <b>Kiểm tra</b>.</li>
   <li>Đọc kết quả. Bấm vào từng dòng để xem ảnh trang chứng từ.</li>
   <li>Bấm <b>Tải báo cáo Excel</b> nếu cần gửi đi.</li>
-  <li>Tắt chương trình: đóng cửa sổ đen.</li>
+  <li>Mở lại hoặc tắt: bấm chuột phải vào biểu tượng <b>LDV</b> cạnh đồng hồ, chọn <b>Mở LDV</b> hoặc <b>Thoát LDV</b>.</li>
 </ol></div>
 </div>
 <div class="box">Language: use the left panel to choose <b>English</b>, <b>Tiếng Việt</b> or <b>Both / Cả hai</b>. You can also filter by severity there.<br>
@@ -95,11 +95,11 @@ Các file hoặc trường không đọc được — hãy kiểm tra thủ côn
 </table>
 
 <h2>5. Updates / Cập nhật</h2>
-<p>Every time you start <b>Start.bat</b>, LDV checks GitHub for a new version. If there is one, the black window shows what is new and asks
-<code>Update now? [Y/N]</code>. Type <b>Y</b> and press Enter to update, or <b>N</b> to keep the current version for now. Without internet the check is skipped and the app starts normally.
+<p>Every time LDV starts, it checks GitHub for a new version. If there is one, a message box shows what is new and asks
+<b>Update now?</b>. Click <b>Yes</b> to update, or <b>No</b> to keep the current version for now. Without internet the check is skipped and the app starts normally.
 The version number is shown at the bottom of the left sidebar. Replaced files are kept in the <code>_backup</code> folder.</p>
-<p>Mỗi lần chạy <b>Start.bat</b>, LDV kiểm tra phiên bản mới trên GitHub. Nếu có, cửa sổ đen hiển thị nội dung mới và hỏi
-<code>Cap nhat ngay? [Y/N]</code>. Gõ <b>Y</b> rồi Enter để cập nhật, hoặc <b>N</b> để dùng tiếp bản hiện tại. Không có mạng thì bỏ qua và chương trình chạy bình thường.
+<p>Mỗi lần khởi động, LDV kiểm tra phiên bản mới trên GitHub. Nếu có, một hộp thoại hiển thị nội dung mới và hỏi
+<b>Cap nhat ngay?</b>. Bấm <b>Yes</b> để cập nhật, hoặc <b>No</b> để dùng tiếp bản hiện tại. Không có mạng thì bỏ qua và chương trình chạy bình thường.
 Số phiên bản hiển thị ở cuối thanh bên trái. Các file cũ được lưu trong thư mục <code>_backup</code>.</p>
 
 <h2>6. Troubleshooting / Xử lý sự cố</h2>
@@ -108,7 +108,7 @@ Số phiên bản hiển thị ở cuối thanh bên trái. Các file cũ đư�
 <tr><td>“Python not found” / “Chưa có Python”</td><td>Install Python 3.15 from python.org (“Install Now”, untick admin option) / Cài Python 3.15 từ python.org, bỏ chọn tùy chọn admin.</td></tr>
 <tr><td>Setup fails while installing libraries / Cài thư viện thất bại</td><td>Internet or company proxy is blocking downloads. Ask for the offline <code>wheels</code> folder, put it inside <code>logistics-document-validator</code>, run Setup.bat again. / Mạng hoặc proxy chặn tải. Xin thư mục <code>wheels</code>, đặt vào <code>logistics-document-validator</code> rồi chạy lại Setup.bat.</td></tr>
 <tr><td>Browser did not open / Trình duyệt không tự mở</td><td>Open <code>http://localhost:8501</code> manually / Mở thủ công địa chỉ trên.</td></tr>
-<tr><td>“Port 8501 is already in use”</td><td>The app is already running in another black window — use that one, or close it first / Chương trình đang chạy ở cửa sổ khác — dùng cửa sổ đó hoặc đóng lại.</td></tr>
+<tr><td>“Port 8501 is already in use”</td><td>LDV is already running — use the LDV icon next to the clock, or Quit it first / LDV đang chạy — dùng biểu tượng LDV cạnh đồng hồ, hoặc Thoát trước.</td></tr>
 <tr><td>A document is listed under Not recognised / Chứng từ nằm trong mục Không đọc được</td><td>New supplier layout or scanned PDF — check manually and send the file to the tool maintainer / Mẫu chứng từ mới hoặc bản scan — kiểm tra thủ công và gửi file cho người phụ trách công cụ.</td></tr>
 </table>
 <p class="sub" style="margin-top:28px">Everything runs on this PC only (http://localhost). No document is uploaded to the internet. / Mọi xử lý chạy trên máy này. Không có chứng từ nào được gửi lên internet.</p>

@@ -7,7 +7,10 @@ B/L, Form D), cross-checks them and writes a bilingual (EN/VI) report with page 
 ## Layout
 ```
 app.py                 Streamlit UI (localhost:8501)
-Setup.bat / Start.bat  Windows: install libraries into .venv (no admin) / run the app
+Setup.bat / Start.bat  Windows: install libraries + shortcuts (no admin) / run the app
+ldv_tray.py            background launcher: no console, tray icon (Open / Reports / Quit), update prompt
+ldv_open.py            right-click Send to > LDV Checker
+updater.py             GitHub Releases updater
 .streamlit/config.toml localhost-only, no telemetry
 config.json            ports, typo rules, slack days, required fields, EN/VI messages & labels
 engine/
@@ -32,12 +35,12 @@ After an intended change in results: review the new output manually, then `tests
 Reports go to `~/Documents/LDV_reports` (override with env `LDV_REPORT_DIR` or `report_dir` in config.json).
 
 ## Right-click menu
-`Setup.bat` puts a shortcut "LDV Checker" in the user's SendTo folder (no admin). It runs `ldv_open.py` with the selected paths:
-the paths go to a job file in `%TEMP%\ldv_jobs`, LDV is started (`Start.bat nobrowser`) if port 8501 is not answering,
+`Setup.bat` puts a shortcut "LDV Checker" in the user's SendTo folder and "LDV" on the Desktop (no admin). It runs `ldv_open.py` with the selected paths:
+the paths go to a job file in `%TEMP%\ldv_jobs`, LDV is started (`ldv_tray.py nobrowser`) if port 8501 is not answering,
 then the browser opens `http://localhost:8501/?job=<id>` and `app.py` checks those files at once.
 
 ## Updates and releases
-`Start.bat` runs `updater.py` first: it reads the latest GitHub release of `nguyenlkdn/logistics-document-validator`, compares it with `VERSION`,
+`ldv_tray.py` (started by the Desktop shortcut or `Start.bat`) runs `updater.py` first, asking in a message box: it reads the latest GitHub release of `nguyenlkdn/logistics-document-validator`, compares it with `VERSION`,
 asks Y/N, checks the zip's SHA-256 against the digest GitHub reports, replaces only changed files (old copies → `_backup/<version>/`; `.venv`, `wheels`, `*.dll` untouched),
 then re-runs `Setup.bat auto` for new libraries. If it is offline or anything fails, the app just starts. It is skipped in a git checkout.
 

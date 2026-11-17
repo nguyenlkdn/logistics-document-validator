@@ -65,14 +65,15 @@ if errorlevel 1 (
   exit /b 1
 )
 
-rem Right-click menu: Send to > LDV Checker (shortcut in the user's SendTo folder, no admin needed)
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$s=(New-Object -ComObject WScript.Shell).CreateShortcut([Environment]::GetFolderPath('SendTo')+'\LDV Checker.lnk'); $s.TargetPath='%CD%\.venv\Scripts\pythonw.exe'; $s.Arguments='\"%CD%\ldv_open.py\"'; $s.WorkingDirectory='%CD%'; $s.Description='Check shipment documents with LDV'; $s.Save()" >nul 2>nul
+rem Shortcuts (no admin): Desktop "LDV" and right-click "Send to > LDV Checker", both run without a console window
+".venv\Scripts\python.exe" -c "import ldv_tray; ldv_tray.ensure_ico()" >nul 2>nul
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$w=New-Object -ComObject WScript.Shell; foreach($l in @(@([Environment]::GetFolderPath('SendTo')+'\LDV Checker.lnk','ldv_open.py','Check shipment documents with LDV'), @([Environment]::GetFolderPath('Desktop')+'\LDV.lnk','ldv_tray.py','LDV - Logistics Document Validator'))){ $s=$w.CreateShortcut($l[0]); $s.TargetPath='%CD%\.venv\Scripts\pythonw.exe'; $s.Arguments='\"%CD%\'+$l[1]+'\"'; $s.WorkingDirectory='%CD%'; $s.IconLocation='%CD%\ldv.ico'; $s.Description=$l[2]; $s.Save() }" >nul 2>nul
 if errorlevel 1 (
-  echo [NOTE] Could not add the right-click menu "Send to > LDV Checker". Use Start.bat instead.
-  echo [LUU Y] Khong tao duoc menu chuot phai "Send to > LDV Checker". Hay dung Start.bat.
+  echo [NOTE] Could not create the shortcuts. Use Start.bat instead.
+  echo [LUU Y] Khong tao duoc loi tat. Hay dung Start.bat.
 ) else (
-  echo Right-click menu added: select files, right-click, Send to ^> LDV Checker
-  echo Da them menu chuot phai: chon file, bam chuot phai, Send to ^> LDV Checker
+  echo Desktop shortcut "LDV" added / Da tao loi tat "LDV" tren Desktop
+  echo Right-click menu added: Send to ^> LDV Checker / Da them menu chuot phai: Send to ^> LDV Checker
 )
 
 rem Skip Streamlit's first-run email question
@@ -83,6 +84,6 @@ if not exist "%USERPROFILE%\.streamlit\credentials.toml" (
 )
 
 echo.
-echo Setup complete / Cai dat xong. Double-click Start.bat to run / Bam dup Start.bat de chay.
+echo Setup complete / Cai dat xong. Double-click "LDV" on the Desktop (or Start.bat) / Bam dup "LDV" tren Desktop (hoac Start.bat).
 if not "%~1"=="auto" pause
 exit /b 0

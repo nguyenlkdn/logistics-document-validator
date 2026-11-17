@@ -1,6 +1,6 @@
 """Right-click "Send to > LDV Checker": check the selected files/folder/zip in the LDV web app.
 
-Starts LDV (Start.bat, in its own window) if it is not running yet, waits until it answers,
+Starts LDV in the background (ldv_tray.py, tray icon) if it is not running yet, waits until it answers,
 then opens the browser at http://localhost:8501/?job=<id>. The app reads the job (the list of
 selected paths) and checks them straight away. Standard library only.
 """
@@ -29,12 +29,9 @@ def running() -> bool:
 
 
 def start_app():
-    if sys.platform == "win32":
-        subprocess.Popen(["cmd", "/c", str(APP / "Start.bat"), "nobrowser"], cwd=APP,
-                         creationflags=subprocess.CREATE_NEW_CONSOLE)
-    else:                                                 # developer machine
-        subprocess.Popen([sys.executable, "-m", "streamlit", "run", "app.py", "--server.headless", "true"], cwd=APP,
-                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
+    """Start LDV in the background (tray icon, no console window); the browser is opened below."""
+    subprocess.Popen([sys.executable, str(APP / "ldv_tray.py"), "nobrowser"], cwd=APP,
+                     start_new_session=sys.platform != "win32")
 
 
 def main(args: list[str]) -> int:
