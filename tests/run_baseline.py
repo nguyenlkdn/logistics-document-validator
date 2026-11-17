@@ -4,12 +4,16 @@
   python tests/run_baseline.py --update   # approve current output as the new baseline (after manual review!)
 """
 import json
+import os
 import sys
 import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+# Never use the real HS master of this PC: the tests get their own data folder, with the test copy
+# tests/baseline/master_hs.xlsx when present (confidential, ignored by git like the other test data).
+os.environ["LDV_DATA_DIR"] = tempfile.mkdtemp(prefix="ldv_test_data_")
 from engine import check                      # noqa: E402
 from engine.report import plain                # noqa: E402
 
@@ -33,6 +37,9 @@ def snapshot(zip_path: Path) -> dict:
 
 
 def main():
+    from engine import master
+    if (BASE / "master_hs.xlsx").exists():
+        master.import_xlsx(BASE / "master_hs.xlsx")
     if not any(z.suffix.lower() == ".zip" or z.is_dir() for z in BASE.iterdir()):
         print("No test sets in tests/baseline/ (confidential, kept outside git). See tests/baseline/README.md.")
         return 0

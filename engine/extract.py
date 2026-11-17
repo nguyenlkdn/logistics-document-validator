@@ -229,7 +229,7 @@ def _extract_co(d: Doc):
         end = hits[n + 1][0] if n + 1 < len(hits) else len(L)
         block = [x for x in L[i:end] if x.page == l.page]
         stop = next((k for k, x in enumerate(block) if k and re.match(r"\s*TOTAL\s*:", x.text)), len(block))
-        d.items.append(dict(no=int(m[1]), hs=m[2], qty=F(l, m, 3, num(m[3])), inv_ref=m[5], inv_date=date_f,
+        d.items.append(dict(no=int(m[1]), hs=m[2], hs_f=F(l, m, 2, m[2]), qty=F(l, m, 3, num(m[3])), inv_ref=m[5], inv_date=date_f,
                             **_co_item_details(block[:stop])))
     for _, l, m in _search(L, r"TOTAL\s*:\s*((?:[A-Z]+[\- ])*[A-Z]+)\s*\(([\d,]+)\)\s*CARTON"):
         d.f["total_ctn"] = F(l, m, 2, num(m[2]))

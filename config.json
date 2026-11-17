@@ -1,6 +1,7 @@
 {
   "shipment_slack_days": 2,
   "report_dir": "~/Documents/LDV_reports",
+  "data_dir": "~/Documents/LDV_data",
   "ports": {
     "HO CHI MINH CITY": [
       "HOCHIMINH",
@@ -255,6 +256,24 @@
     "CO_TOTAL": {
       "en": "Form D {label} ≠ invoice",
       "vi": "{label} trên C/O ≠ hóa đơn"
+    },
+    "CO_HS_MASTER": {
+      "en": "Form D item {no} ({model}): HS code should be {ref} (HS master list)",
+      "vi": "C/O mục {no} ({model}): mã HS phải là {ref} (theo danh mục mã HS)",
+      "note_en": "Reference: the company HS master list (Excel), not the other documents",
+      "note_vi": "Tham chiếu: danh mục mã HS của công ty (Excel), không phải chứng từ khác"
+    },
+    "BL_HS_MASTER": {
+      "en": "B/L HS {hs} does not match the HS master list ({ref})",
+      "vi": "Mã HS {hs} trên B/L không khớp danh mục mã HS ({ref})",
+      "note_en": "None of the invoice models has an HS code under this heading in the HS master list",
+      "note_vi": "Không model nào trên hóa đơn có mã HS thuộc nhóm này trong danh mục mã HS"
+    },
+    "HS_MASTER_MISSING": {
+      "en": "Model {model} is not in the HS master list",
+      "vi": "Model {model} chưa có trong danh mục mã HS",
+      "note_en": "Add it to the HS master Excel so its HS code can be checked",
+      "note_vi": "Thêm model vào file Excel mã HS để kiểm tra được mã HS"
     },
     "HS_CODE": {
       "en": "Form D item {no}: HS {hs} is not under B/L HS {hs_bl}",

@@ -6,6 +6,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from . import master
 from .extract import Doc, Field
 from .util import fmt_like, number_to_words, words_to_number
 
@@ -279,15 +280,47 @@ def r_co(ci, co, bl, out):
         if a and bv is not None and not _close(a.value, bv):
             out.append(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label=f"@{k}"), a.raw, f"{bv:,.2f}".rstrip("0").rstrip("."),
                                at(co, a) + at(ci, b, "ref")))
-    hs_bl_f = bl.f.get("hs") if bl else None
-    hs_bl = _v(hs_bl_f)
-    for it in co.items:
-        if hs_bl and not it["hs"].replace(".", "").startswith(hs_bl.replace(".", "")):
-            out.append(Finding("HS_CODE", "ERROR", [co, bl], dict(no=it["no"], hs=it["hs"], hs_bl=hs_bl), it["hs"],
-                               hs_bl + "…", at_line(co, it["qty"].line) + at(bl, hs_bl_f, "ref")))
     if len(co.items) > 1:                         # one item → the grand total already is the item value
         out.append(Finding("CO_FOB_VALUE", "INFO", [co], {}, "", "",
                            [x for it in co.items for x in at(co, it["qty"])]))
+
+
+def r_hs(ci, co, bl, out):
+    """HS codes. With the HS master list (company Excel) the master is the reference and the document that
+    differs is blamed: each Form D item, the B/L heading, and invoice models missing from the list.
+    Models not in the master fall back to Form D vs B/L."""
+    sval = lambda x: x.value if isinstance(x, Field) else x
+    hs_bl_f = bl.f.get("hs") if bl else None
+    hs_bl = master.digits(_v(hs_bl_f))
+    have = master.load() is not None
+    known = {}                                            # invoice model -> master HS
+    if have and ci:
+        for it in ci.items:
+            m = sval(it.get("model"))
+            if not m or m in known:
+                continue
+            hs = master.hs_for(m)
+            known[m] = hs
+            if hs is None:
+                line = next((l for l in ci.lines if m in l.text), None)
+                out.append(Finding("HS_MASTER_MISSING", "WARNING", [ci], dict(model=m), m, "",
+                                   [Loc(ci, line.page if line else None, None, m)]))
+    for it in (co.items if co else []):
+        m = sval(it.get("model"))
+        ref = master.hs_for(m) if (have and m) else None
+        loc = at(co, it.get("hs_f")) or at_line(co, it["qty"].line)
+        if ref:
+            if master.digits(it["hs"]) != ref:
+                out.append(Finding("CO_HS_MASTER", "ERROR", [co], dict(no=it["no"], model=m, ref=master.fmt(ref)),
+                                   it["hs"], master.fmt(ref), loc))
+        elif hs_bl and not master.digits(it["hs"]).startswith(hs_bl):
+            out.append(Finding("HS_CODE", "ERROR", [co, bl], dict(no=it["no"], hs=it["hs"], hs_bl=_v(hs_bl_f)), it["hs"],
+                               _v(hs_bl_f) + "…", loc + at(bl, hs_bl_f, "ref")))
+    refs = [h for h in known.values() if h]
+    if hs_bl and refs and not any(h.startswith(hs_bl) for h in refs):
+        heads = Counter(h[:len(hs_bl)] for h in refs)
+        out.append(Finding("BL_HS_MASTER", "ERROR", [bl], dict(hs=_v(hs_bl_f), ref=", ".join(sorted(heads))),
+                           _v(hs_bl_f), heads.most_common(1)[0][0], at(bl, hs_bl_f)))
 
 
 def _pairs(ci, co) -> list:
@@ -512,6 +545,7 @@ def validate(docs: list[Doc]) -> list[Finding]:
     r_dates(scs, ci, co, out)
     r_vessel(ci, bl, co, out)
     r_co(ci, co, bl, out)
+    r_hs(ci, co, bl, out)
     r_pl_ranges(ci, co, out)
     r_co_packages(ci, co, out)
     r_pod(docs, out)

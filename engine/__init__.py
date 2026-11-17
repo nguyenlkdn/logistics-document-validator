@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import _dllpath  # noqa: F401  (must come before anything that imports pymupdf)
-from . import evidence, report
+from . import evidence, master, report
 from .extract import load
 from .rules import CONFIG, unrecognised, validate
 
@@ -59,6 +59,7 @@ def collect(inputs: list[Path], workdir: Path) -> list[Path]:
 
 def check(inputs: list[Path], name: str | None = None, out_root: Path | None = None,
           with_evidence: bool = True, keep_workdir: bool = False) -> Result:
+    master.refresh()                               # the HS master Excel may have been edited since last time
     workdir = Path(tempfile.mkdtemp(prefix="ldv_"))
     pdfs = collect(inputs, workdir)
     fp = hashlib.sha1("".join(sorted(hashlib.sha1(p.read_bytes()).hexdigest() for p in pdfs

@@ -14,6 +14,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine import check, report_root                 # noqa: E402
+from engine import master                           # noqa: E402
 from engine.history import STATUSES, History        # noqa: E402
 from engine.report import ICON, per_file                        # noqa: E402
 from engine.rules import CONFIG, SEVERITY              # noqa: E402
@@ -61,6 +62,19 @@ T = {
     "in_preview": ("Highlighted as #{n} in the document preview above", "Được đánh dấu #{n} trong phần xem trước ở trên"),
     "showing": ("Showing findings of", "Đang hiển thị lỗi của"),
     "version": ("Version", "Phiên bản"),
+    "hs_master": ("HS master list", "Danh mục mã HS"),
+    "hs_none": ("No HS master list yet: HS codes are only compared between documents.",
+                "Chưa có danh mục mã HS: mã HS chỉ được so sánh giữa các chứng từ."),
+    "hs_status": ("{n} models · imported {when}", "{n} model · nhập lúc {when}"),
+    "hs_from": ("From", "Từ file"),
+    "hs_missing": ("The Excel file is not found at this path any more; the last import is used.",
+                   "Không còn thấy file Excel ở đường dẫn này; đang dùng lần nhập gần nhất."),
+    "hs_auto": ("Edit the Excel any time: LDV re-imports it automatically before the next check.",
+                "Có thể sửa file Excel bất cứ lúc nào: LDV tự nhập lại trước lần kiểm tra sau."),
+    "hs_path": ("Excel file path", "Đường dẫn file Excel"),
+    "hs_import": ("Import", "Nhập"),
+    "hs_done": ("Imported {n} models: {a} added, {r} removed, {c} changed", "Đã nhập {n} model: thêm {a}, bỏ {r}, đổi {c}"),
+    "hs_skipped": ("Skipped rows", "Dòng bị bỏ qua"),
     "from_menu": ("Checked from right-click menu", "Kiểm tra từ menu chuột phải"),
     "nav": ("Page", "Trang"),
     "pg_check": ("🔎 Check", "Kiểm tra"),
@@ -110,6 +124,33 @@ with st.sidebar:
                     horizontal=True, key="page")
     show = st.multiselect(t("filter"), SEVERITY, default=SEVERITY, format_func=lambda s: f"{ICON[s]} {sev_label(s)}")
     st.caption(f"{t('saved')}:\n\n`{report_root()}`")
+    with st.expander(f"📋 {t('hs_master')}"):
+        try:
+            done = master.refresh()
+        except Exception:
+            done = None
+        hs = master.status()
+        done = done or st.session_state.pop("hs_done", None)
+        if done:
+            st.success(t("hs_done").format(n=done["count"], a=len(done["added"]), r=len(done["removed"]), c=len(done["changed"])))
+        if hs["loaded"]:
+            st.markdown(t("hs_status").format(n=hs["count"], when=hs["imported_at"].replace("T", " ")))
+            st.caption(f"{t('hs_from')}: `{hs['source']}`")
+            if not hs["source_found"]:
+                st.warning(t("hs_missing"))
+            if hs["skipped"]:
+                st.caption(f"{t('hs_skipped')}: " + ", ".join(str(x["row"]) for x in hs["skipped"]))
+            st.caption(t("hs_auto"))
+        else:
+            st.info(t("hs_none"))
+        path = st.text_input(t("hs_path"), value=hs.get("source", ""), key="hs_path")
+        if st.button(t("hs_import"), key="hs_import") and path.strip():
+            try:
+                st.session_state["hs_done"] = master.import_xlsx(Path(path.strip().strip('"')))
+            except Exception as e:                          # wrong path, not an Excel, no header row
+                st.error(str(e))
+            else:
+                st.rerun()                                  # show the new status above
     st.caption(f"{t('version')} {VERSION}")
 
 @st.cache_data(show_spinner=False, max_entries=20)

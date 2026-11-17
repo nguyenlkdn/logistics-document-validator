@@ -41,6 +41,17 @@ icon and opens the browser. Needs Python 3.11+ with venv (`sudo apt install pyth
 The tray icon needs an X11 session or a desktop with AppIndicator support. Without one, LDV still runs: open
 http://localhost:8501 in the browser.
 
+## HS master list
+The company's HS Excel (model → HS code, header row e.g. `Mã NPL/SP` | `Mã HS`) is the reference for HS codes. It is
+**not** stored in the repository: `engine/master.py` converts it into `master_hs.json` in the data folder
+(`~/Documents/LDV_data`, config `data_dir`, env `LDV_DATA_DIR`) and logs each import in `master_hs_log.jsonl`
+(models added / removed / changed). LDV remembers the Excel's path and re-imports it automatically before each check
+when the file has changed. Import: sidebar *HS master list*, drag the Excel onto `Import-HS.bat`, `./import_hs.sh <file>`,
+or `python -m engine.master <file>`.
+Rules: `CO_HS_MASTER` (Form D item HS ≠ master), `BL_HS_MASTER` (B/L heading matches no invoice model's master HS),
+`HS_MASTER_MISSING` (invoice model not in the list). Models not in the list fall back to Form D vs B/L (`HS_CODE`).
+Tests use their own copy `tests/baseline/master_hs.xlsx` (ignored by git), never the PC's real list.
+
 ## History
 Every check is saved in `history.db` (SQLite) in the report folder. A shipment = its invoice no.; a new check of the
 same invoice with changed files = next revision, compared with the previous one (fixed / still there / new).
