@@ -31,6 +31,14 @@ After an intended change in results: review the new output manually, then `tests
 
 Reports go to `~/Documents/LDV_reports` (override with env `LDV_REPORT_DIR` or `report_dir` in config.json).
 
+## Updates and releases
+`Start.bat` runs `updater.py` first: it reads the latest GitHub release of `nguyenlkdn/logistics-document-validator`, compares it with `VERSION`,
+asks Y/N, checks the zip's SHA-256 against the digest GitHub reports, replaces only changed files (old copies → `_backup/<version>/`; `.venv`, `wheels`, `*.dll` untouched),
+then re-runs `Setup.bat auto` for new libraries. If it is offline or anything fails, the app just starts. It is skipped in a git checkout.
+
+Release: bump `VERSION`, commit, run the baseline (ALL PASS), then `tools/release.sh <version> <notes.md>`.
+That tags, pushes, builds the zip with `git archive` (tracked files only, so confidential test data can't leak) and publishes it with `gh`.
+
 ## Extending
 - New typo / port alias / message wording → `config.json` only.
 - New rule → function `r_xxx()` in `engine/rules.py`, call it in `validate()`, add message to `config.json`.

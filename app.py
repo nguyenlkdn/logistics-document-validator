@@ -49,7 +49,10 @@ T = {
     "total": ("Total", "Tổng"),
     "file_filter": ("Show file", "Hiển thị file"),
     "all_files": ("All files", "Tất cả file"),
+    "version": ("Version", "Phiên bản"),
 }
+_vf = Path(__file__).resolve().parent / "VERSION"
+VERSION = _vf.read_text(encoding="utf-8").strip() if _vf.exists() else "dev"
 
 with st.sidebar:
     lang_choice = st.radio(T["lang"][0], ["English", "Tiếng Việt", "Both / Cả hai"], index=2)
@@ -69,6 +72,7 @@ def sev_label(s):
 with st.sidebar:
     show = st.multiselect(t("filter"), SEVERITY, default=SEVERITY, format_func=lambda s: f"{ICON[s]} {sev_label(s)}")
     st.caption(f"{t('saved')}:\n\n`{report_root()}`")
+    st.caption(f"{t('version')} {VERSION}")
 
 st.title(f"📦 {t('title')}")
 st.write(t("intro"))
