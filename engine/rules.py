@@ -409,6 +409,16 @@ def r_bl_cargo(ci, co, bl, out):
             near = difflib.get_close_matches(f.value, models, n=1, cutoff=0.75)
             out.append(Finding("BL_MARKS_MODEL", "ERROR" if near else "WARNING", [bl, ci], dict(model=f.value),
                                f.value, near[0] if near else "", at(bl, f)))
+    q, u = bl.f.get("bl_qty"), bl.f.get("bl_unit")
+    ci_qty = ci.f.get("total_qty") or ci.f.get("pl_total_qty")
+    if q and ci_qty and not _close(q.value, ci_qty.value):
+        out.append(Finding("BL_QTY", "ERROR", [bl, ci], {}, q.raw, fmt_like(ci_qty.value, q.raw), at(bl, q) + at(ci, ci_qty, "ref")))
+    unit_of = lambda t: {"SETS": "SET", "SET": "SET", "PCS": "PCS", "PC": "PCS", "PIECE": "PCS", "PIECES": "PCS",
+                         "UNIT": "UNIT", "UNITS": "UNIT"}.get((t or "").upper())
+    ci_unit = unit_of(_first_unit(ci))
+    if u and ci_unit and unit_of(u.value) and unit_of(u.value) != ci_unit:
+        out.append(Finding("BL_UNIT", "MINOR", [bl, ci], dict(unit=ci_unit), u.value, ci_unit + "S" if ci_unit == "SET" else ci_unit,
+                           at(bl, u)))
     g, cg = bl.f.get("goods"), ci.f.get("goods")
     if g and cg and _norm_words(g.value) != _norm_words(cg.value):
         out.append(Finding("BL_GOODS_DESC", "ERROR", [bl, ci], {}, g.value, cg.value, at(bl, g) + at(ci, cg, "ref")))
@@ -420,6 +430,27 @@ def r_bl_cargo(ci, co, bl, out):
             sug = (ci.f.get("pod") or ref_f).value
             out.append(Finding("BL_DESTINATION", "ERROR", [bl], dict(dest=fd.value, ref=b), fd.value, sug,
                                at(bl, fd) + at(bl, ref_f, "ref")))
+
+
+def r_co_marks(ci, co, out):
+    """Form D box 6 shipping marks: every model must be an invoice model."""
+    if not (ci and co):
+        return
+    models = [m for m in {it.get("model") for it in ci.items} | {p.get("model") for p in ci.pl_items} if m]
+    for f in co.lists.get("marks_models", []):
+        if f.value not in models:
+            near = difflib.get_close_matches(f.value, models, n=1, cutoff=0.75)
+            out.append(Finding("CO_MARKS_MODEL", "ERROR" if near else "WARNING", [co, ci], dict(model=f.value),
+                               f.value, near[0] if near else "", [Loc(co, f.line.page, None, f.raw)]))
+
+
+def _first_unit(doc) -> str | None:
+    """Unit used for quantities on a document: SET / PCS / ... (first one written after a number)."""
+    for l in doc.lines:
+        m = re.search(r"\b[\d,]+\s*(SETS?|PCS|PIECES?|UNITS?)\b", l.text)
+        if m:
+            return m[1]
+    return None
 
 
 def _norm_words(t: str) -> str:
@@ -660,6 +691,7 @@ def validate(docs: list[Doc]) -> list[Finding]:
     r_hs(ci, co, bl, out)
     r_containers(ci, bl, out)
     r_bl_cargo(ci, co, bl, out)
+    r_co_marks(ci, co, out)
     r_pl_ranges(ci, co, out)
     r_co_packages(ci, co, out)
     r_pod(docs, out)

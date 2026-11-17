@@ -249,6 +249,10 @@ def _extract_bl_cargo(d: Doc):
         if nxt and re.fullmatch(r"\s*[A-Z]{1,3}\s*", nxt.text) and g.end == len(g.line.text.rstrip()):
             g = Field(g.value + nxt.text.strip(), g.raw, g.line, g.start, g.end)
     d.f["goods"] = g
+    for _, l, m in _search(L, r"[\d,]+\s*CARTONS?\s*\(\s*([\d,]+)\s*([A-Z]+)\s*\)", 0):
+        d.f["bl_qty"] = F(l, m, 1, num(m[1]))
+        d.f["bl_unit"] = F(l, m, 2)
+        break
     d.f["final_dest"] = _first(L, r"FINAL DESTINATION\s*:\s*([A-Z][A-Z .]*?)\s*(?:,|$)", flags=0)
     d.f["delivery"] = _after(L, r"\[ Place of Delivery \]", r"\s{2,}([A-Z][A-Z ]*?)(?=,|\s{2,}|$)")
 
@@ -349,6 +353,10 @@ def load(path: Path) -> Doc | None:
     is_draft = bool(re.search(r"\bDRAFT\b", full + "\n" + raw_all, re.I) or "draft" in path.name.lower())
     d = Doc(path, kind, lines, pdf[0].rect.width, is_draft)
     EXTRACTORS[kind](d)
+    if kind == "CO":                                # box 6 marks: model on one line, colour code "(BK)" on the next
+        d.lists["marks_models"] = [Field(a + b, a, Line(pno, 0.0), 0, 0) for pno, pg in enumerate(pdf)
+                                   for a, b in re.findall(r"(?m)^([A-Z][A-Z0-9]*-[A-Z0-9\-]+)\s*\n\s*(\([A-Z0-9]+\)[A-Z]*)\s*$",
+                                                          pg.get_text())]
     d.lists["unparsed"] = _unparsed_rows(d)
     return d
 

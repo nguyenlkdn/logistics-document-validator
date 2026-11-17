@@ -424,6 +424,18 @@
       "vi": "Container {no}: loại không khớp {ref} ({src}); {cbm} CBM không thể chứa trong container {size}' (tối đa khoảng {cap} CBM)",
       "note_en": "Size and type of each container line must match the invoice / B/L summary (HQ = HC, GP = DC)",
       "note_vi": "Kích cỡ và loại từng container phải khớp hóa đơn / dòng tổng trên B/L (HQ = HC, GP = DC)"
+    },
+    "CO_MARKS_MODEL": {
+      "en": "Form D box 6 shipping mark: model {model} is not on the invoice",
+      "vi": "C/O ô 6 ký mã hiệu: model {model} không có trên hóa đơn"
+    },
+    "BL_QTY": {
+      "en": "B/L quantity in brackets ≠ invoice total quantity",
+      "vi": "Số lượng trong ngoặc trên B/L ≠ tổng số lượng hóa đơn"
+    },
+    "BL_UNIT": {
+      "en": "B/L quantity unit differs from the invoice ({unit})",
+      "vi": "Đơn vị số lượng trên B/L khác hóa đơn ({unit})"
     }
   },
   "cities": {
