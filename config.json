@@ -158,6 +158,34 @@
     "bl_summary": {
       "en": "B/L summary",
       "vi": "dòng tổng trên B/L"
+    },
+    "amount": {
+      "en": "amount",
+      "vi": "trị giá"
+    },
+    "hdr_no": {
+      "en": "invoice no.",
+      "vi": "số hóa đơn"
+    },
+    "hdr_date": {
+      "en": "invoice date",
+      "vi": "ngày hóa đơn"
+    },
+    "model": {
+      "en": "model",
+      "vi": "model"
+    },
+    "po": {
+      "en": "P/O",
+      "vi": "P/O"
+    },
+    "consignee": {
+      "en": "Consignee",
+      "vi": "Người nhận hàng"
+    },
+    "shipper": {
+      "en": "Shipper / exporter",
+      "vi": "Người gửi hàng / xuất khẩu"
     }
   },
   "messages": {
@@ -436,6 +464,120 @@
     "BL_UNIT": {
       "en": "B/L quantity unit differs from the invoice ({unit})",
       "vi": "Đơn vị số lượng trên B/L khác hóa đơn ({unit})"
+    },
+    "CI_COVER_TOTAL": {
+      "en": "Invoice cover page TTL {label} ≠ attachment TTL",
+      "vi": "TTL {label} ở trang đầu hóa đơn ≠ TTL trang chi tiết",
+      "note_en": "The attachment total is the one the lines add up to",
+      "note_vi": "Lấy tổng ở trang chi tiết (khớp với tổng các dòng) làm chuẩn"
+    },
+    "PL_COVER_TOTAL": {
+      "en": "Packing list cover page TTL {label} ≠ attachment TTL",
+      "vi": "TTL {label} ở trang đầu Packing List ≠ TTL trang chi tiết",
+      "note_en": "The attachment total is the one the lines add up to",
+      "note_vi": "Lấy tổng ở trang chi tiết (khớp với tổng các dòng) làm chuẩn"
+    },
+    "PL_GW_NW": {
+      "en": "Packing list {model}: gross weight is less than net weight ({nw})",
+      "vi": "Packing List {model}: trọng lượng cả bì nhỏ hơn trọng lượng tịnh ({nw})",
+      "note_en": "Gross weight = net weight + packaging, so it can never be lower",
+      "note_vi": "Trọng lượng cả bì = tịnh + bao bì nên không thể nhỏ hơn"
+    },
+    "ETA_DATE": {
+      "en": "ETA is before the sailing date",
+      "vi": "Ngày dự kiến đến (ETA) trước ngày tàu chạy"
+    },
+    "BL_INVOICE_MISSING": {
+      "en": "Invoice {inv} is in this package but not named on the B/L",
+      "vi": "Hóa đơn {inv} có trong bộ chứng từ nhưng không có trên B/L"
+    },
+    "BL_INVOICE_EXTRA": {
+      "en": "The B/L also covers invoice {inv}, which is not in this package: B/L totals not compared",
+      "vi": "B/L còn gồm hóa đơn {inv} không có trong bộ chứng từ: chưa đối chiếu tổng số trên B/L",
+      "note_en": "Add that invoice and its packing list to check the B/L weights, CBM and cartons",
+      "note_vi": "Thêm hóa đơn và packing list đó để đối chiếu trọng lượng, CBM và số kiện trên B/L"
+    },
+    "DOC_UNPAIRED": {
+      "en": "Could not tell which invoice this document belongs to: compared with invoice {inv}",
+      "vi": "Không xác định được chứng từ này thuộc hóa đơn nào: đã đối chiếu với hóa đơn {inv}",
+      "note_en": "Check the pairing; the findings for this document may belong to another invoice",
+      "note_vi": "Kiểm tra lại; các lỗi của chứng từ này có thể thuộc hóa đơn khác"
+    },
+    "DOC_HEADER": {
+      "en": "Page {page}: {label} differs from the other pages of this file",
+      "vi": "Trang {page}: {label} khác các trang còn lại của file"
+    },
+    "CI_PO_LIST": {
+      "en": "P/O list on the invoice cover ≠ P/O numbers on the lines (missing: {missing}; extra: {extra})",
+      "vi": "Danh sách P/O ở trang đầu hóa đơn ≠ P/O trên các dòng hàng (thiếu: {missing}; thừa: {extra})"
+    },
+    "CO_SUM": {
+      "en": "Form D {label} ≠ sum of its items",
+      "vi": "{label} trên C/O ≠ tổng các mục"
+    },
+    "CO_NUMBERING": {
+      "en": "Form D item numbers are not sequential",
+      "vi": "Số thứ tự các mục trên C/O không liên tục"
+    },
+    "CO_PAGES": {
+      "en": "Form D page numbering is wrong",
+      "vi": "Đánh số trang C/O không đúng"
+    },
+    "CI_PL_CTN": {
+      "en": "Invoice number of cartons ≠ packing list",
+      "vi": "Số thùng trên hóa đơn ≠ Packing List",
+      "note_en": "Packing list is the reference",
+      "note_vi": "Lấy Packing List làm chuẩn"
+    },
+    "LINE_COUNT": {
+      "en": "Packing list has {have} goods lines, invoice has {want}",
+      "vi": "Packing List có {have} dòng hàng, hóa đơn có {want} dòng",
+      "note_en": "Every invoice line (P/O + model) needs its own packing-list line",
+      "note_vi": "Mỗi dòng hóa đơn (P/O + model) phải có dòng tương ứng trên Packing List"
+    },
+    "PL_LINE": {
+      "en": "Packing list line {no}: {what} ≠ invoice line {no}",
+      "vi": "Packing List dòng {no}: {what} ≠ hóa đơn dòng {no}"
+    },
+    "CO_MODEL": {
+      "en": "Form D item {no}: model {model} ≠ invoice line {no} ({ref})",
+      "vi": "C/O mục {no}: model {model} ≠ hóa đơn dòng {no} ({ref})"
+    },
+    "MARKS_MISSING": {
+      "en": "Shipping marks do not list invoice model(s): {models}",
+      "vi": "Ký mã hiệu thiếu model trên hóa đơn: {models}",
+      "note_en": "Every model shipped should appear in the shipping marks",
+      "note_vi": "Mọi model trong lô hàng phải có trong ký mã hiệu"
+    },
+    "CI_MARKS_MODEL": {
+      "en": "Invoice shipping mark: model {model} is not on the invoice",
+      "vi": "Ký mã hiệu trên hóa đơn: model {model} không có trên hóa đơn"
+    },
+    "ORIGIN": {
+      "en": "Country of origin {origin} ≠ {ref} on the other documents",
+      "vi": "Xuất xứ {origin} ≠ {ref} trên các chứng từ khác",
+      "note_en": "A different origin can lose the Form D preferential tariff",
+      "note_vi": "Xuất xứ khác nhau có thể mất ưu đãi thuế theo C/O mẫu D"
+    },
+    "CO_IMPORT_COUNTRY": {
+      "en": "Form D importing country {country} ≠ destination {ref} on the B/L",
+      "vi": "Nước nhập khẩu trên C/O {country} ≠ nơi đến {ref} trên B/L"
+    },
+    "PARTY_NAME": {
+      "en": "{role} name differs from the other documents",
+      "vi": "Tên {role} khác các chứng từ còn lại",
+      "note_en": "Legal-form spelling (CO., LTD. / COMPANY LIMITED) and punctuation are ignored",
+      "note_vi": "Đã bỏ qua khác biệt cách viết loại hình (CO., LTD. / COMPANY LIMITED) và dấu câu"
+    },
+    "CURRENCY": {
+      "en": "Currency {cur} differs from the other documents ({ref})",
+      "vi": "Loại tiền {cur} khác các chứng từ còn lại ({ref})"
+    },
+    "PAYMENT_TERMS": {
+      "en": "Invoice payment terms ≠ Sales Contract",
+      "vi": "Điều kiện thanh toán trên hóa đơn ≠ Hợp đồng",
+      "note_en": "Payment terms are a commercial decision: check which one is agreed",
+      "note_vi": "Điều kiện thanh toán do người phụ trách quyết định: kiểm tra điều kiện đã thỏa thuận"
     }
   },
   "cities": {
@@ -478,7 +620,7 @@
     ]
   },
   "compare": {
-    "_doc": "Cross-document comparison. columns = document sources (PL is the packing-list part of the CI file). src maps column -> extracted field (items.X = values of X over the line items). type: text | number | date | set | port | vessel | hs | po (reference tokens of 8+ letters/digits, so 'PR123456789012/10' = PR123456789012) | docref (reference no.; a value cut off at a line end matches the full number it starts, as in rule CO_INVOICE_NO). A column missing from src = not applicable for that field.",
+    "_doc": "Cross-document comparison. columns = document sources (PL is the packing-list part of the CI file). src maps column -> extracted field (items.X = values of X over the line items). type: text | party (company name; CO., LTD. = COMPANY LIMITED) | terms (payment terms; 'By' and punctuation ignored) | number | date | set | port | vessel | hs | po (reference tokens of 8+ letters/digits, so 'PR123456789012/10' = PR123456789012) | docref (reference no.; a value cut off at a line end matches the full number it starts, as in rule CO_INVOICE_NO). A column missing from src = not applicable for that field.",
     "columns": [
       {
         "id": "CI",
@@ -513,6 +655,31 @@
     ],
     "fields": [
       {
+        "id": "consignee",
+        "en": "Consignee",
+        "vi": "Người nhận hàng",
+        "type": "party",
+        "unit": "",
+        "src": {
+          "CI": "consignee",
+          "SC": "buyer",
+          "BL": "consignee",
+          "CO": "consignee"
+        }
+      },
+      {
+        "id": "shipper",
+        "en": "Shipper / exporter",
+        "vi": "Người gửi hàng / xuất khẩu",
+        "type": "party",
+        "unit": "",
+        "src": {
+          "SC": "seller",
+          "BL": "shipper",
+          "CO": "exporter"
+        }
+      },
+      {
         "id": "invoice_no",
         "en": "Invoice no.",
         "vi": "Số hóa đơn",
@@ -520,7 +687,7 @@
         "unit": "",
         "src": {
           "CI": "invoice_no",
-          "BL": "invoice_no",
+          "BL": "invoice_nos|invoice_no",
           "CO": "items.inv_ref"
         }
       },
@@ -694,28 +861,47 @@
           "CI": "containers",
           "BL": "containers"
         }
+      },
+      {
+        "id": "origin",
+        "en": "Country of origin",
+        "vi": "Xuất xứ",
+        "type": "text",
+        "unit": "",
+        "src": {
+          "CI": "origin",
+          "SC": "origin",
+          "CO": "origin"
+        }
+      },
+      {
+        "id": "currency",
+        "en": "Currency",
+        "vi": "Loại tiền",
+        "type": "set",
+        "unit": "",
+        "src": {
+          "CI": "currency",
+          "SC": "currency",
+          "CO": "currency"
+        }
+      },
+      {
+        "id": "payment",
+        "en": "Payment terms",
+        "vi": "Điều kiện thanh toán",
+        "type": "terms",
+        "unit": "",
+        "src": {
+          "CI": "payment",
+          "SC": "payment"
+        }
       }
     ],
     "not_read": [
       {
-        "en": "Shipper",
-        "vi": "Người gửi hàng"
-      },
-      {
-        "en": "Consignee",
-        "vi": "Người nhận hàng"
-      },
-      {
         "en": "Notify party",
         "vi": "Bên được thông báo"
-      },
-      {
-        "en": "Currency",
-        "vi": "Loại tiền"
-      },
-      {
-        "en": "Country of origin",
-        "vi": "Xuất xứ"
       }
     ],
     "lines": {

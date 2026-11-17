@@ -23,14 +23,16 @@ BASE = ROOT / "tests" / "baseline"
 # A cross-check mismatch must be backed by a rule finding about the same thing (the comparison never contradicts
 # the rules and never invents a problem they did not see).
 FIELD_RULES = {
-    "invoice_no": {"INVOICE_REF", "CO_INVOICE_NO"}, "invoice_date": {"CO_INVOICE_DATE"},
+    "invoice_no": {"INVOICE_REF", "CO_INVOICE_NO", "BL_INVOICE_MISSING", "BL_INVOICE_EXTRA"}, "invoice_date": {"CO_INVOICE_DATE"},
     "po": {"SC_PO_MISSING", "SC_PO_TYPO", "SC_PO_EXTRA"}, "vessel": {"VESSEL"},
     "pol": {"INCOTERM", "PORT_NAME"}, "pod": {"PORT_NAME", "BL_DESTINATION"}, "sailing": {"DEPARTURE_DATE"},
     "goods": {"BL_GOODS_DESC", "CO_GOODS_DESC"}, "hs": {"HS_CODE", "BL_HS_MASTER", "CO_HS_MASTER"},
-    "qty": {"CI_PL_QTY", "CO_QTY", "BL_QTY", "TOTAL_QTY", "SC_VS_CI", "PL_TOTAL"},
-    "amount": {"TOTAL_AMOUNT", "CO_TOTAL", "SC_VS_CI"}, "gw": {"BL_VS_PL", "PL_TOTAL"}, "nw": {"PL_TOTAL"},
-    "cbm": {"BL_VS_PL", "PL_TOTAL"}, "ctn": {"BL_VS_PL", "CO_PKG_COUNT", "CO_TOTAL", "PL_RANGE_TOTAL"},
+    "qty": {"CI_PL_QTY", "CO_QTY", "BL_QTY", "TOTAL_QTY", "SC_VS_CI", "PL_TOTAL", "CO_SUM", "CO_TOTAL", "LINE_COUNT"},
+    "amount": {"TOTAL_AMOUNT", "CO_TOTAL", "SC_VS_CI", "CI_COVER_TOTAL"}, "gw": {"BL_VS_PL", "PL_TOTAL", "BL_INVOICE_EXTRA"}, "nw": {"PL_TOTAL"},
+    "cbm": {"BL_VS_PL", "PL_TOTAL", "BL_INVOICE_EXTRA"}, "ctn": {"BL_VS_PL", "BL_INVOICE_EXTRA", "CO_PKG_COUNT", "CO_TOTAL", "PL_RANGE_TOTAL", "CI_PL_CTN", "CO_SUM"},
     "containers": {"CONTAINERS", "CNTR_COUNT", "CNTR_WORDS"},
+    "consignee": {"PARTY_NAME"}, "shipper": {"PARTY_NAME"}, "origin": {"ORIGIN"}, "currency": {"CURRENCY"},
+    "payment": {"PAYMENT_TERMS"},
 }
 FAILS = []
 
@@ -49,7 +51,16 @@ def test(name):
 
 
 def sets():
-    return [z for z in sorted(BASE.iterdir()) if z.suffix.lower() == ".zip" or z.is_dir()]
+    """Same selection as run_baseline.test_sets(): zips holding PDFs and folders holding PDFs."""
+    import zipfile
+
+    def zip_has_pdf(z):
+        try:
+            return any(n.lower().endswith(".pdf") for n in zipfile.ZipFile(z).namelist())
+        except zipfile.BadZipFile:
+            return False
+    return [z for z in sorted(BASE.iterdir())
+            if (z.suffix.lower() == ".zip" and zip_has_pdf(z)) or (z.is_dir() and any(z.rglob("*.pdf")))]
 
 
 def main():
@@ -58,6 +69,16 @@ def main():
         return 0
     if (BASE / "master_hs.xlsx").exists():
         master.import_xlsx(BASE / "master_hs.xlsx")
+    @test("vessel: the separator is a writing style (Form D 'V.', B/L '/'), a different voyage still differs")
+    def _():
+        from engine.extract import _vessel
+        same = ["ABC STAR V.0123-045A, ", "ABC STAR/ 0123-045A", "ABC STAR / V.0123-045A", "ABC STAR V. 0123-045A",
+                "ABC STAR VOY. 0123-045A", "ABC STAR VOYAGE NO. 0123-045A", "ABC STAR 0123-045A", "abc star/0123-045A"]
+        got = {_vessel(v) for v in same}
+        assert got == {("ABC STAR", "0123-045A")}, got
+        assert _vessel("XY SEA V.12N") != _vessel("XY SEA / 12")
+        assert _vessel("XY SEA V.12N") != _vessel("XY SEAS V.12N")
+
     tmp = Path(tempfile.mkdtemp(prefix="ldv_unit_"))
     hist = History(tmp / "history.db")
     runs = {}
@@ -88,7 +109,8 @@ def main():
                     assert cell["state"] in ("value", "missing", "na", "nodoc")
             for line in c["lines"]:
                 if line["result"] == "mismatch":
-                    assert keys & {"CO_QTY", "SC_VS_CI", "CI_PL_QTY", "LINE_AMOUNT"}, f"{name}: line {line['model']}"
+                    assert keys & {"CO_QTY", "SC_VS_CI", "CI_PL_QTY", "LINE_AMOUNT", "PL_LINE", "LINE_COUNT", "CO_MODEL"}, \
+                        f"{name}: line {line['model']}"
 
     @test("reviewer marks: decisions are logged with who/when, unchanged decisions are not logged twice")
     def _():

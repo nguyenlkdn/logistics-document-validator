@@ -147,7 +147,8 @@ def r_bl_vs_pl(ci, bl, out):
         out.append(Finding("CONTAINERS", "ERROR", [bl, ci], {}, str(c1.value), str(c2.value),
                            at(bl, c1) + at(ci, c2, "ref")))
     b, c = bl.f.get("invoice_no"), ci.f.get("invoice_no")
-    if b and c and b.value != c.value:
+    listed = [f.value for f in bl.lists.get("invoice_nos", [])]          # a B/L can name several invoices
+    if b and c and b.value != c.value and c.value not in listed:
         out.append(Finding("INVOICE_REF", "ERROR", [bl, ci], {}, b.raw, c.value, at(bl, b) + at(ci, c, "ref")))
 
 
@@ -269,9 +270,10 @@ def r_co(ci, co, bl, out):
             out.append(Finding("CO_QTY", "ERROR", [co, ci], dict(no=it["no"]), it["qty"].raw,
                                fmt_like(ci_it["qty"].value, it["qty"].raw),
                                at(co, it["qty"]) + at(ci, ci_it["qty"], "ref")))
-        if inv_no and not inv_no.startswith(it["inv_ref"]):
+        full = it.get("inv_ref_f")                 # whole number read from box 10 (it can wrap onto the next line)
+        if inv_no and (it["inv_ref"] != inv_no if full else not inv_no.startswith(it["inv_ref"])):
             out.append(Finding("CO_INVOICE_NO", "ERROR", [co, ci], dict(no=it["no"]), it["inv_ref"], inv_no,
-                               at_line(co, it["qty"].line)))
+                               at(co, full) + at(ci, ci.f.get("invoice_no"), "ref") if full else at_line(co, it["qty"].line)))
     if len(co.items) != len(ci.items):
         out.append(Finding("CO_ITEMS", "ERROR", [co, ci], {}, str(len(co.items)), str(len(ci.items))))
     for k, ci_k in (("total_value", "total_amount"), ("total_qty", "total_qty")):
@@ -604,11 +606,13 @@ def r_words(docs, out):
         checks = []
         if aw and tot:
             checks.append((aw.value, tot.value, "Amount in words / Số tiền bằng chữ", at_line(d, aw.line)))
-        if d.kind == "CO":
+        if d.kind in ("CO", "BL"):
             joined = " ".join(l.text for l in d.lines)
             for m in re.finditer(r"((?:[A-Z]+[\- ])*[A-Z]+) \(([\d,.]+)\)", joined):
                 if has_pl and re.match(r"\s*(?:CARTON|CASE|PALLET|PACKAGE|BOX)", joined[m.end():]):
                     continue                  # carton counts: r_co_packages checks words and figures vs the packing list
+                if d.kind == "BL" and re.match(r"\s*CONTAINER", joined[m.end():]):
+                    continue                  # container count in words: r_containers (CNTR_WORDS)
                 checks.append((m[1], float(m[2].replace(",", "")), f"{m[1]} ({m[2]})",
                                [Loc(d, None, None, f"({m[2]})")]))
         for words, n, what, locs in checks:
@@ -673,6 +677,101 @@ def r_draft_status(docs, out):
 
 
 def validate(docs: list[Doc]) -> list[Finding]:
+    """One invoice: every rule on the whole package. Several invoices under one B/L: the rules per invoice (its own
+    contract and Form D, plus the B/L), then the B/L against all invoices together."""
+    cis = [d for d in docs if d.kind == "CI"]
+    if len(cis) <= 1:
+        out = _validate_group(docs)
+        _bl_invoices(docs, cis, out)
+    else:
+        out = _validate_multi(docs, cis)
+    out.sort(key=lambda f: SEVERITY.index(f.severity))
+    return out
+
+
+_SHARED_TOTALS = ("BL_VS_PL", "INVOICE_REF", "CONTAINERS")   # B/L figures that cover all invoices of the package
+
+
+def _pair_score(d: Doc, ci: Doc) -> int:
+    """How surely document d (contract, Form D) belongs to invoice ci."""
+    no = _v(ci.f.get("invoice_no")) or ""
+    score = 0
+    if no and any(e["no"].value == no for e in d.lists.get("invoices", [])):        # Form D box 10
+        score += 100
+    if no and no.upper() in d.name.upper():
+        score += 50
+    amt = _v(d.f.get("total_amount")) or _v(d.f.get("total_value"))
+    if _close(amt, _v(ci.f.get("total_amount")), 0.01):
+        score += 30
+    if _close(_v(d.f.get("total_qty")), _v(ci.f.get("total_qty")) or _v(ci.f.get("pl_total_qty")), 0.01):
+        score += 10
+    pos, cpos = set(re.findall(r"[A-Z]{2}\d{6,}", str(_v(d.f.get("pos")) or ""))), \
+        set(re.findall(r"[A-Z]{2}\d{6,}", str(_v(ci.f.get("pos")) or "")))
+    if pos and pos <= cpos:
+        score += 5
+    return score
+
+
+def _sig(f: Finding):
+    return (f.key, f.severity, tuple(d.name for d in f.docs), f.current, f.suggested,
+            tuple((l.doc.name, l.page, l.clip, l.text, l.role) for l in f.locs))
+
+
+def _validate_multi(docs: list[Doc], cis: list[Doc]) -> list[Finding]:
+    groups = {id(c): [c] for c in cis}
+    shared = [d for d in docs if d.kind not in ("CI", "SC", "CO")]       # B/L: one for the whole shipment
+    out: list[Finding] = []
+    for d in docs:
+        if d.kind not in ("SC", "CO"):
+            continue
+        scores = sorted(((_pair_score(d, c), i) for i, c in enumerate(cis)), reverse=True)
+        best = cis[scores[0][1]]
+        groups[id(best)].append(d)
+        if scores[0][0] == 0 or scores[0][0] == scores[1][0]:
+            out.append(Finding("DOC_UNPAIRED", "WARNING", [d, best], dict(inv=_v(best.f.get("invoice_no")) or best.name)))
+    seen = set()
+    for c in cis:
+        for f in _validate_group(groups[id(c)] + shared):
+            if f.key in _SHARED_TOTALS or _sig(f) in seen:   # same B/L finding from every invoice: once
+                continue
+            seen.add(_sig(f))
+            out.append(f)
+    _bl_invoices(docs, cis, out)
+    for bl in (d for d in shared if d.kind == "BL"):
+        listed = {f.value for f in bl.lists.get("invoice_nos", [])}
+        if listed - {_v(c.f.get("invoice_no")) for c in cis}:
+            continue                                      # B/L covers more than this package: BL_INVOICE_EXTRA
+        for k, pk in (("gw", "pl_total_gw"), ("cbm", "pl_total_cbm"), ("ctn", "pl_total_ctn")):
+            b, ps = bl.f.get(k), [c.f.get(pk) for c in cis]
+            if not b or not all(ps):
+                continue
+            total = sum(p.value for p in ps)
+            if not _close(b.value, total, 0.0005):
+                out.append(Finding("BL_VS_PL", "ERROR", [bl] + cis, dict(label=f"@{k}"), b.raw, fmt_like(total, b.raw),
+                                   at(bl, b) + [l for c, p in zip(cis, ps) for l in at(c, p, "ref")]))
+    return out
+
+
+def _bl_invoices(docs: list[Doc], cis: list[Doc], out: list):
+    """The invoices named on the B/L = the invoices in the package."""
+    inv = {_v(c.f.get("invoice_no")): c for c in cis if _v(c.f.get("invoice_no"))}
+    for bl in (d for d in docs if d.kind == "BL"):
+        listed = {f.value: f for f in bl.lists.get("invoice_nos", [])}
+        if not listed or not inv or not (set(listed) & set(inv)):
+            continue                                      # none matches: INVOICE_REF (one invoice) / per invoice below
+        extra = [n for n in listed if n not in inv]
+        for n in extra:
+            out.append(Finding("BL_INVOICE_EXTRA", "WARNING", [bl], dict(inv=n), n, "", at(bl, listed[n])))
+        if extra:                                         # its weights / CBM / cartons include the missing invoice
+            out[:] = [f for f in out if not (f.key == "BL_VS_PL" and f.docs[0] is bl)]
+        if len(cis) > 1:
+            for n, c in inv.items():
+                if n not in listed:
+                    out.append(Finding("BL_INVOICE_MISSING", "ERROR", [bl, c], dict(inv=n), ", ".join(listed), n,
+                                       [l for f in listed.values() for l in at(bl, f)] + at(c, c.f.get("invoice_no"), "ref")))
+
+
+def _validate_group(docs: list[Doc]) -> list[Finding]:
     by = lambda k: [d for d in docs if d.kind == k]
     ci = next(iter(by("CI")), None)
     bl = next(iter(by("BL")), None)
@@ -700,7 +799,8 @@ def validate(docs: list[Doc]) -> list[Finding]:
     r_broken_wrap(docs, out)
     r_documents(scs, by("CO"), out)
     r_draft_status(docs, out)
-    out.sort(key=lambda f: SEVERITY.index(f.severity))
+    from .rules_net import validate_net                # cross-document + self-consistency rules (2.1)
+    validate_net(docs, ci, bl, co, scs, out)
     return out
 
 

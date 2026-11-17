@@ -101,8 +101,17 @@ def _fob_all(lines):
 
 
 def _vessel(raw: str):
-    m = re.match(r"\s*(.+?)\s*(?:V\.|/)\s*(\w+)\s*$", raw)
-    return (m[1].strip().upper(), m[2].upper()) if m else (raw.strip().upper(), "")
+    """(vessel name, voyage). The separator is only a writing style: Form D needs 'V.', the B/L often uses '/', so
+    'ABC STAR V.0123-045A' = 'ABC STAR/ 0123-045A' = 'ABC STAR / V. 0123-045A' = 'ABC STAR VOY. 0123-045A'
+    = 'ABC STAR 0123-045A' (a last word with a digit is the voyage)."""
+    t = re.sub(r"[\s,.;]+$", "", raw.strip().upper())
+    m = (re.match(r"(.+?)\s*(?:/\s*)?(?:\bV(?:OY(?:AGE)?)?\.?\s*(?:NO\.?)?\s*)(\d[\w\-]*)$", t)      # V. / V / VOY. / VOYAGE NO.
+         or re.match(r"(.+?)\s*/\s*(\w[\w\-]*)$", t)                                              # NAME / VOY
+         or re.match(r"(.+?[A-Z])\s+(\d[\w\-]*)$", t))                                            # NAME VOY
+    if not m:
+        return (t, "")
+    name = re.sub(r"[\s/,]+$", "", m[1]).strip()
+    return (re.sub(r"\s+", " ", name), m[2])
 
 
 # ---------------------------------------------------------------- per kind
@@ -359,6 +368,8 @@ def load(path: Path, kind: str | None = None) -> Doc | None:
                                    for a, b in re.findall(r"(?m)^([A-Z][A-Z0-9]*-[A-Z0-9\-]+)\s*\n\s*(\([A-Z0-9]+\)[A-Z]*)\s*$",
                                                           pg.get_text())]
     d.lists["unparsed"] = _unparsed_rows(d)
+    from .extract_net import EXTRA                   # extra fields for the cross-document / self-check rules
+    EXTRA[kind](d)
     return d
 
 

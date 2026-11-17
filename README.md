@@ -16,7 +16,9 @@ config.json            ports, typo rules, slack days, required fields, EN/VI mes
 engine/
   pdftext.py           rebuild text lines with geometry (ignores rotated watermarks)
   extract.py           classify CI/SC/BL/CO + extract fields (each remembers page/position)
+  extract_net.py       extra fields for the cross-document / self-check rules (parties, origin, TTL lines, …)
   rules.py             validation rules → Finding (message key, current, suggested, locations)
+  rules_net.py         cross-document and self-consistency rules (2.1); full list: docs/RULES.md
   evidence.py          page screenshots: red = wrong value, green = reference
   report.py            report.xlsx (Findings · Extracted data · Not recognised) + report.md
   review_report.py     review report (PDF / Excel / HTML) with reviewer sign-off; saved in <report folder>/reports/
@@ -44,6 +46,7 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python tests/run_baseline.py            # must print ALL PASS
 .venv/bin/python tests/run_unit.py                # review features (cross-check, sign-off, reports, search)
 .venv/bin/python tests/ui_smoke.py                # optional, browser walk-through (pip install playwright)
+.venv/bin/python tools/rules_doc.py               # regenerate docs/RULES.md after adding or changing a rule
 .venv/bin/python -m streamlit run app.py
 ```
 After an intended change in results: review the new output manually, then `tests/run_baseline.py --update`.
@@ -104,3 +107,10 @@ pymupdf needs MSVCP140.dll, which Python does not ship. `Setup.bat` installs the
 
 ## Test sets
 Real shipment documents are confidential and are **not** in this (public) repository. Keep them in `tests/baseline/` on your own machine only; see `tests/baseline/README.md`.
+
+## Synthetic test sets
+`tools/mutate_pdf.py SPEC.json` copies a test set and changes text in its PDFs (the original text is blanked out
+and the new text written in its place), so a rule can be tested on an error the real documents do not contain.
+Specs live in `tests/baseline/specs/` (ignored by git, like the documents they are made from). The sets
+`Synthetic_net_A/B/C` cover the 2.1 rules; after changing a spec, rebuild the set, review its findings and
+approve with `tests/run_baseline.py --update`.

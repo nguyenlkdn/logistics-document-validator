@@ -36,14 +36,27 @@ def snapshot(zip_path: Path) -> dict:
     }
 
 
+def test_sets() -> list[Path]:
+    """Every .zip and every folder holding PDFs (not specs/ or other helper folders, not an empty zip)."""
+    import zipfile
+
+    def zip_has_pdf(z):
+        try:
+            return any(n.lower().endswith(".pdf") for n in zipfile.ZipFile(z).namelist())
+        except zipfile.BadZipFile:
+            return False
+    return [z for z in sorted(BASE.iterdir())
+            if (z.suffix.lower() == ".zip" and zip_has_pdf(z)) or (z.is_dir() and any(z.rglob("*.pdf")))]
+
+
 def main():
     from engine import master
     if (BASE / "master_hs.xlsx").exists():
         master.import_xlsx(BASE / "master_hs.xlsx")
-    if not any(z.suffix.lower() == ".zip" or z.is_dir() for z in BASE.iterdir()):
+    if not test_sets():
         print("No test sets in tests/baseline/ (confidential, kept outside git). See tests/baseline/README.md.")
         return 0
-    current = {z.name: snapshot(z) for z in sorted(BASE.iterdir()) if z.suffix.lower() == ".zip" or z.is_dir()}
+    current = {z.name: snapshot(z) for z in test_sets()}
     if "--update" in sys.argv:
         EXPECTED.write_text(json.dumps(current, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
         print(f"Baseline updated: {EXPECTED}")

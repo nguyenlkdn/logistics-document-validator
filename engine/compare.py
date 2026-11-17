@@ -54,6 +54,9 @@ def _norm(v: str, typ: str):
         return re.sub(r"[^A-Z0-9]", "", s)
     if typ == "hs":
         return master.digits(s)
+    if typ in ("party", "terms"):                 # same normalisation as the PARTY_NAME / PAYMENT_TERMS rules
+        from .rules_net import _party, _terms
+        return _party(s) if typ == "party" else _terms(s)
     return s.strip(" .,;:")
 
 
@@ -70,7 +73,8 @@ def _values(doc: dict, src: str, typ: str) -> tuple[list[str], int | None]:
                         vals.append(a)
                 page = page or it.get("_page")
         return vals, page
-    f = doc.get("fields", {}).get(src)
+    fields = doc.get("fields", {})
+    f = next((fields[k] for k in src.split("|") if fields.get(k)), None)      # "a|b": first one that was read
     if not f or f.get("value") in (None, ""):
         return [], None
     return _atoms(f["value"], typ), f.get("page")
