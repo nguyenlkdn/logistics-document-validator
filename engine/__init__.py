@@ -10,7 +10,7 @@ from datetime import datetime
 from pathlib import Path
 
 from . import _dllpath  # noqa: F401  (must come before anything that imports pymupdf)
-from . import evidence, master, report
+from . import evidence, master, report, session
 from .extract import load
 from .rules import CONFIG, unrecognised, validate
 
@@ -27,7 +27,7 @@ class Result:
     markdown: str = ""
     workdir: Path | None = field(default=None, repr=False)
     doc_files: dict = field(default_factory=dict)
-    marks: dict = field(default_factory=dict)      # document name -> finding locations (preview highlights)  # document name -> its copy in the report folder (preview)
+    marks: dict = field(default_factory=dict)      # document name -> finding locations (preview highlights)
     fingerprint: str = ""          # hash of the PDF contents: same files -> same fingerprint (history)
 
 
@@ -92,6 +92,7 @@ def check(inputs: list[Path], name: str | None = None, out_root: Path | None = N
     report.excel(res, res.excel)
     res.markdown = report.markdown(res)
     (out / "report.md").write_text(res.markdown, encoding="utf-8")
+    session.save(res)                              # lets the UI reopen this review without checking again
     if not keep_workdir:
         shutil.rmtree(workdir, ignore_errors=True)
     return res

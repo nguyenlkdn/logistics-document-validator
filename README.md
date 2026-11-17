@@ -19,7 +19,16 @@ engine/
   rules.py             validation rules → Finding (message key, current, suggested, locations)
   evidence.py          page screenshots: red = wrong value, green = reference
   report.py            report.xlsx (Findings · Extracted data · Not recognised) + report.md
+  session.py           review.json in each report folder: reopen a review without checking again
+  history.py           history.db: checks, revisions, reviewer status/notes (kept apart from findings)
   __init__.py          check(inputs) → Result
+app.py                 web app entry: sidebar, navigation, right-click jobs
+ui/
+  i18n.py              every UI string (EN / VI / both)
+  state.py             open review, reviewer marks, filters, page switching
+  components.py        styling, severity chips, workflow stepper, number tiles, bars
+  views/               dashboard · new_review · review (findings) · history · reference · settings
+docs/REDESIGN.md       UI modernisation: assessment and phased plan
 tests/baseline/        test sets + expected.json (confidential, local only, not in git)
 tests/run_baseline.py  regression test
 ```
@@ -46,7 +55,7 @@ The company's HS Excel (model → HS code, header row e.g. `Mã NPL/SP` | `Mã H
 **not** stored in the repository: `engine/master.py` converts it into `master_hs.json` in the data folder
 (`~/Documents/LDV_data`, config `data_dir`, env `LDV_DATA_DIR`) and logs each import in `master_hs_log.jsonl`
 (models added / removed / changed). LDV remembers the Excel's path and re-imports it automatically before each check
-when the file has changed. Import: sidebar *HS master list*, drag the Excel onto `Import-HS.bat`, `./import_hs.sh <file>`,
+when the file has changed. Import: page *Reference data* (preview + confirm before replacing), drag the Excel onto `Import-HS.bat`, `./import_hs.sh <file>`,
 or `python -m engine.master <file>`.
 Rules: `CO_HS_MASTER` (Form D item HS ≠ master), `BL_HS_MASTER` (B/L heading matches no invoice model's master HS),
 `HS_MASTER_MISSING` (invoice model not in the list). Models not in the list fall back to Form D vs B/L (`HS_CODE`).
@@ -56,7 +65,8 @@ Tests use their own copy `tests/baseline/master_hs.xlsx` (ignored by git), never
 Every check is saved in `history.db` (SQLite) in the report folder. A shipment = its invoice no.; a new check of the
 same invoice with changed files = next revision, compared with the previous one (fixed / still there / new).
 Each finding can be marked Open, Fixed, Not an error or Waiting for supplier, with a note. Marks carry over to later
-revisions. The History page lists all checks and exports a feedback Excel.
+revisions. The *Review history* page lists, searches and filters all checks, reopens one (from its `review.json`,
+no re-analysis) and exports a feedback Excel.
 
 ## Right-click menu
 `Setup.bat` puts a shortcut "LDV Checker" in the user's SendTo folder and "LDV" on the Desktop (no admin). It runs `ldv_open.py` with the selected paths:
