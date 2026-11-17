@@ -476,5 +476,253 @@
       "CMIT",
       "VNCMP"
     ]
+  },
+  "compare": {
+    "_doc": "Cross-document comparison. columns = document sources (PL is the packing-list part of the CI file). src maps column -> extracted field (items.X = values of X over the line items). type: text | number | date | set | port | vessel | hs | po (reference tokens of 8+ letters/digits, so 'PR123456789012/10' = PR123456789012) | docref (reference no.; a value cut off at a line end matches the full number it starts, as in rule CO_INVOICE_NO). A column missing from src = not applicable for that field.",
+    "columns": [
+      {
+        "id": "CI",
+        "kind": "CI",
+        "en": "Invoice",
+        "vi": "Hóa đơn"
+      },
+      {
+        "id": "PL",
+        "kind": "CI",
+        "en": "Packing list",
+        "vi": "Packing List"
+      },
+      {
+        "id": "SC",
+        "kind": "SC",
+        "en": "Sales contract",
+        "vi": "Hợp đồng"
+      },
+      {
+        "id": "BL",
+        "kind": "BL",
+        "en": "B/L",
+        "vi": "Vận đơn"
+      },
+      {
+        "id": "CO",
+        "kind": "CO",
+        "en": "Form D",
+        "vi": "C/O mẫu D"
+      }
+    ],
+    "fields": [
+      {
+        "id": "invoice_no",
+        "en": "Invoice no.",
+        "vi": "Số hóa đơn",
+        "type": "docref",
+        "unit": "",
+        "src": {
+          "CI": "invoice_no",
+          "BL": "invoice_no",
+          "CO": "items.inv_ref"
+        }
+      },
+      {
+        "id": "invoice_date",
+        "en": "Invoice date",
+        "vi": "Ngày hóa đơn",
+        "type": "date",
+        "unit": "",
+        "src": {
+          "CI": "invoice_date",
+          "CO": "items.inv_date"
+        }
+      },
+      {
+        "id": "po",
+        "en": "Contract / PO no.",
+        "vi": "Số hợp đồng / PO",
+        "type": "po",
+        "unit": "",
+        "src": {
+          "CI": "pos",
+          "SC": "sc_no"
+        }
+      },
+      {
+        "id": "vessel",
+        "en": "Vessel / voyage",
+        "vi": "Tên tàu / chuyến",
+        "type": "vessel",
+        "unit": "",
+        "src": {
+          "CI": "vessel",
+          "BL": "vessel",
+          "CO": "vessel"
+        }
+      },
+      {
+        "id": "pol",
+        "en": "Port of loading",
+        "vi": "Cảng xếp hàng",
+        "type": "port",
+        "unit": "",
+        "src": {
+          "CI": "pol",
+          "BL": "pol"
+        }
+      },
+      {
+        "id": "pod",
+        "en": "Port of discharge",
+        "vi": "Cảng dỡ hàng",
+        "type": "port",
+        "unit": "",
+        "src": {
+          "CI": "pod",
+          "BL": "pod",
+          "CO": "pod"
+        }
+      },
+      {
+        "id": "sailing",
+        "en": "Shipment / departure date",
+        "vi": "Ngày tàu chạy",
+        "type": "date",
+        "unit": "",
+        "src": {
+          "CI": "sailing",
+          "CO": "departure"
+        }
+      },
+      {
+        "id": "goods",
+        "en": "Goods description",
+        "vi": "Mô tả hàng hóa",
+        "type": "text",
+        "unit": "",
+        "src": {
+          "CI": "goods",
+          "BL": "goods"
+        }
+      },
+      {
+        "id": "hs",
+        "en": "HS code",
+        "vi": "Mã HS",
+        "type": "hs",
+        "unit": "",
+        "src": {
+          "BL": "hs",
+          "CO": "items.hs"
+        }
+      },
+      {
+        "id": "qty",
+        "en": "Total quantity",
+        "vi": "Tổng số lượng",
+        "type": "number",
+        "unit": "",
+        "src": {
+          "CI": "total_qty",
+          "PL": "pl_total_qty",
+          "SC": "total_qty",
+          "BL": "bl_qty",
+          "CO": "total_qty"
+        }
+      },
+      {
+        "id": "amount",
+        "en": "Total amount",
+        "vi": "Tổng trị giá",
+        "type": "number",
+        "unit": "",
+        "src": {
+          "CI": "total_amount",
+          "SC": "total_amount",
+          "CO": "total_value"
+        }
+      },
+      {
+        "id": "gw",
+        "en": "Gross weight",
+        "vi": "Trọng lượng cả bì",
+        "type": "number",
+        "unit": "KG",
+        "src": {
+          "PL": "pl_total_gw",
+          "BL": "gw"
+        }
+      },
+      {
+        "id": "nw",
+        "en": "Net weight",
+        "vi": "Trọng lượng tịnh",
+        "type": "number",
+        "unit": "KG",
+        "src": {
+          "PL": "pl_total_nw"
+        }
+      },
+      {
+        "id": "cbm",
+        "en": "Measurement",
+        "vi": "Thể tích",
+        "type": "number",
+        "unit": "CBM",
+        "src": {
+          "PL": "pl_total_cbm",
+          "BL": "cbm"
+        }
+      },
+      {
+        "id": "ctn",
+        "en": "Cartons",
+        "vi": "Số thùng",
+        "type": "number",
+        "unit": "",
+        "src": {
+          "PL": "pl_total_ctn",
+          "BL": "ctn",
+          "CO": "total_ctn"
+        }
+      },
+      {
+        "id": "containers",
+        "en": "Containers",
+        "vi": "Số container",
+        "type": "number",
+        "unit": "",
+        "src": {
+          "CI": "containers",
+          "BL": "containers"
+        }
+      }
+    ],
+    "not_read": [
+      {
+        "en": "Shipper",
+        "vi": "Người gửi hàng"
+      },
+      {
+        "en": "Consignee",
+        "vi": "Người nhận hàng"
+      },
+      {
+        "en": "Notify party",
+        "vi": "Bên được thông báo"
+      },
+      {
+        "en": "Currency",
+        "vi": "Loại tiền"
+      },
+      {
+        "en": "Country of origin",
+        "vi": "Xuất xứ"
+      }
+    ],
+    "lines": {
+      "CI": "items",
+      "PL": "pl_items",
+      "SC": "items",
+      "CO": "items"
+    }
   }
 }

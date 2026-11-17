@@ -80,6 +80,12 @@ def render():
                   (t1("st_not_error"), c["not_error"], "MUTED"), (t1("st_waiting"), c["waiting"], "WAITING"),
                   (t1("st_in_review"), c["in_review"], "INFO"), (t1("st_open"), c["open"], "ERROR")])
     with r:
+        if any(d.get("fields") for d in s["docs"]):
+            from engine.compare import compare
+            n_diff = sum(x["result"] == "mismatch" for x in compare(s)["rows"])
+            if st.button(t1("cmp_link", n=n_diff) if n_diff else t1("cmp_link_ok"), type="tertiary",
+                         icon=":material/compare:", key="dash_cmp"):
+                state.go("compare")
         st.subheader(t("docs_status"))
         st.caption(t("docs_click"))
         rows = state.per_doc(s)

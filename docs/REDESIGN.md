@@ -38,6 +38,7 @@ PDF viewer in Phase 2 hits a hard limit (see 6).
 | Review | **Dashboard** | verdict, package / findings / progress numbers (each clickable), severity distribution, documents table |
 | | **New review** | drag-and-drop, file inventory (detected type, pages, size, duplicates, validation) → Start analysis |
 | | **Review workspace** | documents · page viewer · finding panel (Phase 2) |
+| | **Cross-check** | fields × documents, goods lines by model (Phase 4) |
 | | **Findings** | all findings in one table, filters, bulk status / comment, Excel (Phase 3) |
 | Records | **Review history** | search, open/clear filter, date range; open review, Excel report, folder, quick status edit, feedback Excel |
 | Data & settings | **Reference data** | HS master: status, preview + diff + confirm before import, browse/search the list, ignored rows |
@@ -55,6 +56,7 @@ ui/i18n.py              T{key: (en, vi)}, t() / t1(), severity / kind / message 
 ui/state.py             open review (session dict), reviewer marks, counts, per-document rows,
                         filters kept outside widget keys (so the dashboard can set them), go(page)
 ui/components.py        CSS, chips, stepper, verdict, tiles (clickable numbers), bars, stats
+engine/compare.py       cross-document comparison on a stored session (field map in config.json)
 ui/viewer.py            page viewer: cached page images, overlay boxes, search, text layer, focus scroll, keys
 ui/views/*.py           one render() per page; they read state and engine results
 engine/session.py       review.json writer/loader (+ fallback for checks saved by ≤ 1.3 from history.db)
@@ -75,7 +77,7 @@ unrecognised items, highlight boxes per document. The extracted fields are alrea
 | 1 UI foundation | layout + navigation, new review with inventory, dashboard, findings page with filters, history search + reopen, reference data with import preview, centralised strings, blue theme | **done** |
 | 2 Review workspace | three panes: document list · page viewer (page nav, fit width / fit page / 100–200 %, find in document, selectable text, original PDF download) · finding panel (found / expected, document, compared with, evidence links to the value and the reference value, what to check, status + note, snapshots). Clicking a finding opens its page and centres its box; ↑/↓ (or k/j) move between findings, Esc closes the panel. Document type can be corrected before analysis | **done** |
 | 3 Findings management | Findings page: every finding of the open review, of all shipments (latest revision) or of all revisions; filters for severity, status, document type, rule, date, keyword; multi-select → set status and/or comment in one go, open one in the workspace; Excel export of the filtered list. New statuses *In review* and *Accepted – no action*; reviewer name (Settings, no login) and a per-finding activity trail (`mark_log`) | **done** |
-| 4 Cross-document comparison | field × document grid (invoice no., consignee, qty, G.W., N.W., CBM, cartons, vessel, POL/POD, dates, HS) from `review.json` fields; match / mismatch / missing / not applicable; click a cell → page | |
+| 4 Cross-document comparison | Cross-check page: 16 fields × Invoice / Packing list / Sales contract / B/L / Form D (invoice no., date, PO, vessel, POL, POD, sailing, goods, HS, quantity, amount, G.W., N.W., CBM, cartons, containers) with match / mismatch / not read / not applicable / no document; goods lines by model (quantity on 4 documents, price on invoice and contract); click a value → its page in the workspace; dashboard link with the number of differing fields. Logic in `engine/compare.py`, field map in `config.json` `compare` | **done** |
 | 5 Report center | preview, PDF + Excel + HTML export, EN / VI / both, include/exclude Info or resolved, automated vs reviewer sections, sign-off with explicit exception note for open errors | |
 | 6 Polish & QA | Ctrl+K search, keyboard navigation, accessibility, large packages, UI regression (Playwright) next to the baseline test | |
 
@@ -89,7 +91,8 @@ unrecognised items, highlight boxes per document. The extracted fields are alrea
 | Correcting a type after analysis | unrecognised PDFs are not copied into the report folder | copy every input file to `documents/`, then allow "change type and check again" from the workspace |
 | Statuses *In review* / *Accepted* (Phase 3) | — | **done**: open, in_review, waiting (to do) · fixed, accepted, not_error (done); old marks keep their meaning |
 | Reviewer identity, comment history (Phase 3) | — | **done**: `mark_log` (who, when, from → to, note); the name is set in Settings and saved in the data folder |
-| Comparison grid (Phase 4) | fields are not mapped to one vocabulary across CI/SC/BL/CO | field map in `config.json` (field → key per document kind, unit) |
+| Comparison grid (Phase 4) | — | **done**: `config.json` `compare` (field → extracted key per column, type, unit). Uses the engine's equivalences (port/city names, HS headings, Form D invoice no. cut at a line end, PO suffixes) so it never contradicts the rules: on the 7 test sets every mismatch has a matching rule finding |
+| Shipper, consignee, notify party, currency, country of origin | not extracted by the engine | add extractors per document kind (changes the baseline, needs re-approval); listed on the page as "not compared" until then |
 | Report sign-off (Phase 5) | no record of a reviewer conclusion | `signoff` table (check id, result, exception note, who, when) |
 | Archive review (history) | — | `archived` flag on `checks`; hidden by default |
 

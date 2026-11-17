@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from ui import components as ui                                     # noqa: E402
 from ui import state                                                # noqa: E402
 from ui.i18n import LANGS, t, t1                                    # noqa: E402
-from ui.views import dashboard, findings, history, new_review, reference, review, settings  # noqa: E402
+from ui.views import compare, dashboard, findings, history, new_review, reference, review, settings  # noqa: E402
 
 st.set_page_config(page_title="LDV - Logistics Document Validator", page_icon="📦", layout="wide",
                    initial_sidebar_state="expanded")
@@ -49,11 +49,12 @@ P["dashboard"] = st.Page(dashboard.render, title=t1("nav_dashboard"), icon=":mat
                          default=True)
 P["new"] = st.Page(new_review.render, title=t1("nav_new"), icon=":material/upload_file:", url_path="new")
 P["review"] = st.Page(review.render, title=t1("nav_review"), icon=":material/fact_check:", url_path="findings")
+P["compare"] = st.Page(compare.render, title=t1("nav_compare"), icon=":material/compare:", url_path="cross-check")
 P["findings"] = st.Page(findings.render, title=t1("nav_findings"), icon=":material/checklist:", url_path="all-findings")
 P["history"] = st.Page(history.render, title=t1("nav_history"), icon=":material/history:", url_path="history")
 P["reference"] = st.Page(reference.render, title=t1("nav_reference"), icon=":material/table_view:", url_path="reference")
 P["settings"] = st.Page(settings.render, title=t1("nav_settings"), icon=":material/settings:", url_path="settings")
-nav = st.navigation({t1("sec_review"): [P["dashboard"], P["new"], P["review"], P["findings"]],
+nav = st.navigation({t1("sec_review"): [P["dashboard"], P["new"], P["review"], P["compare"], P["findings"]],
                      t1("sec_records"): [P["history"]],
                      t1("sec_data"): [P["reference"], P["settings"]]})
 

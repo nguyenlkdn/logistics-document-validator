@@ -19,6 +19,7 @@ engine/
   rules.py             validation rules → Finding (message key, current, suggested, locations)
   evidence.py          page screenshots: red = wrong value, green = reference
   report.py            report.xlsx (Findings · Extracted data · Not recognised) + report.md
+  compare.py           cross-check of the same fields across documents (map: config.json "compare")
   session.py           review.json in each report folder: reopen a review without checking again
   history.py           history.db: checks, revisions, reviewer status/notes (kept apart from findings)
   __init__.py          check(inputs) → Result
@@ -28,7 +29,7 @@ ui/
   state.py             open review, reviewer marks, filters, page switching
   components.py        styling, severity chips, workflow stepper, number tiles, bars
   viewer.py            page viewer: page image + HTML boxes, search, selectable text (PDF is only read)
-  views/               dashboard · new_review · review (workspace) · findings · history · reference · settings
+  views/               dashboard · new_review · review (workspace) · compare · findings · history · reference · settings
 docs/REDESIGN.md       UI modernisation: assessment and phased plan
 tests/baseline/        test sets + expected.json (confidential, local only, not in git)
 tests/run_baseline.py  regression test

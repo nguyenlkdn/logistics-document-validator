@@ -31,6 +31,13 @@ def app_version() -> str:
     return f.read_text(encoding="utf-8").strip() if f.exists() else "dev"
 
 
+def _item(it: dict) -> dict:
+    """A line item as plain values, with the page of the line ("_page", 1-based) for the comparison view."""
+    out = {k: _plain(v) for k, v in it.items()}
+    out["_page"] = next((_page(v) for v in it.values() if _page(v)), None)
+    return out
+
+
 def build(res) -> dict:
     """Serialise a Result (call after the report folder is complete)."""
     import pymupdf
@@ -50,8 +57,7 @@ def build(res) -> dict:
             name=d.name, kind=d.kind, kind_set_by_user=d.name in (res.kinds or {}), pages=pages, is_draft=d.is_draft,
             file=rel(copy) if copy else None,
             fields={k: dict(value=_plain(v), page=_page(v)) for k, v in d.f.items()},
-            items=[{k: _plain(v) for k, v in it.items()} for it in d.items],
-            pl_items=[{k: _plain(v) for k, v in it.items()} for it in d.pl_items]))
+            items=[_item(it) for it in d.items], pl_items=[_item(it) for it in d.pl_items]))
     findings, locs = [], locations(res.findings)
     for i, (f, sig) in enumerate(zip(res.findings, History.sigs(res.findings)), 1):
         findings.append(dict(
