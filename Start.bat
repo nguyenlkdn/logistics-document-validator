@@ -20,7 +20,12 @@ rem so an update may safely replace this file while it runs.
   echo  Keep this window open while using the app. Close it to stop.
   echo  Giu cua so nay mo khi su dung. Dong cua so de tat chuong trinh.
   echo ============================================================
-  ".venv\Scripts\python.exe" -m streamlit run app.py
+  rem "nobrowser": started by right-click Send to, which opens the browser itself
+  if /i "%~1"=="nobrowser" (
+    ".venv\Scripts\python.exe" -m streamlit run app.py --server.headless true
+  ) else (
+    ".venv\Scripts\python.exe" -m streamlit run app.py
+  )
   pause
   exit /b 0
 )

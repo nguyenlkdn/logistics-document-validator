@@ -2,7 +2,9 @@
 
 Run:  Start.bat   (or: python -m streamlit run app.py)
 """
+import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -50,6 +52,7 @@ T = {
     "file_filter": ("Show file", "Hiển thị file"),
     "all_files": ("All files", "Tất cả file"),
     "version": ("Version", "Phiên bản"),
+    "from_menu": ("Checked from right-click menu", "Kiểm tra từ menu chuột phải"),
 }
 _vf = Path(__file__).resolve().parent / "VERSION"
 VERSION = _vf.read_text(encoding="utf-8").strip() if _vf.exists() else "dev"
@@ -91,6 +94,27 @@ if st.button(t("check"), type="primary", disabled=not files):
                 paths.append(p)
             name = Path(zips[0].name).stem if zips else None
             st.session_state["result"] = check(paths, name=name)
+            st.session_state.pop("job_files", None)
+
+# ---- right-click "Send to > LDV Checker": ldv_open.py leaves the selected paths in a job file
+job = st.query_params.get("job", "")
+if re.fullmatch(r"[0-9a-f]{32}", job) and st.session_state.get("job_done") != job:
+    st.session_state["job_done"] = job
+    jf = Path(tempfile.gettempdir()) / "ldv_jobs" / f"{job}.json"
+    if jf.exists():
+        paths = [Path(p) for p in json.loads(jf.read_text(encoding="utf-8"))["paths"]]
+        jf.unlink(missing_ok=True)
+        zips = [p for p in paths if p.suffix.lower() == ".zip"]
+        if len(zips) > 1 or (zips and len(paths) > 1):
+            st.error(t("one_zip"))
+        else:
+            one = paths[0] if len(paths) == 1 and (paths[0].is_dir() or zips) else None
+            with st.spinner(t("running")):
+                st.session_state["result"] = check(paths, name=one.stem if one else None)
+            st.session_state["job_files"] = [p.name for p in paths]
+    st.query_params.clear()
+if st.session_state.get("job_files") and st.session_state.get("result"):
+    st.info(f"🖱️ {t('from_menu')}: " + ", ".join(st.session_state["job_files"]))
 
 res = st.session_state.get("result")
 if res:
