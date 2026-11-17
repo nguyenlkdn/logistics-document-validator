@@ -26,7 +26,8 @@ class Result:
     excel: Path | None = None
     markdown: str = ""
     workdir: Path | None = field(default=None, repr=False)
-    doc_files: dict = field(default_factory=dict)  # document name -> its copy in the report folder (preview)
+    doc_files: dict = field(default_factory=dict)
+    marks: dict = field(default_factory=dict)      # document name -> finding locations (preview highlights)  # document name -> its copy in the report folder (preview)
     fingerprint: str = ""          # hash of the PDF contents: same files -> same fingerprint (history)
 
 
@@ -82,6 +83,7 @@ def check(inputs: list[Path], name: str | None = None, out_root: Path | None = N
         for i, f in enumerate(findings, 1):
             f.evidence = evidence.render(f, out / "evidence", i)
     res.out_dir, res.excel = out, out / "report.xlsx"
+    res.marks = evidence.marks(findings)
     (out / "documents").mkdir(exist_ok=True)       # copies of the checked PDFs, for the preview and later look-up
     for d in docs:
         shutil.copy2(d.path, out / "documents" / d.name)

@@ -24,13 +24,15 @@ def plain(v):
 
 
 def per_file(res) -> list[dict]:
-    """Findings counted per file (the file holding the value to fix), worst first; files with no findings included."""
+    """Findings counted per file (the file holding the value to fix), in document order
+    Invoice/PL -> Sales Contract -> B/L -> Form D; files with no findings included."""
     rows = []
     for d in res.docs:
         own = [f for f in res.findings if f.docs and f.docs[0] is d]
         c = {s: sum(f.severity == s for f in own) for s in SEVERITY}
         rows.append(dict(file=d.name, kind=d.kind, total=len(own), **c))
-    rows.sort(key=lambda r: tuple(-r[s] for s in SEVERITY))
+    order = {"CI": 0, "SC": 1, "BL": 2, "CO": 3}
+    rows.sort(key=lambda r: (order.get(r["kind"], 9), r["file"]))
     return rows
 
 

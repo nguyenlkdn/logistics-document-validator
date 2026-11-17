@@ -56,6 +56,9 @@ T = {
                    "Bấm vào một file để xem lỗi của file đó và xem trước chứng từ. Bấm lại để xem tất cả."),
     "preview": ("Document preview", "Xem trước chứng từ"),
     "pages": ("pages", "trang"),
+    "boxes": ("Boxes on the page: red = Error, orange = Warning, yellow = Minor, blue = Info; #n = finding number below",
+              "Khung trên trang: đỏ = Lỗi, cam = Cảnh báo, vàng = Lỗi nhỏ, xanh dương = Thông tin; #n = số thứ tự lỗi bên dưới"),
+    "in_preview": ("Highlighted as #{n} in the document preview above", "Được đánh dấu #{n} trong phần xem trước ở trên"),
     "showing": ("Showing findings of", "Đang hiển thị lỗi của"),
     "version": ("Version", "Phiên bản"),
     "from_menu": ("Checked from right-click menu", "Kiểm tra từ menu chuột phải"),
@@ -110,11 +113,10 @@ with st.sidebar:
     st.caption(f"{t('version')} {VERSION}")
 
 @st.cache_data(show_spinner=False, max_entries=20)
-def page_images(path: str, mtime: float) -> list[bytes]:
-    """PNG of every page of a PDF (cached per file version)."""
-    import pymupdf
-    with pymupdf.open(path) as doc:
-        return [pg.get_pixmap(dpi=110).tobytes("png") for pg in doc]
+def page_images(path: str, mtime: float, marks: tuple) -> list[bytes]:
+    """PNG of every page of a PDF with the findings boxed in their severity colour (cached)."""
+    from engine.evidence import annotated_pages
+    return annotated_pages(path, marks)
 
 
 def status_label(k):
@@ -258,8 +260,10 @@ if res:
     picked = rows[ev.selection.rows[0]]["file"] if ev and ev.selection and ev.selection.rows else None
     if picked and res.doc_files.get(picked) and Path(res.doc_files[picked]).exists():
         pdf = Path(res.doc_files[picked])
-        imgs = page_images(str(pdf), pdf.stat().st_mtime)
+        mk = tuple(m for m in res.marks.get(picked, []) if m[5] in show)
+        imgs = page_images(str(pdf), pdf.stat().st_mtime, mk)
         with st.expander(f"📄 {t('preview')}: {picked} ({len(imgs)} {t('pages') if len(imgs) > 1 else t('page')})", expanded=True):
+            st.caption(t("boxes"))
             for n, png in enumerate(imgs, 1):
                 st.image(png, caption=f"{t('page')} {n}", width="stretch")
 
@@ -316,8 +320,11 @@ if res:
                 notes = [f.note(l) for l in langs if f.note(l)]
                 if notes:
                     st.info(f"**{t('note')}:** " + "  \n".join(notes))
-            for p in f.evidence:
-                st.image(str(p), width="stretch")
+            if pick:                                    # file view: boxed on the full page above instead
+                st.caption("🖍️ " + t("in_preview").format(n=i))
+            else:
+                for p in f.evidence:
+                    st.image(str(p), width="stretch")
 
     # ---- not recognised
     st.subheader(f"⚪ {t('unrec')}")
