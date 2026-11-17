@@ -20,7 +20,7 @@ from pathlib import Path
 REPO = "nguyenlkdn/logistics-document-validator"
 API = f"https://api.github.com/repos/{REPO}/releases/latest"
 APP = Path(__file__).resolve().parent
-KEEP = {".venv", "wheels", "_backup", ".git"}   # folders never overwritten (nor any *.dll)
+KEEP = {".venv", "wheels", "_backup", ".git", "master_data.xlsx"}   # folders never overwritten (nor any *.dll)
 
 
 def current_version() -> str:
@@ -71,6 +71,9 @@ def install(data: bytes, old: str) -> int:
                 shutil.copy2(target, backup / Path(*parts))
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(new)
+            mode = (m.external_attr >> 16) & 0o777        # keep scripts executable on Linux
+            if mode & 0o111 and sys.platform != "win32":
+                target.chmod(mode)
             n += 1
     return n
 

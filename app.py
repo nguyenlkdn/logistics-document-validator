@@ -14,6 +14,7 @@ import streamlit as st
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from engine import check, report_root                 # noqa: E402
+from engine.history import STATUSES, History        # noqa: E402
 from engine.report import ICON, per_file                        # noqa: E402
 from engine.rules import CONFIG, SEVERITY              # noqa: E402
 
@@ -53,9 +54,33 @@ T = {
     "all_files": ("All files", "Tất cả file"),
     "version": ("Version", "Phiên bản"),
     "from_menu": ("Checked from right-click menu", "Kiểm tra từ menu chuột phải"),
+    "nav": ("Page", "Trang"),
+    "pg_check": ("🔎 Check", "Kiểm tra"),
+    "pg_hist": ("🗂️ History", "Lịch sử"),
+    "st_open": ("Open", "Chưa xử lý"),
+    "st_fixed": ("✔ Fixed", "✔ Đã sửa"),
+    "st_not_error": ("✗ Not an error", "✗ Không phải lỗi"),
+    "st_waiting": ("⏳ Waiting for supplier", "⏳ Chờ NCC sửa"),
+    "status": ("Status", "Trạng thái"),
+    "note_in": ("Note", "Ghi chú"),
+    "rev": ("Revision", "Lần"),
+    "rev_info": ("Revision {rev} of {ship}: {res} fixed since revision {prev}, {still} still there, {new} new",
+                 "Lần {rev} của {ship}: {res} lỗi đã sửa so với lần {prev}, {still} lỗi còn lại, {new} lỗi mới"),
+    "resolved": ("Fixed since previous revision", "Đã sửa so với lần trước"),
+    "no_hist": ("No checks yet.", "Chưa có lần kiểm tra nào."),
+    "hist_pick": ("Select a row to see its findings and set their status.",
+                  "Chọn một dòng để xem lỗi và cập nhật trạng thái."),
+    "export": ("Download feedback Excel (all findings + status)", "Tải Excel phản hồi (tất cả lỗi + trạng thái)"),
+    "date": ("Checked", "Ngày kiểm tra"),
+    "shipment": ("Shipment", "Lô hàng"),
+    "open_cnt": ("Still open", "Còn mở"),
+    "files": ("Files", "File"),
+    "saved_marks": ("Saved", "Đã lưu"),
 }
 _vf = Path(__file__).resolve().parent / "VERSION"
 VERSION = _vf.read_text(encoding="utf-8").strip() if _vf.exists() else "dev"
+
+HIST = History(report_root() / "history.db")
 
 with st.sidebar:
     lang_choice = st.radio(T["lang"][0], ["English", "Tiếng Việt", "Both / Cả hai"], index=2)
@@ -73,9 +98,87 @@ def sev_label(s):
 
 
 with st.sidebar:
+    page = st.radio(t("nav"), ["check", "history"], format_func=lambda k: t("pg_check" if k == "check" else "pg_hist"),
+                    horizontal=True, key="page")
     show = st.multiselect(t("filter"), SEVERITY, default=SEVERITY, format_func=lambda s: f"{ICON[s]} {sev_label(s)}")
     st.caption(f"{t('saved')}:\n\n`{report_root()}`")
     st.caption(f"{t('version')} {VERSION}")
+
+def status_label(k):
+    return t(f"st_{k}")
+
+
+def history_page():
+    st.title(t("pg_hist"))
+    rows = HIST.checks()
+    if not rows:
+        st.info(t("no_hist"))
+        return
+    tmp = Path(tempfile.gettempdir()) / "LDV_feedback.xlsx"
+    st.download_button(f"⬇️ {t('export')}", HIST.export(tmp).read_bytes(), file_name="LDV_feedback.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+    st.caption(t("hist_pick"))
+    table = [{t("date"): r["ts"].replace("T", " "), t("shipment"): r["shipment"], t("rev"): r["revision"],
+              f"{ICON['ERROR']} {sev_label('ERROR')}": r["n_error"], f"{ICON['WARNING']} {sev_label('WARNING')}": r["n_warning"],
+              t("open_cnt"): r["n_open"], t("files"): ", ".join(json.loads(r["files"]))} for r in rows]
+    ev = st.dataframe(table, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
+                      key="hist_table")
+    sel = ev.selection.rows if ev and ev.selection else []
+    if not sel:
+        return
+    c = rows[sel[0]]
+    st.subheader(f"{c['shipment']} — {t('rev')} {c['revision']}")
+    if c["out_dir"] and Path(c["out_dir"]).exists():
+        st.caption(f"{t('saved')}: `{c['out_dir']}`")
+        if sys.platform.startswith("win") and st.button(f"📂 {t('open')}", key="hist_open"):
+            os.startfile(c["out_dir"])                  # noqa: S606 — local folder on the user's PC
+    revision_banner(c["id"])
+    fs = HIST.findings(c["id"])
+    if not fs:
+        st.success(t("none"))
+        return
+    import pandas as pd
+    msg = "msg_en" if L == 0 else "msg_vi"
+    df = pd.DataFrame([{"no": f["no"], "sev": ICON[f["severity"]], "doc": f["doc"], "msg": f[msg],
+                        "cur": f["current"], "sug": f["suggested"], "status": status_label(f["status"]),
+                        "note": f["note"]} for f in fs])
+    edited = st.data_editor(df, hide_index=True, width="stretch", key=f"ed_{c['id']}",
+                            column_order=["no", "sev", "status", "note", "msg", "cur", "sug", "doc"],
+                            disabled=["no", "sev", "doc", "msg", "cur", "sug"],
+                            column_config={
+                                "no": st.column_config.NumberColumn("#", width=40), "sev": st.column_config.TextColumn("", width=40),
+                                "doc": t("doc"), "msg": st.column_config.TextColumn(t("findings"), width="large"),
+                                "cur": t("current"), "sug": t("suggested"),
+                                "status": st.column_config.SelectboxColumn(t("status"), options=[status_label(k) for k in STATUSES],
+                                                                           required=True, width="medium"),
+                                "note": st.column_config.TextColumn(t("note_in"), width="medium")})
+    back = {status_label(k): k for k in STATUSES}
+    changed = 0
+    for f, (_, row) in zip(fs, edited.iterrows()):
+        stt, note = back[row["status"]], row["note"] or ""
+        if (stt, note) != (f["status"], f["note"]):
+            HIST.set_mark(c["shipment"], f["sig"], stt, note)
+            changed += 1
+    if changed:
+        st.toast(t("saved_marks"))
+
+
+def revision_banner(cid):
+    cmp = HIST.compare(cid)
+    if not cmp:
+        return
+    c = HIST.check(cid)
+    st.info(t("rev_info").format(rev=c["revision"], ship=c["shipment"], prev=cmp["prev_revision"],
+                                 res=len(cmp["resolved"]), still=len(cmp["still"]), new=len(cmp["new"])))
+    if cmp["resolved"]:
+        with st.expander(f"✔ {t('resolved')} ({len(cmp['resolved'])})"):
+            for f in cmp["resolved"]:
+                st.markdown(f"- ~~{f['msg_en' if L == 0 else 'msg_vi']}~~ — {f['doc']}")
+
+
+if page == "history":
+    history_page()
+    st.stop()
 
 st.title(f"📦 {t('title')}")
 st.write(t("intro"))
@@ -94,6 +197,7 @@ if st.button(t("check"), type="primary", disabled=not files):
                 paths.append(p)
             name = Path(zips[0].name).stem if zips else None
             st.session_state["result"] = check(paths, name=name)
+            st.session_state["check_id"] = HIST.record(st.session_state["result"], VERSION)
             st.session_state.pop("job_files", None)
 
 # ---- right-click "Send to > LDV Checker": ldv_open.py leaves the selected paths in a job file
@@ -111,6 +215,7 @@ if re.fullmatch(r"[0-9a-f]{32}", job) and st.session_state.get("job_done") != jo
             one = paths[0] if len(paths) == 1 and (paths[0].is_dir() or zips) else None
             with st.spinner(t("running")):
                 st.session_state["result"] = check(paths, name=one.stem if one else None)
+            st.session_state["check_id"] = HIST.record(st.session_state["result"], VERSION)
             st.session_state["job_files"] = [p.name for p in paths]
     st.query_params.clear()
 if st.session_state.get("job_files") and st.session_state.get("result"):
@@ -146,6 +251,11 @@ if res:
     st.caption(f"{t('saved')}: `{res.out_dir}`")
 
     # ---- findings
+    cid = st.session_state.get("check_id")
+    if cid:
+        revision_banner(cid)
+    marks = {f["sig"]: f for f in HIST.findings(cid)} if cid else {}
+    ship = History.shipment_of(res)
     names = [r["file"] for r in rows]
     pick = st.selectbox(t("file_filter"), [None] + names,
                         format_func=lambda n: t("all_files") if n is None else
@@ -157,7 +267,21 @@ if res:
     st.caption(t("legend"))
     for i, f in shown:
         msg = " — ".join(f.text(l) for l in langs)
-        with st.expander(f"{ICON[f.severity]} **#{i}** {msg}", expanded=f.severity == "ERROR"):
+        sig = History.sig(f)
+        mk = marks.get(sig, {"status": "open", "note": ""})
+        badge = "" if mk["status"] == "open" else f"{status_label(mk['status'])} · "
+        title = f"{ICON[f.severity]} **#{i}** {badge}{msg}"
+        if mk["status"] in ("fixed", "not_error"):
+            title = f"{ICON[f.severity]} **#{i}** {badge}~~{msg}~~"
+        with st.expander(title, expanded=f.severity == "ERROR" and mk["status"] in ("open", "waiting")):
+            if cid:
+                s1, s2 = st.columns([1, 2])
+                new_st = s1.selectbox(t("status"), STATUSES, index=STATUSES.index(mk["status"]),
+                                      format_func=status_label, key=f"st_{cid}_{sig}")
+                new_note = s2.text_input(t("note_in"), value=mk["note"], key=f"nt_{cid}_{sig}")
+                if (new_st, new_note) != (mk["status"], mk["note"]):
+                    HIST.set_mark(ship, sig, new_st, new_note)
+                    st.rerun()
             a, b = st.columns([3, 2])
             with a:
                 pg = f" ({t('page')} {f.page})" if f.page else ""

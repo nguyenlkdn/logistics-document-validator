@@ -1,7 +1,7 @@
 """Run LDV in the background: no console window, just an icon in the notification area (next to the clock).
 
 Tray menu: Open LDV (also double-click) · Open reports folder · Quit.
-Started by the "LDV" desktop shortcut, Start.bat, or the right-click menu (ldv_open.py passes "nobrowser").
+Started by the "LDV" desktop shortcut, Start.bat / start.sh, or the right-click menu (ldv_open.py passes "nobrowser").
 Run it with pythonw.exe so no window appears. Before starting, it checks for updates (Y/N message box).
 Streamlit's output goes to %TEMP%\\ldv.log.
 """
@@ -59,6 +59,13 @@ def ensure_ico() -> Path:
     return ico
 
 
+def ensure_png() -> Path:
+    png = APP / "ldv.png"                                 # Linux app-menu icon
+    if not png.exists():
+        icon_image(256).save(png)
+    return png
+
+
 def report_dir() -> Path:
     cfg = json.loads((APP / "config.json").read_text(encoding="utf-8"))
     return Path(os.environ.get("LDV_REPORT_DIR") or os.path.expanduser(cfg["report_dir"]))
@@ -82,6 +89,9 @@ def update_first():
     if WIN:                                               # visible window: pip may take a minute
         subprocess.run(["cmd", "/c", str(APP / "Setup.bat"), "auto"], cwd=APP,
                        creationflags=subprocess.CREATE_NEW_CONSOLE)
+    else:
+        with open(LOG, "a", encoding="utf-8") as log:
+            subprocess.run(["bash", str(APP / "setup.sh"), "auto"], cwd=APP, stdout=log, stderr=subprocess.STDOUT)
     subprocess.Popen([sys.executable, str(APP / "ldv_tray.py"), *sys.argv[1:]], cwd=APP)
     sys.exit(0)
 

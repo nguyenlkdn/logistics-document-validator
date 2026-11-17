@@ -34,6 +34,19 @@ After an intended change in results: review the new output manually, then `tests
 
 Reports go to `~/Documents/LDV_reports` (override with env `LDV_REPORT_DIR` or `report_dir` in config.json).
 
+## Linux
+`./setup.sh` (once; no root): creates `.venv`, installs the libraries, adds an app-menu entry "LDV" and, for the
+GNOME Files app, a right-click entry *Scripts > LDV Checker*. `./start.sh` starts LDV in the background with a tray
+icon and opens the browser. Needs Python 3.11+ with venv (`sudo apt install python3-venv` on Debian/Ubuntu).
+The tray icon needs an X11 session or a desktop with AppIndicator support. Without one, LDV still runs: open
+http://localhost:8501 in the browser.
+
+## History
+Every check is saved in `history.db` (SQLite) in the report folder. A shipment = its invoice no.; a new check of the
+same invoice with changed files = next revision, compared with the previous one (fixed / still there / new).
+Each finding can be marked Open, Fixed, Not an error or Waiting for supplier, with a note. Marks carry over to later
+revisions. The History page lists all checks and exports a feedback Excel.
+
 ## Right-click menu
 `Setup.bat` puts a shortcut "LDV Checker" in the user's SendTo folder and "LDV" on the Desktop (no admin). It runs `ldv_open.py` with the selected paths:
 the paths go to a job file in `%TEMP%\ldv_jobs`, LDV is started (`ldv_tray.py nobrowser`) if port 8501 is not answering,

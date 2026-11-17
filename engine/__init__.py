@@ -1,4 +1,5 @@
 """LDV engine: check one shipment's document set and write a bilingual report (documents are never modified)."""
+import hashlib
 import os
 import re
 import shutil
@@ -25,6 +26,7 @@ class Result:
     excel: Path | None = None
     markdown: str = ""
     workdir: Path | None = field(default=None, repr=False)
+    fingerprint: str = ""          # hash of the PDF contents: same files -> same fingerprint (history)
 
 
 def report_root() -> Path:
@@ -57,6 +59,8 @@ def check(inputs: list[Path], name: str | None = None, out_root: Path | None = N
           with_evidence: bool = True, keep_workdir: bool = False) -> Result:
     workdir = Path(tempfile.mkdtemp(prefix="ldv_"))
     pdfs = collect(inputs, workdir)
+    fp = hashlib.sha1("".join(sorted(hashlib.sha1(p.read_bytes()).hexdigest() for p in pdfs
+                                     if p.suffix.lower() == ".pdf")).encode()).hexdigest()
     docs, skipped = [], []
     for p in pdfs:
         if p.suffix.lower() != ".pdf":
@@ -69,7 +73,7 @@ def check(inputs: list[Path], name: str | None = None, out_root: Path | None = N
         ci = next((d for d in docs if d.kind == "CI" and d.f.get("invoice_no")), None)
         name = ci.f["invoice_no"].value if ci else (inputs[0].stem if inputs else "shipment")
     name = re.sub(r"[^\w\-. ]", "_", name).strip() or "shipment"
-    res = Result(name, docs, skipped, findings, unrecognised(docs, skipped), workdir=workdir)
+    res = Result(name, docs, skipped, findings, unrecognised(docs, skipped), workdir=workdir, fingerprint=fp)
 
     out = (out_root or report_root()) / f"{name}_{datetime.now():%Y%m%d-%H%M%S}"
     (out / "evidence").mkdir(parents=True, exist_ok=True)
