@@ -1,0 +1,360 @@
+{
+  "shipment_slack_days": 2,
+  "report_dir": "~/Documents/LDV_reports",
+  "ports": {
+    "HO CHI MINH CITY": [
+      "HOCHIMINH",
+      "HO CHI MINH",
+      "HCMC",
+      "HOCHIMINH CITY",
+      "HCM"
+    ],
+    "LAEM CHABANG": [
+      "LAEMCHABANG",
+      "LCB"
+    ]
+  },
+  "text_fixes": [
+    {
+      "id": "ADDR_SPACE",
+      "pattern": "QUARTER(\\d+)",
+      "replace": "QUARTER \\1",
+      "severity": "MINOR"
+    },
+    {
+      "id": "BRAND_QUOTE",
+      "pattern": "(?<![\"A-Z])TOSHIBA\" BRAND",
+      "replace": "\"TOSHIBA\" BRAND",
+      "severity": "MINOR"
+    }
+  ],
+  "required_fields": {
+    "CI": [
+      "invoice_no",
+      "invoice_date",
+      "pol",
+      "sailing",
+      "total_amount",
+      "pl_total_gw",
+      "pl_total_cbm"
+    ],
+    "SC": [
+      "sc_no",
+      "shipment_by",
+      "total_amount"
+    ],
+    "BL": [
+      "bl_no",
+      "vessel",
+      "pol",
+      "pod",
+      "gw",
+      "cbm",
+      "ctn",
+      "invoice_no"
+    ],
+    "CO": [
+      "departure",
+      "vessel",
+      "pod",
+      "total_value",
+      "total_qty"
+    ]
+  },
+  "required_lists": {
+    "CI": [
+      "items",
+      "pl_items"
+    ],
+    "SC": [
+      "items"
+    ],
+    "CO": [
+      "items"
+    ]
+  },
+  "doc_kinds": {
+    "CI": {
+      "en": "Commercial Invoice / Packing List",
+      "vi": "Hóa đơn thương mại / Phiếu đóng gói (Packing List)"
+    },
+    "SC": {
+      "en": "Sales Contract",
+      "vi": "Hợp đồng mua bán"
+    },
+    "BL": {
+      "en": "Bill of Lading",
+      "vi": "Vận đơn (B/L)"
+    },
+    "CO": {
+      "en": "Form D (Certificate of Origin)",
+      "vi": "C/O mẫu D"
+    }
+  },
+  "severity": {
+    "ERROR": {
+      "en": "Error",
+      "vi": "Lỗi"
+    },
+    "WARNING": {
+      "en": "Warning",
+      "vi": "Cảnh báo"
+    },
+    "MINOR": {
+      "en": "Minor",
+      "vi": "Lỗi nhỏ"
+    },
+    "INFO": {
+      "en": "Info",
+      "vi": "Thông tin"
+    }
+  },
+  "labels": {
+    "qty": {
+      "en": "quantity",
+      "vi": "số lượng"
+    },
+    "nw": {
+      "en": "net weight",
+      "vi": "trọng lượng tịnh (N.W.)"
+    },
+    "gw": {
+      "en": "gross weight",
+      "vi": "trọng lượng cả bì (G.W.)"
+    },
+    "cbm": {
+      "en": "measurement (CBM)",
+      "vi": "thể tích (CBM)"
+    },
+    "ctn": {
+      "en": "number of cartons",
+      "vi": "số thùng"
+    },
+    "total_value": {
+      "en": "total value",
+      "vi": "tổng trị giá"
+    },
+    "total_qty": {
+      "en": "total quantity",
+      "vi": "tổng số lượng"
+    },
+    "figures": {
+      "en": "number in figures",
+      "vi": "số bằng số"
+    },
+    "words": {
+      "en": "number in words",
+      "vi": "số bằng chữ"
+    },
+    "ctn_words": {
+      "en": "number of cartons in words",
+      "vi": "số thùng bằng chữ"
+    }
+  },
+  "messages": {
+    "LINE_AMOUNT": {
+      "en": "{model}: quantity × unit price ≠ amount",
+      "vi": "{model}: số lượng × đơn giá ≠ thành tiền"
+    },
+    "TOTAL_AMOUNT": {
+      "en": "Total amount ≠ sum of lines",
+      "vi": "Tổng tiền ≠ tổng các dòng"
+    },
+    "TOTAL_QTY": {
+      "en": "Total quantity ≠ sum of lines",
+      "vi": "Tổng số lượng ≠ tổng các dòng"
+    },
+    "PL_TOTAL": {
+      "en": "Packing list total {label} ≠ sum of lines",
+      "vi": "Tổng {label} trên Packing List ≠ tổng các dòng"
+    },
+    "CI_PL_QTY": {
+      "en": "Invoice quantity ≠ packing list quantity",
+      "vi": "Số lượng trên hóa đơn ≠ số lượng trên Packing List"
+    },
+    "BL_VS_PL": {
+      "en": "B/L {label} ≠ packing list",
+      "vi": "{label} trên B/L ≠ Packing List",
+      "note_en": "Packing list is the reference",
+      "note_vi": "Lấy Packing List làm chuẩn"
+    },
+    "CONTAINERS": {
+      "en": "Container count on B/L ≠ invoice",
+      "vi": "Số container trên B/L ≠ hóa đơn"
+    },
+    "INVOICE_REF": {
+      "en": "Invoice no. on B/L ≠ invoice",
+      "vi": "Số hóa đơn trên B/L ≠ hóa đơn"
+    },
+    "INCOTERM": {
+      "en": "Incoterm place 'FOB {place}' ≠ port of loading {pol}",
+      "vi": "Điều kiện 'FOB {place}' ≠ cảng xếp hàng {pol}",
+      "note_en": "The FOB named place must be the port of loading",
+      "note_vi": "Địa điểm FOB phải là cảng xếp hàng"
+    },
+    "SC_PO_MISSING": {
+      "en": "Invoice PO(s) missing from Sales Contract No.: {missing}",
+      "vi": "PO trên hóa đơn không có trong số Hợp đồng: {missing}"
+    },
+    "SC_PO_EXTRA": {
+      "en": "Sales Contract PO not on invoice: {extra}",
+      "vi": "PO trong Hợp đồng không có trên hóa đơn: {extra}"
+    },
+    "SC_VS_CI": {
+      "en": "Sales Contract lines (model / qty / price) ≠ invoice lines",
+      "vi": "Các dòng Hợp đồng (model / số lượng / đơn giá) ≠ hóa đơn",
+      "note_en": "Price/quantity difference is a commercial decision",
+      "note_vi": "Chênh lệch giá/số lượng cần người phụ trách quyết định"
+    },
+    "SC_NUMBERING": {
+      "en": "Sales Contract line numbers are not sequential",
+      "vi": "Số thứ tự dòng trong Hợp đồng không liên tục"
+    },
+    "DEPARTURE_DATE": {
+      "en": "Form D departure date ≠ invoice sailing date",
+      "vi": "Ngày khởi hành trên C/O ≠ ngày tàu chạy trên hóa đơn"
+    },
+    "CO_INVOICE_DATE": {
+      "en": "Form D item {no}: invoice date ≠ invoice",
+      "vi": "C/O mục {no}: ngày hóa đơn ≠ hóa đơn"
+    },
+    "SHIPMENT_LATE": {
+      "en": "Sailing date is after the Sales Contract latest shipment date",
+      "vi": "Ngày tàu chạy sau thời hạn giao hàng trong Hợp đồng",
+      "note_en": "Amend the shipment clause in the contract",
+      "note_vi": "Cần sửa điều khoản giao hàng trong Hợp đồng"
+    },
+    "SHIPMENT_SLACK": {
+      "en": "Only {days} day(s) between sailing date and Sales Contract latest shipment date",
+      "vi": "Chỉ còn {days} ngày giữa ngày tàu chạy và thời hạn giao hàng trong Hợp đồng",
+      "note_en": "Any further vessel delay breaches the contract",
+      "note_vi": "Nếu tàu tiếp tục trễ sẽ vi phạm Hợp đồng"
+    },
+    "SC_DATE": {
+      "en": "Sales Contract is dated after the invoice",
+      "vi": "Ngày Hợp đồng sau ngày hóa đơn"
+    },
+    "VESSEL": {
+      "en": "Vessel / voyage ≠ B/L",
+      "vi": "Tên tàu / số chuyến ≠ B/L",
+      "note_en": "B/L (carrier) is the reference",
+      "note_vi": "Lấy B/L (hãng tàu) làm chuẩn"
+    },
+    "CO_QTY": {
+      "en": "Form D item {no}: quantity ≠ invoice",
+      "vi": "C/O mục {no}: số lượng ≠ hóa đơn"
+    },
+    "CO_INVOICE_NO": {
+      "en": "Form D item {no}: invoice no. ≠ invoice",
+      "vi": "C/O mục {no}: số hóa đơn ≠ hóa đơn"
+    },
+    "CO_ITEMS": {
+      "en": "Form D item count ≠ invoice line count",
+      "vi": "Số mục trên C/O ≠ số dòng trên hóa đơn"
+    },
+    "CO_TOTAL": {
+      "en": "Form D {label} ≠ invoice",
+      "vi": "{label} trên C/O ≠ hóa đơn"
+    },
+    "HS_CODE": {
+      "en": "Form D item {no}: HS {hs} is not under B/L HS {hs_bl}",
+      "vi": "C/O mục {no}: mã HS {hs} không thuộc nhóm HS {hs_bl} trên B/L"
+    },
+    "CO_FOB_VALUE": {
+      "en": "Form D box 9 shows quantity only; FOB value is given only as a grand total",
+      "vi": "Ô 9 của C/O chỉ ghi số lượng; trị giá FOB chỉ ghi tổng",
+      "note_en": "Some VN customs officers require FOB value per item when RVC criterion is used",
+      "note_vi": "Một số cán bộ hải quan VN yêu cầu trị giá FOB từng mục khi áp dụng tiêu chí RVC"
+    },
+    "PORT_NAME": {
+      "en": "Port of discharge not in standard form",
+      "vi": "Tên cảng dỡ hàng chưa theo chuẩn"
+    },
+    "WORDS_VS_FIGURES": {
+      "en": "{what}: words ≠ figures",
+      "vi": "{what}: số bằng chữ ≠ số bằng số"
+    },
+    "ADDR_SPACE": {
+      "en": "Missing space in address",
+      "vi": "Thiếu khoảng trắng trong địa chỉ"
+    },
+    "BRAND_QUOTE": {
+      "en": "Unbalanced quote in brand name",
+      "vi": "Thiếu dấu ngoặc kép trong tên thương hiệu"
+    },
+    "WORD_WRAP": {
+      "en": "Word broken across two lines",
+      "vi": "Từ bị ngắt sang hai dòng"
+    },
+    "SC_DOCS_INSURANCE": {
+      "en": "Sales Contract requires an Insurance Policy under FOB terms",
+      "vi": "Hợp đồng yêu cầu chứng từ bảo hiểm dù điều kiện là FOB",
+      "note_en": "Under FOB, insurance is normally the buyer's responsibility",
+      "note_vi": "Theo FOB, bảo hiểm thường do người mua chịu"
+    },
+    "SC_DOCS_FORMD": {
+      "en": "Form D is issued but not listed in Sales Contract documents required",
+      "vi": "Có C/O mẫu D nhưng Hợp đồng không liệt kê trong chứng từ yêu cầu"
+    },
+    "ISSUED_DOC": {
+      "en": "Document is not marked DRAFT",
+      "vi": "Chứng từ không có chữ DRAFT",
+      "note_en": "If already issued/certified, any amendment needs re-issue by the issuer",
+      "note_vi": "Nếu đã phát hành/chứng nhận, mọi sửa đổi phải do bên phát hành cấp lại"
+    },
+    "SC_PO_TYPO": {
+      "en": "Sales Contract No. '{sc}' looks like a typo of PO {po}",
+      "vi": "Số Hợp đồng '{sc}' có vẻ gõ sai so với PO {po}"
+    },
+    "CO_PKG_COUNT": {
+      "en": "Form D item {no}: cartons ({what}) should be {ref}",
+      "vi": "C/O mục {no}: số thùng ({what}) phải là {ref}",
+      "note_en": "Cartons = quantity ÷ sets per carton ('1 CARTON = N SET'); must match the packing list carton range (e.g. CARTON 1-250).",
+      "note_vi": "Số thùng = số lượng ÷ số bộ/thùng ('1 CARTON = N SET'); phải khớp dải số thùng trên Packing List (vd CARTON 1-250)."
+    },
+    "CO_SET_PER_CTN": {
+      "en": "Form D item {no}: {ctn} cartons × {per} sets = {calc} ≠ quantity {qty}",
+      "vi": "C/O mục {no}: {ctn} thùng × {per} bộ = {calc} ≠ số lượng {qty}"
+    },
+    "PL_SET_PER_CTN": {
+      "en": "Packing list {model}: {qty} sets in {ctn} cartons does not match Form D '1 CARTON = {per} SET'",
+      "vi": "Packing List {model}: {qty} bộ trong {ctn} thùng không khớp C/O '1 CARTON = {per} SET'"
+    },
+    "CO_GOODS_DESC": {
+      "en": "Form D item {no} ({model}): goods description ≠ invoice",
+      "vi": "C/O mục {no} ({model}): mô tả hàng hóa ≠ hóa đơn",
+      "note_en": "A wrong goods name on the C/O can make customs refuse the preferential tariff.",
+      "note_vi": "Sai tên hàng trên C/O có thể bị hải quan từ chối ưu đãi thuế."
+    },
+    "PL_RANGE_START": {
+      "en": "Packing list {model}: carton numbers should start at 1",
+      "vi": "Packing List {model}: số thùng phải bắt đầu từ 1",
+      "note_en": "Ranges count both ends (1-250 = 250 cartons). Suggested range uses quantity ÷ sets per carton from Form D.",
+      "note_vi": "Dải số thùng tính cả hai đầu (1-250 = 250 thùng). Dải đề xuất tính theo số lượng ÷ số bộ/thùng trên C/O."
+    },
+    "PL_RANGE_GAP": {
+      "en": "Packing list {model}: carton numbers skip — next range should start at {expect}",
+      "vi": "Packing List {model}: số thùng bị nhảy — dải tiếp theo phải bắt đầu từ {expect}",
+      "note_en": "Ranges count both ends (1-250 = 250 cartons). Suggested range uses quantity ÷ sets per carton from Form D.",
+      "note_vi": "Dải số thùng tính cả hai đầu (1-250 = 250 thùng). Dải đề xuất tính theo số lượng ÷ số bộ/thùng trên C/O."
+    },
+    "PL_RANGE_OVERLAP": {
+      "en": "Packing list {model}: carton range overlaps the previous one — should start at {expect}",
+      "vi": "Packing List {model}: dải số thùng trùng với dải trước — phải bắt đầu từ {expect}",
+      "note_en": "Ranges count both ends (1-250 = 250 cartons). Suggested range uses quantity ÷ sets per carton from Form D.",
+      "note_vi": "Dải số thùng tính cả hai đầu (1-250 = 250 thùng). Dải đề xuất tính theo số lượng ÷ số bộ/thùng trên C/O."
+    },
+    "PL_RANGE_ORDER": {
+      "en": "Packing list {model}: carton range is reversed",
+      "vi": "Packing List {model}: dải số thùng bị đảo ngược"
+    },
+    "PL_RANGE_TOTAL": {
+      "en": "Packing list: carton ranges end at {last} but total is {total} cartons",
+      "vi": "Packing List: dải số thùng kết thúc ở {last} nhưng tổng là {total} thùng"
+    },
+    "PL_RANGE_COUNT": {
+      "en": "Packing list {model}: range has {have} cartons but {qty} sets ÷ {per} per carton = {cnt} cartons",
+      "vi": "Packing List {model}: dải có {have} thùng nhưng {qty} bộ ÷ {per} bộ/thùng = {cnt} thùng"
+    }
+  }
+}

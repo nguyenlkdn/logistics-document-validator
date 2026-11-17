@@ -1,0 +1,18 @@
+# Local environment / build
+.venv/
+__pycache__/
+*.pyc
+wheels/
+dll/*.dll
+*.zip
+
+# CONFIDENTIAL: real shipment documents and the results extracted from them.
+# This repository is public - never commit test documents, reports or expected.json.
+tests/baseline/*
+!tests/baseline/README.md
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.xlsx
+LDV_reports/

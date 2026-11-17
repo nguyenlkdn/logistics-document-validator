@@ -1,0 +1,17 @@
+# Local-only app: listens on this PC only, no usage statistics sent.
+[server]
+address = "localhost"
+port = 8501
+headless = false
+maxUploadSize = 200
+fileWatcherType = "none"
+
+[browser]
+gatherUsageStats = false
+serverAddress = "localhost"
+
+[client]
+toolbarMode = "minimal"
+
+[theme]
+base = "light"

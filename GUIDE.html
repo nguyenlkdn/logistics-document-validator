@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<title>LDV – Logistics Document Validator – Guide / Hướng dẫn</title>
+<style>
+  body { font-family: "Segoe UI", Arial, sans-serif; max-width: 980px; margin: 32px auto; padding: 0 20px; color: #222; line-height: 1.5; }
+  h1 { font-size: 26px; margin-bottom: 4px; }
+  h2 { font-size: 19px; margin-top: 32px; border-bottom: 2px solid #34495e; padding-bottom: 4px; }
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+  .cols > div > h3 { font-size: 13px; text-transform: uppercase; letter-spacing: .05em; color: #777; margin: 8px 0; }
+  code, kbd { background: #f1f3f5; padding: 1px 5px; border-radius: 4px; font-size: 93%; }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { border: 1px solid #ccc; padding: 6px 8px; text-align: left; vertical-align: top; }
+  th { background: #34495e; color: #fff; }
+  .box { background: #f8f9fa; border-left: 4px solid #34495e; padding: 10px 14px; margin: 12px 0; }
+  .sub { color: #666; margin-top: 0; }
+</style>
+</head>
+<body>
+<h1>📦 LDV – Logistics Document Validator — Guide / Hướng dẫn sử dụng</h1>
+<p class="sub">Checks a shipment's documents (Invoice/Packing List, Sales Contract, B/L, Form D) and produces a report. Documents are only read — never changed.<br>
+Kiểm tra bộ chứng từ lô hàng (Invoice/Packing List, Hợp đồng, B/L, C/O form D) và xuất báo cáo. Chứng từ chỉ được đọc — không bị sửa.</p>
+
+<h2>1. First-time setup / Cài đặt lần đầu</h2>
+<div class="cols">
+<div><h3>English</h3>
+<ol>
+  <li>Python 3.15 must be installed (per-user install, no admin).</li>
+  <li>Copy the whole <code>logistics-document-validator</code> folder to your PC, e.g. <code>Documents\logistics-document-validator</code>.</li>
+  <li>Double-click <b>Setup.bat</b>. It downloads the libraries (needs internet, a few minutes, once only).</li>
+  <li>Wait for <i>“Setup complete”</i>, then press any key.</li>
+</ol></div>
+<div><h3>Tiếng Việt</h3>
+<ol>
+  <li>Máy đã cài Python 3.15 (cài cho riêng người dùng, không cần quyền admin).</li>
+  <li>Chép nguyên thư mục <code>logistics-document-validator</code> vào máy, ví dụ <code>Documents\logistics-document-validator</code>.</li>
+  <li>Bấm đúp <b>Setup.bat</b>. Chương trình tải thư viện (cần internet, vài phút, chỉ làm một lần).</li>
+  <li>Chờ đến khi hiện <i>“Setup complete”</i>, rồi bấm phím bất kỳ.</li>
+</ol></div>
+</div>
+
+<h2>2. Daily use / Sử dụng hằng ngày</h2>
+<div class="cols">
+<div><h3>English</h3>
+<ol>
+  <li>Double-click <b>Start.bat</b>. A black window opens and the browser shows the app. <b>Keep the black window open</b> while working.</li>
+  <li>Drag in <b>one</b> shipment: the <code>.zip</code> file, or all its PDF files.</li>
+  <li>Click <b>Check documents</b>.</li>
+  <li>Read the findings. Click a finding to see the page screenshot.</li>
+  <li>Click <b>Download Excel report</b> if you need to send it.</li>
+  <li>To stop: close the black window.</li>
+</ol></div>
+<div><h3>Tiếng Việt</h3>
+<ol>
+  <li>Bấm đúp <b>Start.bat</b>. Một cửa sổ đen mở ra và trình duyệt hiện chương trình. <b>Giữ cửa sổ đen mở</b> trong lúc làm việc.</li>
+  <li>Kéo thả <b>một</b> lô hàng: file <code>.zip</code>, hoặc tất cả file PDF của lô.</li>
+  <li>Bấm <b>Kiểm tra</b>.</li>
+  <li>Đọc kết quả. Bấm vào từng dòng để xem ảnh trang chứng từ.</li>
+  <li>Bấm <b>Tải báo cáo Excel</b> nếu cần gửi đi.</li>
+  <li>Tắt chương trình: đóng cửa sổ đen.</li>
+</ol></div>
+</div>
+<div class="box">Language: use the left panel to choose <b>English</b>, <b>Tiếng Việt</b> or <b>Both / Cả hai</b>. You can also filter by severity there.<br>
+Ngôn ngữ: chọn ở khung bên trái. Có thể lọc theo mức độ lỗi tại đó.</div>
+
+<h2>3. Reading the report / Đọc báo cáo</h2>
+<table>
+<tr><th>Severity / Mức độ</th><th>Meaning</th><th>Ý nghĩa</th></tr>
+<tr><td>🔴 Error / Lỗi</td><td>Documents disagree or numbers are wrong — must be amended</td><td>Chứng từ không khớp hoặc số liệu sai — phải sửa</td></tr>
+<tr><td>🟠 Warning / Cảnh báo</td><td>Risky or non-standard — check and decide</td><td>Có rủi ro hoặc chưa chuẩn — cần xem xét</td></tr>
+<tr><td>🟡 Minor / Lỗi nhỏ</td><td>Typing / format issue</td><td>Lỗi đánh máy / trình bày</td></tr>
+<tr><td>🔵 Info / Thông tin</td><td>For your information</td><td>Thông tin tham khảo</td></tr>
+</table>
+<p>Each finding shows: <b>Current</b> value, <b>Suggested</b> value, and screenshots — <span style="color:#d01a1a"><b>red box</b></span> = value to check, <span style="color:#1a992f"><b>green box</b></span> = reference value.<br>
+Mỗi dòng gồm: giá trị <b>Hiện tại</b>, giá trị <b>Đề xuất</b>, và ảnh — <span style="color:#d01a1a"><b>khung đỏ</b></span> = giá trị cần kiểm tra, <span style="color:#1a992f"><b>khung xanh</b></span> = giá trị tham chiếu.</p>
+<p><b>Not recognised / Không đọc được</b>: files or fields the tool could not read. Check those manually — the tool never silently skips them.<br>
+Các file hoặc trường không đọc được — hãy kiểm tra thủ công.</p>
+
+<h2>4. Where reports are saved / Nơi lưu báo cáo</h2>
+<p><code>Documents\LDV_reports\&lt;shipment&gt;_&lt;date-time&gt;\</code></p>
+<table>
+<tr><th>File</th><th>Content / Nội dung</th></tr>
+<tr><td><code>report.xlsx</code></td><td>Findings · Extracted data · Not recognised &nbsp;/&nbsp; Kết quả · Dữ liệu trích xuất · Không đọc được</td></tr>
+<tr><td><code>report.md</code></td><td>Short summary / Tóm tắt</td></tr>
+<tr><td><code>evidence\</code></td><td>Screenshots, numbered like the findings / Ảnh minh họa, đánh số theo kết quả</td></tr>
+</table>
+
+<h2>5. Troubleshooting / Xử lý sự cố</h2>
+<table>
+<tr><th>Problem / Sự cố</th><th>What to do / Cách xử lý</th></tr>
+<tr><td>“Python not found” / “Chưa có Python”</td><td>Install Python 3.15 from python.org (“Install Now”, untick admin option) / Cài Python 3.15 từ python.org, bỏ chọn tùy chọn admin.</td></tr>
+<tr><td>Setup fails while installing libraries / Cài thư viện thất bại</td><td>Internet or company proxy is blocking downloads. Ask for the offline <code>wheels</code> folder, put it inside <code>logistics-document-validator</code>, run Setup.bat again. / Mạng hoặc proxy chặn tải. Xin thư mục <code>wheels</code>, đặt vào <code>logistics-document-validator</code> rồi chạy lại Setup.bat.</td></tr>
+<tr><td>Browser did not open / Trình duyệt không tự mở</td><td>Open <code>http://localhost:8501</code> manually / Mở thủ công địa chỉ trên.</td></tr>
+<tr><td>“Port 8501 is already in use”</td><td>The app is already running in another black window — use that one, or close it first / Chương trình đang chạy ở cửa sổ khác — dùng cửa sổ đó hoặc đóng lại.</td></tr>
+<tr><td>A document is listed under Not recognised / Chứng từ nằm trong mục Không đọc được</td><td>New supplier layout or scanned PDF — check manually and send the file to the tool maintainer / Mẫu chứng từ mới hoặc bản scan — kiểm tra thủ công và gửi file cho người phụ trách công cụ.</td></tr>
+</table>
+<p class="sub" style="margin-top:28px">Everything runs on this PC only (http://localhost). No document is uploaded to the internet. / Mọi xử lý chạy trên máy này. Không có chứng từ nào được gửi lên internet.</p>
+</body>
+</html>
