@@ -292,12 +292,20 @@ if res:
     for c, s in zip(cols, SEVERITY):
         c.metric(f"{ICON[s]} {sev_label(s)}", sum(f.severity == s for f in res.findings))
 
-    st.markdown(f"**{t('by_file')}**")
-    st.caption(t("click_file"))
+    # Findings by file stays pinned under the page header while the preview and findings scroll below it
+    st.markdown("""<style>
+      div[data-testid="stLayoutWrapper"]:has(> div.st-key-pf_sticky) {
+          position: sticky; top: 3.75rem; z-index: 990; background: var(--background-color, #fff);
+          padding: 0.4rem 0 0.6rem; border-bottom: 1px solid rgba(49, 51, 63, 0.15);}
+      header[data-testid="stHeader"] {background: var(--background-color, #fff);}
+    </style>""", unsafe_allow_html=True)
     rows = per_file(res)
-    ev = st.dataframe([{t("file_col"): r["file"], **{f"{ICON[s]} {sev_label(s)}": r[s] for s in SEVERITY},
-                        t("total"): r["total"]} for r in rows], hide_index=True, width="stretch",
-                      on_select="rerun", selection_mode="single-row", key=f"pf_{st.session_state.get('check_id')}")
+    with st.container(key="pf_sticky"):
+        st.markdown(f"**{t('by_file')}**")
+        st.caption(t("click_file"))
+        ev = st.dataframe([{t("file_col"): r["file"], **{f"{ICON[s]} {sev_label(s)}": r[s] for s in SEVERITY},
+                            t("total"): r["total"]} for r in rows], hide_index=True, width="stretch",
+                          on_select="rerun", selection_mode="single-row", key=f"pf_{st.session_state.get('check_id')}")
     picked = rows[ev.selection.rows[0]]["file"] if ev and ev.selection and ev.selection.rows else None
     if picked and res.doc_files.get(picked) and Path(res.doc_files[picked]).exists():
         pdf = Path(res.doc_files[picked])
