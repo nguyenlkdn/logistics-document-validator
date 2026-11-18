@@ -14,6 +14,17 @@ SEVERITY = ["ERROR", "WARNING", "MINOR", "INFO"]
 CONFIG = json.loads((Path(__file__).resolve().parent.parent / "config.json").read_text(encoding="utf-8"))
 
 
+_REFS = re.compile(r"@\w+(?: / @\w+)*")
+
+
+def _label_refs(v, lang: str):
+    """A parameter "@qty" (or several: "@qty / @po") names fields: show their labels in that language."""
+    if not (isinstance(v, str) and _REFS.fullmatch(v)):
+        return v
+    labels = CONFIG["labels"]
+    return " / ".join(labels[r[1:]][lang] if r[1:] in labels else r[1:] for r in v.split(" / "))
+
+
 @dataclass
 class Loc:
     doc: Doc
@@ -35,8 +46,7 @@ class Finding:
     evidence: list = field(default_factory=list)   # filled by evidence.py
 
     def text(self, lang: str) -> str:
-        p = {k: (CONFIG["labels"][v[1:]][lang] if isinstance(v, str) and v.startswith("@") else v)
-             for k, v in self.params.items()}
+        p = {k: _label_refs(v, lang) for k, v in self.params.items()}
         t = CONFIG["messages"][self.key][lang].format(**p)
         return t[:1].upper() + t[1:]
 

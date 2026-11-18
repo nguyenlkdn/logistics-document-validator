@@ -5,6 +5,7 @@ Positions are kept in PDF points and placed in % of the page, so boxes stay on t
 """
 import base64
 import html
+import json
 from datetime import datetime
 from pathlib import Path
 
@@ -78,8 +79,9 @@ def _rgba(hex_color: str, a: float) -> str:
     return f"rgba({int(h[0:2], 16)},{int(h[2:4], 16)},{int(h[4:6], 16)},{a})"
 
 
-def render(path: str, pno: int, zoom, boxes: list[dict], hits: list[tuple]):
-    """boxes: [{bbox, sev, no, role, focus, title}] on this page; hits: search boxes on this page."""
+def render(path: str, pno: int, zoom, boxes: list[dict], hits: list[tuple], token: str = ""):
+    """boxes: [{bbox, sev, no, role, focus, title}] on this page; hits: search boxes on this page.
+    token marks this drawing of the page, so scroll_to_focus(token) waits for it and not for the previous one."""
     mtime = Path(path).stat().st_mtime
     w, h = doc_info(path, mtime)[pno]
     img = page_image(path, mtime, pno, dpi_for(zoom))
@@ -110,13 +112,14 @@ def render(path: str, pno: int, zoom, boxes: list[dict], hits: list[tuple]):
             f'<button type="button" data-ldvz="reset" class="ldv-zpct" title="{html.escape(t1("zoom_reset"))}"></button>'
             f'<button type="button" data-ldvz="in" title="{html.escape(t1("zoom_in"))}">+</button></div></div>')
     st.markdown(f'<div class="ldv-viewer" tabindex="0" style="height:{VIEW_H}">{zbar}'
-                f'<div class="ldv-page" style="width:{width}" data-wpt="{w:.2f}" data-key="{html.escape(f"{path}|{zoom}")}">'
+                f'<div class="ldv-page" style="width:{width}" data-width="{width}" data-wpt="{w:.2f}" data-token="{html.escape(token)}" data-key="{html.escape(f"{path}|{zoom}")}">'
                 f'{"".join(parts)}</div></div>', unsafe_allow_html=True)
 
 
 def zoom_on_page():
     """Zoom on the page itself, in the browser (no reload): Ctrl + mouse wheel or touchpad pinch zooms around the
-    pointer; the -/%/+ buttons in the viewer corner, or + - 0 while the viewer has the focus. The extra zoom is a
+    pointer; the -/%/+ buttons in the viewer corner, or + - 0 while the viewer has the focus. A page bigger than
+    the viewer can be dragged to move it. The extra zoom is a
     factor on top of the toolbar zoom: it is kept across pages of the same document and reset when the toolbar
     zoom or the document changes."""
     st.iframe("""<script>
@@ -127,26 +130,46 @@ def zoom_on_page():
       s.textContent = `(() => {
         const Z = {f: 1, key: null}, MIN = 0.25, MAX = 6;
         const page = () => document.querySelector('.ldv-page[data-wpt]');
+        // Streamlit may keep the same page element and only change its attributes when it redraws, so the
+        // width is always worked out again from the toolbar width (data-width) instead of being remembered.
+        // The toolbar width is measured on a hidden helper: resizing the page itself, even for a moment, would
+        // lose the scroll position.
         function apply() {
           const p = page(); if (!p) return;
           if (p.dataset.key !== Z.key) { Z.key = p.dataset.key; Z.f = 1; }
-          if (!p.dataset.base) { p.dataset.orig = p.style.width; p.dataset.base = p.getBoundingClientRect().width; }
-          if (p.dataset.f !== String(Z.f)) {
-            p.style.width = Z.f === 1 ? p.dataset.orig : (p.dataset.base * Z.f) + 'px';
-            p.dataset.f = String(Z.f);
+          let want = p.dataset.width;
+          if (Z.f !== 1) {
+            let probe = p.parentNode.querySelector(':scope > .ldv-probe');
+            if (!probe) {
+              probe = document.createElement('div');
+              probe.className = 'ldv-probe';
+              probe.style.cssText = 'height:0;margin:0 auto;visibility:hidden;overflow:hidden';
+              p.parentNode.insertBefore(probe, p);
+            }
+            probe.style.width = p.dataset.width;
+            want = (probe.getBoundingClientRect().width * Z.f).toFixed(1) + 'px';
           }
+          if (p.style.width !== want) p.style.width = want;
           const lbl = document.querySelector('.ldv-zpct');
           if (lbl) lbl.textContent = Math.round(100 * p.getBoundingClientRect().width / (p.dataset.wpt * 96 / 72)) + '%';
+          if (typeof pannable === 'function') pannable();
         }
+        window.__ldvZoomApply = apply;
         function zoomTo(f, cx, cy) {
           const p = page(), v = p && p.closest('.ldv-viewer'); if (!v) return;
           f = Math.min(MAX, Math.max(MIN, f));
           if (Math.abs(f - 1) < 0.03) f = 1;
           const vr = v.getBoundingClientRect();
-          if (cx === undefined) { cx = vr.left + vr.width / 2; cy = vr.top + vr.height / 2; }
+          if (cx === undefined) {                        // buttons / keys: around the selected finding if it is in
+            const fb = v.querySelector('.ldv-focus');    // view, else around the middle of the viewer
+            const r = fb && fb.getBoundingClientRect();
+            const seen = r && r.right > vr.left && r.left < vr.right && r.bottom > vr.top && r.top < vr.bottom;
+            cx = seen ? r.left + r.width / 2 : vr.left + vr.width / 2;
+            cy = seen ? r.top + r.height / 2 : vr.top + vr.height / 2;
+          }
           const r = p.getBoundingClientRect(), rx = (cx - r.left) / r.width, ry = (cy - r.top) / r.height;
           Z.f = f; apply();
-          const r2 = p.getBoundingClientRect();          // keep the point under the pointer where it was
+          const r2 = p.getBoundingClientRect();          // keep that point where it was on the screen
           v.scrollLeft += r2.left + rx * r2.width - cx;
           v.scrollTop += r2.top + ry * r2.height - cy;
         }
@@ -168,9 +191,43 @@ def zoom_on_page():
           if (k === undefined) return;
           e.preventDefault(); zoomTo(k ? Z.f * k : 1);
         });
+        // Drag to move the page when it is bigger than the viewer (like the hand tool of a PDF reader).
+        // Dragging on text still selects it; the middle mouse button moves the page from anywhere.
+        let pan = null;
+        document.addEventListener('pointerdown', e => {
+          const v = e.target.closest && e.target.closest('.ldv-viewer');
+          if (!v || e.pointerType === 'touch' || e.target.closest('.ldv-zbar')) return;
+          if (!(e.button === 1 || (e.button === 0 && !e.target.closest('.ldv-text span')))) return;
+          if (v.scrollWidth <= v.clientWidth + 1 && v.scrollHeight <= v.clientHeight + 1) return;
+          e.preventDefault();                            // no text selection, no autoscroll
+          v.focus({preventScroll: true});                // keep + - 0 and the arrow keys working
+          pan = {v, x: e.clientX, y: e.clientY, l: v.scrollLeft, t: v.scrollTop, id: e.pointerId};
+          v.setPointerCapture(e.pointerId);
+          v.classList.add('ldv-panning');
+        }, true);
+        document.addEventListener('pointermove', e => {
+          if (!pan || e.pointerId !== pan.id) return;
+          pan.v.scrollLeft = pan.l - (e.clientX - pan.x);
+          pan.v.scrollTop = pan.t - (e.clientY - pan.y);
+        }, true);
+        const stop = e => {
+          if (!pan || e.pointerId !== pan.id) return;
+          pan.v.classList.remove('ldv-panning');
+          try { pan.v.releasePointerCapture(pan.id); } catch (_) {}
+          pan = null;
+        };
+        document.addEventListener('pointerup', stop, true);
+        document.addEventListener('pointercancel', stop, true);
+        function pannable() {                            // grab cursor only when there is something to move
+          const v = document.querySelector('.ldv-viewer'); if (!v) return;
+          v.classList.toggle('ldv-pannable', v.scrollWidth > v.clientWidth + 1 || v.scrollHeight > v.clientHeight + 1);
+        }
+
         let queued = false;                              // the page is drawn again after every rerun
-        new MutationObserver(() => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; apply(); }); } })
-          .observe(document.body, {childList: true, subtree: true});
+        const later = () => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; apply(); }); } };
+        new MutationObserver(later).observe(document.body, {childList: true, subtree: true, attributes: true,
+                                                            attributeFilter: ['data-key', 'data-width', 'src']});
+        window.addEventListener('resize', later);
         apply();
       })();`;
       doc.head.appendChild(s);
@@ -178,13 +235,16 @@ def zoom_on_page():
     </script>""", height=1)
 
 
-def scroll_to_focus():
-    """Bring the selected finding's box into view inside the viewer (runs once per selection)."""
+def scroll_to_focus(token: str = ""):
+    """Bring the selected finding's box into view inside the viewer (runs once per selection). Waits until the page
+    drawn with this token is shown: right after a click the previous drawing (and its box) can still be there."""
     st.iframe(f"""<script>/* {datetime.now().timestamp()} */
-    const doc = window.parent.document;
+    const doc = window.parent.document, token = {json.dumps(token)};
     function go(n) {{
-      const el = doc.querySelector('.ldv-focus'), v = doc.querySelector('.ldv-viewer');
-      if (!el || !v) {{ if (n < 30) setTimeout(() => go(n + 1), 100); return; }}
+      const p = doc.querySelector('.ldv-page[data-wpt]'), v = doc.querySelector('.ldv-viewer');
+      const el = p && p.dataset.token === token ? p.querySelector('.ldv-focus') : null;
+      if (!el || !v) {{ if (n < 50) setTimeout(() => go(n + 1), 100); return; }}
+      if (window.parent.__ldvZoomApply) window.parent.__ldvZoomApply();     // page zoom first, then measure
       const er = el.getBoundingClientRect(), vr = v.getBoundingClientRect();
       v.scrollTo({{top: v.scrollTop + er.top - vr.top - vr.height / 2 + er.height / 2,
                    left: v.scrollLeft + er.left - vr.left - vr.width / 2 + er.width / 2, behavior: 'smooth'}});

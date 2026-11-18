@@ -100,6 +100,8 @@ CSS = """
   /* page viewer */
   .ldv-viewer {overflow: auto; background: #e8eaed; border: 1px solid #dadce0; border-radius: 6px; padding: 12px;}
   .ldv-viewer:focus {outline: 2px solid #aecbfa;}
+  .ldv-viewer.ldv-pannable .ldv-text {cursor: grab;}
+  .ldv-viewer.ldv-panning, .ldv-viewer.ldv-panning * {cursor: grabbing !important; user-select: none;}
   .ldv-zbar {position: sticky; top: 0; left: 0; height: 0; z-index: 6; display: flex; justify-content: flex-end;}
   .ldv-zbar > div {display: flex; margin: -4px -4px 0 0; background: #fff; border: 1px solid #dadce0; border-radius: 6px;
                    box-shadow: 0 1px 3px rgba(0,0,0,.18); height: 30px;}
@@ -109,7 +111,8 @@ CSS = """
   .ldv-zbar .ldv-zpct {font-size: 12px; min-width: 48px; border-left: 1px solid #e3e5e8; border-right: 1px solid #e3e5e8;}
   .ldv-page {position: relative; margin: 0 auto; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.2);
              container-type: inline-size;}
-  .ldv-page img {width: 100%; display: block; user-select: none; -webkit-user-drag: none;}
+  .ldv-page img {width: 100%; height: auto; max-width: none !important; object-fit: fill !important; display: block;
+                 user-select: none; -webkit-user-drag: none;}   /* never drawn smaller than its box: boxes must match */
   .ldv-box {position: absolute; border: 2px solid; border-radius: 2px; pointer-events: none; z-index: 1;}
   .ldv-box.ldv-ref {border-style: dashed;}
   .ldv-box.ldv-focus {border-width: 3px; z-index: 3;}

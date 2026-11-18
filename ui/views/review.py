@@ -238,13 +238,14 @@ def page_view(s, doc, sel, base):
             boxes.append(dict(bbox=l["bbox"], sev=f["severity"], role=l["role"], focus=focus,
                               no=f["no"] if tag else None,
                               title=f"#{f['no']} {msg(f)}" + (f" — {t1('ref_value')}" if l["role"] == "ref" else "")))
-    viewer.render(path, pno, zoom, boxes, hits.get(pno, []))
+    token = f"{sel['no']}|{doc}|{pno}|{zoom}" if sel else ""
+    viewer.render(path, pno, zoom, boxes, hits.get(pno, []), token)
     st.caption(t("boxes_v2"))
     st.caption(t("zoom_hint"))
     if sel and st.session_state.get("v_focus_last") != (sel["no"], doc, pno, zoom):
         st.session_state["v_focus_last"] = (sel["no"], doc, pno, zoom)
         if any(b["focus"] for b in boxes):
-            viewer.scroll_to_focus()
+            viewer.scroll_to_focus(token)
 
 
 # ------------------------------------------------------------------ right: finding detail + list

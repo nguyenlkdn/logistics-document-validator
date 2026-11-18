@@ -188,6 +188,32 @@ def run(p, url, zip_path, shots):
         p.keyboard.press("Enter")
         wait(2)
         assert abs(pg.bounding_box()["width"] - w3) < 2, "zoom lost after the page was drawn again"
+        for _ in range(6):                                  # far past the image's own size: it must still fill the page
+            p.locator("[data-ldvz=in]").click()
+        time.sleep(0.3)
+        fit = p.evaluate("""() => { const i = document.querySelector('.ldv-page img'), pg = i.parentElement;
+            return [getComputedStyle(i).objectFit, i.getBoundingClientRect().width / pg.getBoundingClientRect().width,
+                    i.getBoundingClientRect().width / i.naturalWidth]; }""")
+        assert fit[0] == "fill" and abs(fit[1] - 1) < 0.01 and fit[2] > 1.2, \
+            f"page image not drawn at the page size when zoomed in (boxes would be off): {fit}"
+        spot = p.evaluate("""() => {                         // a point on the page with no text under it
+            const v = document.querySelector('.ldv-viewer').getBoundingClientRect();
+            for (let y = v.top + 60; y < v.bottom - 20; y += 23)
+              for (let x = v.left + 30; x < v.right - 30; x += 29) {
+                const el = document.elementFromPoint(x, y);
+                if (el && el.classList.contains('ldv-text')) return [x, y];
+              }
+            return null; }""")
+        assert spot, "no empty spot on the page to drag"
+        assert p.locator(".ldv-viewer.ldv-pannable").count() == 1, "no grab cursor on a zoomed page"
+        before = p.evaluate("() => { const v = document.querySelector('.ldv-viewer'); return [v.scrollLeft, v.scrollTop]; }")
+        p.mouse.move(*spot)
+        p.mouse.down()
+        p.mouse.move(spot[0] - 120, spot[1] - 90, steps=6)
+        p.mouse.up()
+        after = p.evaluate("() => { const v = document.querySelector('.ldv-viewer'); return [v.scrollLeft, v.scrollTop]; }")
+        assert after[0] - before[0] > 80 and after[1] - before[1] > 60, f"drag did not move the page: {before} -> {after}"
+        assert not p.evaluate("() => String(window.getSelection())"), "dragging the page selected text"
         shot("03b_zoom")
         p.locator("[data-ldvz=reset]").click()
         time.sleep(0.3)

@@ -190,6 +190,15 @@ def main():
             assert search.query(idx, bl)["refs"], "B/L no."
         assert not any(search.query(idx, "zzzz-no-such-thing").values())
 
+    @test("messages: one or several field names (@qty / @po) shown as labels in EN and VI")
+    def _():
+        from engine.rules import Finding
+        for what, want in (("@qty", "quantity"), ("@qty / @po", "quantity / P/O"),
+                           ("@model / @qty / @po", "model / quantity / P/O")):
+            f = Finding("PL_LINE", "ERROR", [], dict(no=3, what=what), "", "")
+            assert want in f.text("en"), f.text("en")
+            assert "@" not in f.text("vi"), f.text("vi")
+
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     return 1 if FAILS else 0
 
