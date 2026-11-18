@@ -77,12 +77,86 @@ def at(doc: Doc, f: Field | None, role="wrong") -> list:
     return [Loc(doc, None, None, f.raw, role)] if f.raw else []
 
 
+@dataclass
+class Calc:
+    """A total worked out from the item lines (not read from a TTL row). refs = the line fields it adds up."""
+    value: float
+    raw: str
+    refs: list
+
+
+_at_field = at
+
+
+def at(doc: Doc, f, role="wrong") -> list:
+    if isinstance(f, Calc):
+        return [x for r in f.refs for x in _at_field(doc, r, role)]
+    return _at_field(doc, f, role)
+
+
+def _lines_agree(ci: Doc) -> bool:
+    """The packing-list lines tell the whole story: as many lines as the invoice, the same total quantity, and
+    carton ranges running 1, 2, 3 … with no gap or overlap. Otherwise a line is missing or misprinted (LINE_COUNT,
+    CI_PL_QTY, PL_LINE, PL_RANGE_* report it) and the line sum is not the truth either."""
+    pl, inv = ci.pl_items, ci.items
+    if not pl or (inv and len(inv) != len(pl)):
+        return False
+    q = [it.get("qty") for it in pl]
+    if any(not isinstance(x, Field) or x.value is None for x in q):
+        return False
+    if inv and not _close(sum(x.value for x in q), sum(_v(it.get("qty")) or 0 for it in inv)):
+        return False
+    rngs = [it.get("rng") for it in pl]
+    if any(rngs):
+        expect = 1
+        for r in rngs:
+            if not r or r[0] != expect:
+                return False
+            expect = r[1] + 1
+    return True
+
+
+def true_total(ci: Doc | None, k: str):
+    """The total of an invoice / packing list as its item lines add up, not the printed TTL: a TTL row can be
+    wrong (TTL 504 cartons under the one line CARTON 1-500, all other documents 500). The printed TTL is itself
+    checked against the lines (TOTAL_QTY, TOTAL_AMOUNT, PL_TOTAL, PL_RANGE_TOTAL); the other documents and the
+    other TTL rows are compared with what the lines say.
+    k: qty / amount (invoice lines; amount = the printed line amounts, qty x price is LINE_AMOUNT's job),
+    pl_qty / ctn / nw / gw / cbm (packing-list lines, only when they agree with the invoice: _lines_agree).
+    Lines not all readable or not consistent: the printed total."""
+    if not ci:
+        return None
+    if k in ("qty", "amount"):
+        printed = ci.f.get(f"total_{k}") or (ci.f.get("pl_total_qty") if k == "qty" else None)
+        rows = ci.items
+        vals = refs = [it.get(k) for it in rows]
+    else:
+        pk = "qty" if k == "pl_qty" else k
+        printed = ci.f.get(f"pl_total_{pk}")
+        rows = ci.pl_items if _lines_agree(ci) else []
+        if k in ("nw", "gw") and any(_v(it.get("gw")) is not None and _v(it.get("nw")) is not None
+                                     and it["gw"].value < it["nw"].value - 0.0005 for it in rows):
+            rows = []                               # a line's own weights are wrong (PL_GW_NW): its sum is no truth
+        if k == "ctn":
+            vals, refs = [it.get("ctn") for it in rows], [it.get("ctn_f") for it in rows]
+        else:
+            vals = refs = [it.get(pk) for it in rows]
+    nums = [v.value if isinstance(v, Field) else v for v in vals]
+    if not rows or any(isinstance(v, bool) or not isinstance(v, (int, float)) for v in nums):
+        return printed
+    s = round(sum(nums), 3)
+    if printed and _close(printed.value, s, 0.0005):
+        return printed                              # the TTL agrees with the lines: point at the TTL
+    raw = fmt_like(s, printed.raw) if printed else f"{s:,.3f}".rstrip("0").rstrip(".")
+    return Calc(s, raw, [r for r in refs if isinstance(r, Field)])
+
+
 def at_line(doc: Doc, line, role="wrong") -> list:
     return [Loc(doc, line.page, line.bbox, None, role)]
 
 
 def _v(f):
-    return f.value if isinstance(f, Field) else None
+    return f.value if isinstance(f, (Field, Calc)) else None
 
 
 def _close(a, b, tol=0.005):
@@ -147,8 +221,8 @@ def r_pl_sums(docs, out):
 def r_bl_vs_pl(ci, bl, out):
     if not (ci and bl):
         return
-    for k, pk in (("gw", "pl_total_gw"), ("cbm", "pl_total_cbm"), ("ctn", "pl_total_ctn")):
-        b, p = bl.f.get(k), ci.f.get(pk)
+    for k in ("gw", "cbm", "ctn"):
+        b, p = bl.f.get(k), true_total(ci, k)
         if b and p and not _close(b.value, p.value, 0.0005):
             rows = [x["ctn" if k == "ctn" else k] for x in bl.lists.get("cntr_load_parts", [])]
             agree = rows and _close(sum(r.value for r in rows), p.value, 0.0005)   # the B/L attach sheet agrees with the PL
@@ -288,9 +362,9 @@ def r_co(ci, co, bl, out):
                                at(co, full) + at(ci, ci.f.get("invoice_no"), "ref") if full else at_line(co, it["qty"].line)))
     if len(co.items) != len(ci.items):
         out.append(Finding("CO_ITEMS", "ERROR", [co, ci], {}, str(len(co.items)), str(len(ci.items))))
-    for k, ci_k in (("total_value", "total_amount"), ("total_qty", "total_qty")):
-        a, b = co.f.get(k), ci.f.get(ci_k)
-        bv = b.value if b else (sum(i["qty"].value for i in ci.items) if k == "total_qty" else None)
+    for k, ci_k in (("total_value", "amount"), ("total_qty", "qty")):
+        a, b = co.f.get(k), true_total(ci, ci_k)
+        bv = b.value if b else None
         if a and bv is not None and not _close(a.value, bv):
             out.append(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label=f"@{k}"), a.raw, f"{bv:,.2f}".rstrip("0").rstrip("."),
                                at(co, a) + at(ci, b, "ref")))
@@ -440,7 +514,7 @@ def r_containers(ci, bl, out):
             s_ = sum(x.value[i] for x in loads.values())
             if not tot or _close(s_, tot.value, 0.0005):      # printed to the last decimal: a 0.01 change counts
                 continue
-            pl = ci.f.get(f"pl_total_{k}") if ci else None
+            pl = true_total(ci, k) if ci else None
             if pl and _close(s_, pl.value, 0.0005) and not _close(tot.value, pl.value, 0.0005):
                 continue                              # the rows agree with the packing list: the B/L total is the wrong
                                                       # one, and BL_VS_PL already says so
@@ -460,7 +534,7 @@ def r_bl_cargo(ci, co, bl, out):
             out.append(Finding("BL_MARKS_MODEL", "ERROR" if near else "WARNING", [bl, ci], dict(model=f.value),
                                f.value, near[0] if near else "", at(bl, f)))
     u = bl.f.get("bl_unit")
-    ci_qty, ci_ctn = ci.f.get("total_qty") or ci.f.get("pl_total_qty"), ci.f.get("pl_total_ctn")
+    ci_qty, ci_ctn = true_total(ci, "qty"), true_total(ci, "ctn")
     _bl_qty(bl, [ci], ci_qty and ci_qty.value, at(ci, ci_qty, "ref"), ci_ctn and ci_ctn.value, at(ci, ci_ctn, "ref"), out)
     unit_of = lambda t: {"SETS": "SET", "SET": "SET", "PCS": "PCS", "PC": "PCS", "PIECE": "PCS", "PIECES": "PCS",
                          "UNIT": "UNIT", "UNITS": "UNIT"}.get((t or "").upper())
@@ -634,7 +708,7 @@ def r_co_packages(ci, co, out):
             if want and want not in re.sub(r"\s+", " ", goods.value.upper()):
                 out.append(Finding("CO_GOODS_DESC", "ERROR", [co, ci], dict(no=it["no"], model=it.get("model") or ""),
                                    goods.value, want, at(co, goods) + at(ci, p["desc"], "ref")))
-    tot, tot_w, ref = co.f.get("total_ctn"), co.f.get("total_ctn_words"), ci.f.get("pl_total_ctn")
+    tot, tot_w, ref = co.f.get("total_ctn"), co.f.get("total_ctn_words"), true_total(ci, "ctn")
     if tot and ref:
         if not _close(tot.value, ref.value):
             out.append(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label="@ctn"), tot.raw, f"{ref.value:,.0f}",
@@ -755,9 +829,9 @@ def _pair_score(d: Doc, ci: Doc) -> int:
     if no and no.upper() in d.name.upper():
         score += 50
     amt = _v(d.f.get("total_amount")) or _v(d.f.get("total_value"))
-    if _close(amt, _v(ci.f.get("total_amount")), 0.01):
+    if _close(amt, _v(true_total(ci, "amount")), 0.01):
         score += 30
-    if _close(_v(d.f.get("total_qty")), _v(ci.f.get("total_qty")) or _v(ci.f.get("pl_total_qty")), 0.01):
+    if _close(_v(d.f.get("total_qty")), _v(true_total(ci, "qty")), 0.01):
         score += 10
     pos, cpos = set(re.findall(r"[A-Z]{2}\d{6,}", str(_v(d.f.get("pos")) or ""))), \
         set(re.findall(r"[A-Z]{2}\d{6,}", str(_v(ci.f.get("pos")) or "")))
@@ -795,16 +869,16 @@ def _validate_multi(docs: list[Doc], cis: list[Doc]) -> list[Finding]:
         listed = {f.value for f in bl.lists.get("invoice_nos", [])}
         if listed - {_v(c.f.get("invoice_no")) for c in cis}:
             continue                                      # B/L covers more than this package: BL_INVOICE_EXTRA
-        for k, pk in (("gw", "pl_total_gw"), ("cbm", "pl_total_cbm"), ("ctn", "pl_total_ctn")):
-            b, ps = bl.f.get(k), [c.f.get(pk) for c in cis]
+        for k in ("gw", "cbm", "ctn"):
+            b, ps = bl.f.get(k), [true_total(c, k) for c in cis]
             if not b or not all(ps):
                 continue
             total = sum(p.value for p in ps)
             if not _close(b.value, total, 0.0005):
                 out.append(Finding("BL_VS_PL", "ERROR", [bl] + cis, dict(label=f"@{k}"), b.raw, fmt_like(total, b.raw),
                                    at(bl, b) + [l for c, p in zip(cis, ps) for l in at(c, p, "ref")]))
-        ps = [c.f.get("total_qty") or c.f.get("pl_total_qty") for c in cis]
-        cs = [c.f.get("pl_total_ctn") for c in cis]
+        ps = [true_total(c, "qty") for c in cis]
+        cs = [true_total(c, "ctn") for c in cis]
         _bl_qty(bl, cis, sum(p.value for p in ps) if all(ps) else None,
                 [l for c, p in zip(cis, ps) if p for l in at(c, p, "ref")],
                 sum(x.value for x in cs) if all(cs) else None, [l for c, x in zip(cis, cs) if x for l in at(c, x, "ref")], out)

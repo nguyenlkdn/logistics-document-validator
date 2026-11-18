@@ -217,6 +217,35 @@ def _():
     assert d.f["shipment_by"] is not None and d.f["shipment_by"].value is None, d.f.get("shipment_by")
 
 
+@test("totals: other documents are compared with what the lines add up to, not a wrong TTL row")
+def _():
+    from engine.extract import Doc, Field
+    from engine.rules import Finding, r_bl_vs_pl, r_co_packages, true_total   # noqa: F401
+    ln = lines("x")[0]
+    fld = lambda v, raw=None: Field(v, raw or f"{v:,}", ln, 0, 0)
+
+    def ci(ttl_ctn, rng=(1, 500), pl_qty=500.0, gw=6500.0, nw=6000.0):
+        d = Doc(Path("ci.pdf"), "CI", [ln], 600, False)
+        d.items = [dict(model="AB-X10", qty=fld(500.0, "500"), price=fld(10.0, "10.00"), amount=fld(5000.0, "5,000.00"))]
+        d.pl_items = [dict(model="AB-X10", ctn=rng[1] - rng[0] + 1, ctn_f=fld(rng[1] - rng[0] + 1), rng=rng,
+                           qty=fld(pl_qty, "500"), nw=fld(nw, "6,000.00"), gw=fld(gw, "6,500.00"), cbm=fld(25.0, "25.00"))]
+        d.f = dict(pl_total_ctn=fld(float(ttl_ctn), f"{ttl_ctn:,}"), pl_total_qty=fld(500.0, "500"),
+                   total_qty=fld(500.0, "500"), total_amount=fld(5000.0, "5,000.00"),
+                   pl_total_gw=fld(6500.0, "6,500.00"), pl_total_nw=fld(6000.0, "6,000.00"))
+        return d
+    assert true_total(ci(504), "ctn").value == 500                     # TTL 504 under CARTON 1-500: the lines win
+    assert true_total(ci(500), "ctn").raw == "500"                     # TTL agrees: the TTL itself
+    assert true_total(ci(504, rng=(1, 400)), "ctn").value == 400
+    assert true_total(ci(504, rng=(0, 499)), "ctn").value == 504       # ranges not 1..n: lines are no truth
+    assert true_total(ci(504, pl_qty=400.0), "ctn").value == 504       # PL lines ≠ invoice lines: printed TTL
+    assert true_total(ci(500, gw=5000.0), "gw").value == 6500.0        # a line with G.W. < N.W.: printed TTL
+    bl = Doc(Path("bl.pdf"), "BL", [ln], 600, False)
+    bl.f = dict(ctn=fld(500.0, "500"))
+    out = []
+    r_bl_vs_pl(ci(504), bl, out)
+    assert not [f for f in out if f.key == "BL_VS_PL"], out            # the B/L agrees with the lines: no finding
+
+
 if __name__ == "__main__":
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     sys.exit(1 if FAILS else 0)

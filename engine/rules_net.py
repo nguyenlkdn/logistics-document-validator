@@ -1,7 +1,7 @@
 """Cross-document ("net") and self-consistency rules, added in LDV 2.1 (report only).
 
 Self-checks inside one document:
-  CI_COVER_TOTAL, PL_COVER_TOTAL  cover-page TTL = attachment TTL (cartons, quantity, amount, N.W., G.W., CBM)
+  CI_COVER_TOTAL, PL_COVER_TOTAL  cover-page TTL = what the item lines add up to (else the attachment TTL) (cartons, quantity, amount, N.W., G.W., CBM)
   PL_GW_NW                        gross weight >= net weight (each packing-list line and the total)
   ETA_DATE                        ETA not before the sailing date
   DOC_HEADER                      invoice no. / date identical on every page of the invoice + packing-list file
@@ -35,7 +35,7 @@ from collections import Counter
 
 from . import master
 from .extract import NUMBER_WORDS, Field
-from .rules import Finding, _close, at, fmt_like
+from .rules import Finding, _close, at, fmt_like, true_total
 
 ZIP = zip
 
@@ -90,10 +90,12 @@ def r_cover_totals(ci, out):
         rows = ci.lists.get(lst, [])
         if len(rows) < 2:
             continue
-        ref = rows[-1]                             # the attachment's TTL: the one the line sums are checked against
+        last = rows[-1]                            # the attachment's TTL: checked against the lines by PL_TOTAL & co.
+        # every other TTL row against what the lines add up to, not against the attachment's printed TTL
+        calc = {k: true_total(ci, {"qty": "qty" if lst == "ci_ttls" else "pl_qty"}.get(k, k)) for k in keys}
         for row in rows[:-1]:
             for k in keys:
-                a, b = row.get(k), ref.get(k)
+                a, b = row.get(k), calc[k] or last.get(k)
                 if a and b and not _close(a.value, b.value, 0.005):
                     out.append(Finding(key, "ERROR", [ci], dict(label=f"@{k}"), a.raw, fmt_like(b.value, a.raw),
                                        at(ci, a) + at(ci, b, "ref")))
@@ -179,7 +181,7 @@ def r_co_self(co, out):
 def r_ci_pl_ctn(ci, out):
     if not ci or not ci.lists.get("ci_ttls"):
         return
-    a, b = ci.lists["ci_ttls"][-1].get("ctn"), ci.f.get("pl_total_ctn")
+    a, b = ci.lists["ci_ttls"][-1].get("ctn"), true_total(ci, "ctn")
     if a and b and not _close(a.value, b.value):
         out.append(Finding("CI_PL_CTN", "ERROR", [ci], {}, a.raw, fmt_like(b.value, a.raw), at(ci, a) + at(ci, b, "ref")))
 
