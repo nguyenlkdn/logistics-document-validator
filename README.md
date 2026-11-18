@@ -8,7 +8,8 @@ B/L, Form D), cross-checks them and writes a bilingual (EN/VI) report with page 
 ```
 app.py                 Streamlit UI (localhost:8501)
 Setup.bat / Start.bat  Windows: install libraries + shortcuts (no admin) / run the app
-ldv_tray.py            background launcher: no console, tray icon (Open / Reports / Quit), update prompt
+install_python.ps1     Windows: installs Python 3.15 for the user when Setup.bat finds none (winget, else python.org)
+ldv_tray.py            background launcher: no console, tray icon (Open / Reports / Check for updates / Quit), update prompt
 ldv_open.py            right-click Send to > LDV Checker
 updater.py             GitHub Releases updater
 .streamlit/config.toml localhost-only, no telemetry
@@ -63,7 +64,10 @@ Reports go to `~/Documents/LDV_reports` (override with env `LDV_REPORT_DIR` or `
 GNOME Files app, a right-click entry *Scripts > LDV Checker*. `./start.sh` starts LDV in the background with a tray
 icon and opens the browser. Needs Python 3.11+ with venv (`sudo apt install python3-venv` on Debian/Ubuntu).
 The tray icon needs an X11 session or a desktop with AppIndicator support. Without one, LDV still runs: open
-http://localhost:8501 in the browser.
+http://localhost:8501 in the browser. The icon's right-click menu (Open · Reports · Check for updates · Quit) needs
+PyGObject, which `setup.sh` builds when the system has
+`sudo apt install gir1.2-ayatanaappindicator3-0.1 libgirepository-2.0-dev pkg-config` (it prints this command if
+they are missing). Without it the icon shows but has no menu.
 
 ## HS master list
 The company's HS Excel (model → HS code, header row e.g. `Mã NPL/SP` | `Mã HS`) is the reference for HS codes. It is
@@ -108,6 +112,11 @@ That tags, pushes, builds the zip with `git archive` (tracked files only, so con
 On a machine with internet:
 `pip download -r requirements.txt msvc-runtime -d wheels --platform win_amd64 --python-version 3.15 --only-binary=:all:`
 then copy the `wheels` folder into this folder; `Setup.bat` uses it automatically when online install fails.
+
+New PC: Python does not need to be installed first. When `Setup.bat` (or `Start.bat`) finds no Python 3.11+ (or only
+the Microsoft Store placeholder), it runs `install_python.ps1`, which installs Python 3.15 for the current user, no
+admin: with `winget` when available, else the newest 3.15.x installer from python.org, which must be signed by the
+Python Software Foundation before it runs. Needs internet; offline, install Python 3.15 by hand first.
 
 ## Microsoft C++ runtime ("DLL load failed while importing _extra")
 pymupdf needs MSVCP140.dll, which Python does not ship. `Setup.bat` installs the pip package `msvc-runtime` into `.venv` (no admin); `engine/_dllpath.py` adds `.venv`, `.venv\Scripts` and `dll\` to the DLL search path before pymupdf loads. Manual fallback: copy MSVCP140.dll, MSVCP140_1.dll, VCRUNTIME140.dll, VCRUNTIME140_1.dll into `dll\`.

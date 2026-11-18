@@ -36,6 +36,18 @@ echo "Installing libraries / Dang cai thu vien (first time takes a few minutes).
   || { [ -d wheels ] && .venv/bin/python -m pip install --disable-pip-version-check -q --no-index --find-links wheels -r requirements.txt; } \
   || { echo "[ERROR] Library install failed. Check internet/proxy."; exit 1; }
 
+# Tray icon menu (right-click: Open LDV, Check for updates, Quit) needs the AppIndicator backend of pystray, which
+# needs PyGObject. Without it pystray falls back to plain X11: an icon with no menu. Optional: LDV works either way.
+if ! .venv/bin/python -c "import gi; gi.require_version('AyatanaAppIndicator3', '0.1'); from gi.repository import AyatanaAppIndicator3" >/dev/null 2>&1; then
+  echo "Tray menu support / Ho tro menu bieu tuong (PyGObject)..."
+  if ! .venv/bin/python -m pip install --disable-pip-version-check -q PyGObject >/dev/null 2>&1 \
+     || ! .venv/bin/python -c "import gi; gi.require_version('AyatanaAppIndicator3', '0.1'); from gi.repository import AyatanaAppIndicator3" >/dev/null 2>&1; then
+    echo "[NOTE] The LDV icon has no right-click menu yet. To add it, run once:"
+    echo "       sudo apt install gir1.2-ayatanaappindicator3-0.1 libgirepository-2.0-dev pkg-config"
+    echo "       then ./setup.sh again.  /  Bieu tuong LDV chua co menu chuot phai: chay lenh tren roi chay lai ./setup.sh"
+  fi
+fi
+
 echo "Checking the PDF library / Dang kiem tra thu vien PDF..."
 .venv/bin/python -c "import engine" || { echo "[ERROR] PDF library cannot start."; exit 1; }
 

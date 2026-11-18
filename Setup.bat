@@ -5,18 +5,23 @@ echo ============================================================
 echo  LDV - Logistics Document Validator - Setup  /  Cai dat (no admin needed)
 echo ============================================================
 
+rem Python: the one Setup installed before, else the py launcher, else python on PATH. None, too old, or only the
+rem Microsoft Store stub: install Python 3.15 for this user (install_python.ps1: winget, else python.org; no admin).
+set "PY315=%LOCALAPPDATA%\Programs\Python\Python315\python.exe"
 set "PY="
-where py >nul 2>nul && (py -3.15 -c "" >nul 2>nul && set "PY=py -3.15" || set "PY=py -3")
+if exist "%PY315%" set PY="%PY315%"
+if not defined PY ( where py >nul 2>nul && (py -3.15 -c "" >nul 2>nul && set "PY=py -3.15" || set "PY=py -3") )
 if not defined PY ( where python >nul 2>nul && set "PY=python" )
-if not defined PY (
-  echo [ERROR] Python not found. Install Python 3.15 from python.org first.
-  echo [LOI] Chua co Python. Hay cai Python 3.15 tu python.org truoc.
-  if not "%~1"=="auto" pause
-  exit /b 1
+set "PYOK="
+if defined PY ( %PY% -c "import sys; sys.exit(sys.version_info < (3, 11))" >nul 2>nul && set "PYOK=1" )
+if not defined PYOK (
+  echo Python 3.11+ not found - installing Python 3.15 for this user / Chua co Python - dang cai Python 3.15...
+  powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0install_python.ps1"
+  if exist "%PY315%" ( set PY="%PY315%" & set "PYOK=1" )
 )
-%PY% -c "import sys; sys.exit(sys.version_info < (3, 11))" || (
-  echo [ERROR] Python 3.11 or newer is required ^(3.15 recommended^).
-  echo [LOI] Can Python 3.11 tro len ^(nen dung 3.15^).
+if not defined PYOK (
+  echo [ERROR] Python could not be installed. Install Python 3.15 from python.org, then run Setup.bat again.
+  echo [LOI] Khong cai duoc Python. Hay cai Python 3.15 tu python.org roi chay lai Setup.bat.
   if not "%~1"=="auto" pause
   exit /b 1
 )
