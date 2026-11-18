@@ -106,4 +106,4 @@ written that way on purpose).
 | `I2/11/2026` read as 2 November | the date was found inside the longer text | a day glued to a letter is no date |
 | Form D package figure not read when split in pieces | pieces joined as `( 500 )` | spaces allowed inside the brackets |
 | Invoice line description not checked | only the packing list's was read | description read per invoice line, compared with the packing list |
-
+| B/L final destination `Hcm, VIETNAM` shown as not read | only capitals were accepted | the value is read as written |

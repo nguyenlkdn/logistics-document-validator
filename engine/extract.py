@@ -315,7 +315,8 @@ def _extract_bl_cargo(d: Doc):
         d.f["bl_qty_ctn"] = F(l, m, 1, num(m[1]))             # '1,250 CARTONS (1,250 SETS)': the cartons too
         d.f["bl_qty_phrase"] = F(l, m, 0)
         break
-    d.f["final_dest"] = _first(L, r"FINAL DESTINATION\s*:\s*([A-Z][A-Z .]*?)\s*(?:,|$)", flags=0)
+    # the label in capitals, the value as written ('Hcm, VIETNAM' is Ho Chi Minh City, not "not read")
+    d.f["final_dest"] = _first(L, r"FINAL DESTINATION\s*:\s*([A-Za-z][A-Za-z .]*?)\s*(?:,|$)", flags=0)
     d.f["delivery"] = _after(L, r"\[ Place of Delivery \]", r"\s{2,}([A-Z][A-Z ]*?)(?=,|\s{2,}|$)")
 
 

@@ -147,6 +147,8 @@ def _():
 def _():
     d = pdf("bl_dest", B_L + ["FINAL DESTINATION : PORT A, NOWHERE"], "BL")
     assert d.f["final_dest"].value == "PORT A", d.f["final_dest"]
+    d = pdf("bl_dest_lc", B_L + ["FINAL DESTINATION : Port b, NOWHERE"], "BL")      # not only in capitals
+    assert d.f["final_dest"].value == "Port b", d.f["final_dest"]
     d = pdf("bl_nodest", B_L + ["SAID TO CONTAIN"], "BL")
     assert "final_dest" in (d.f["absent"].value if d.f.get("absent") else ""), d.f.get("absent")
 

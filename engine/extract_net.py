@@ -180,7 +180,7 @@ def extra_ci(d: Doc, header_only: bool = False):
     # fields this invoice layout does not print at all (no label anywhere): "not on this document", not "not read"
     whole = "\n".join(l.text for l in L)
     if not d.f.get("origin"):                      # origin only in the shipping marks: 'MADE IN THAILAND'
-        d.f["origin"] = _first(inv or L, r"\bMADE IN\s+([A-Z][A-Z ]*?[A-Z])\s*(?:\s{2,}|$)", flags=0)
+        d.f["origin"] = _first(inv or L, r"\bMADE IN\s+([A-Za-z][A-Za-z ]*?[A-Za-z])\s*(?:\s{2,}|$)", flags=0)
     d.f["freight"] = _first(inv or L, r"\bFREIGHT\s+(COLLECT|PREPAID)\b")
     absent = [k for k, rx in (("vessel", r"SHIPPED BY|VESSEL|\bVOY|\bPER\s+S\.?S\.?\b|\bM/?V\b"),
                               ("containers", r"CONTAINER|\bCNTR|\b\d+\s*X\s*\d{2}\s*'?\s*(?:HC|GP|DC|HQ)\b"),
@@ -235,7 +235,7 @@ def extra_bl(d: Doc):
     d.f["dest_country"] = F(pod_l, m, 1) if m else None
     d.f["goods_full"] = _goods_full(L, d.f.get("goods"))
     d.f["freight"] = _first(L, r"\bFREIGHT\s+(COLLECT|PREPAID)\b")
-    d.f["origin"] = _first(L, r"\bMADE IN\s+([A-Z][A-Z ]*?[A-Z])\s*(?:\s{2,}|$)", flags=0)    # in the shipping marks
+    d.f["origin"] = _first(L, r"\bMADE IN\s+([A-Za-z][A-Za-z ]*?[A-Za-z])\s*(?:\s{2,}|$)", flags=0)    # in the shipping marks
     whole = "\n".join(l.text for l in L)
     absent = [k for k, rx in (("origin", r"MADE IN|\bORIGIN\b"), ("freight", r"\bFREIGHT\s+(?:COLLECT|PREPAID)"),
                               ("final_dest", r"FINAL DESTINATION\s*:"))
