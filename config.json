@@ -37,12 +37,27 @@
       "sailing",
       "total_amount",
       "pl_total_gw",
-      "pl_total_cbm"
+      "pl_total_cbm",
+      "goods",
+      "goods_full",
+      "incoterm",
+      "currency",
+      "pl_goods_full",
+      "pl_pod",
+      "pl_pol",
+      "pl_sailing",
+      "pl_total_ctn",
+      "pl_total_qty"
     ],
     "SC": [
       "sc_no",
       "shipment_by",
-      "total_amount"
+      "total_amount",
+      "incoterm",
+      "goods_full",
+      "currency",
+      "total_qty",
+      "sc_date"
     ],
     "BL": [
       "bl_no",
@@ -52,14 +67,30 @@
       "gw",
       "cbm",
       "ctn",
-      "invoice_no"
+      "invoice_no",
+      "bl_qty",
+      "bl_qty_ctn",
+      "bl_unit",
+      "cntr_summary",
+      "cntr_words",
+      "containers",
+      "delivery",
+      "dest_country",
+      "freight",
+      "goods",
+      "goods_full",
+      "hs"
     ],
     "CO": [
       "departure",
       "vessel",
       "pod",
       "total_value",
-      "total_qty"
+      "total_qty",
+      "total_ctn",
+      "total_ctn_words",
+      "import_country",
+      "origin"
     ]
   },
   "required_lists": {
@@ -226,6 +257,26 @@
     "freight": {
       "en": "freight term",
       "vi": "điều kiện cước"
+    },
+    "typo_case": {
+      "en": "a lowercase letter inside a capital word",
+      "vi": "có chữ thường lẫn trong từ viết hoa"
+    },
+    "typo_letter": {
+      "en": "a digit where a letter should be (0/O, 1/I, 5/S, 8/B)",
+      "vi": "có chữ số ở chỗ lẽ ra là chữ cái (0/O, 1/I, 5/S, 8/B)"
+    },
+    "typo_digit": {
+      "en": "a letter where a digit should be (O/0, I/1, S/5, B/8)",
+      "vi": "có chữ cái ở chỗ lẽ ra là chữ số (O/0, I/1, S/5, B/8)"
+    },
+    "desc": {
+      "en": "description",
+      "vi": "mô tả hàng"
+    },
+    "typo_size": {
+      "en": "a container size that does not exist (20, 40 or 45 ft)",
+      "vi": "cỡ container không tồn tại (20, 40 hoặc 45 ft)"
     }
   },
   "messages": {
@@ -656,6 +707,28 @@
       "vi": "Điều kiện thanh toán trên hóa đơn ≠ Hợp đồng",
       "note_en": "Payment terms are a commercial decision: check which one is agreed",
       "note_vi": "Điều kiện thanh toán do người phụ trách quyết định: kiểm tra điều kiện đã thỏa thuận"
+    },
+    "TEXT_TYPO": {
+      "en": "Possible typo: \"{word}\" has {kind}",
+      "vi": "Có thể gõ sai: \"{word}\" {kind}",
+      "note_en": "Found anywhere in the text, whether or not LDV checks that field. Correct it if it is a typo",
+      "note_vi": "Tìm trong toàn bộ nội dung, kể cả trường LDV không đối chiếu. Sửa lại nếu đúng là gõ sai"
+    },
+    "VALUE_UNREADABLE": {
+      "en": "Value could not be read: \"{value}\" (check it for a typo)",
+      "vi": "Không đọc được giá trị: \"{value}\" (kiểm tra xem có gõ sai không)",
+      "note_en": "LDV found the label but not a valid value, so this value was not checked against the other documents",
+      "note_vi": "LDV tìm thấy nhãn nhưng giá trị không hợp lệ, nên giá trị này chưa được đối chiếu với chứng từ khác"
+    },
+    "DATE_FAR": {
+      "en": "Date {date} is {days} days from the invoice date {ref} (check the year for a typo)",
+      "vi": "Ngày {date} cách ngày hóa đơn {ref} {days} ngày (kiểm tra năm có gõ sai không)",
+      "note_en": "All dates of one shipment normally fall within a few months of the invoice date",
+      "note_vi": "Các ngày của một lô hàng thường chỉ cách ngày hóa đơn vài tháng"
+    },
+    "CI_LINE_DESC": {
+      "en": "Invoice line {no}: the description does not match model {model} (the packing list does)",
+      "vi": "Hóa đơn dòng {no}: mô tả hàng không khớp model {model} (Packing List thì khớp)"
     }
   },
   "cities": {

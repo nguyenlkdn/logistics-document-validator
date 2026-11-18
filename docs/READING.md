@@ -24,7 +24,7 @@ Packing list) unless the user sets it.
 |---|---|---|
 | Vessel / voyage | `ABC STAR V.0123-045A` = `ABC STAR/ 0123-045A` = `ABC STAR / V. 0123-045A` = `ABC STAR VOY. 0123-045A` = `ABC STAR 0123-045A`; a trailing comma is ignored. The separator is a writing style (Form D needs `V.`), the voyage still has to match. | `run_reader` vessel |
 | Containers on the invoice | `TOTAL CONTAINER : 1x40HQ,1x20GP` = 2; `2 X 40'HC + 1 X 20'GP` = 3. Every part is added, not only the first. | `run_reader` containers |
-| Shipping-mark models (invoice, packing list, B/L, Form D box 6) | whole on one line `AB-X10(W1)VN`; split before the colour code `CD-Y20PE` / `(BM)VN`; split after it `EF-Z30(BK)` / `VN` | `run_reader` marks ×3 |
+| Shipping-mark models (invoice, packing list, B/L, Form D box 6) | whole on one line `AB-X10(W1)VN`; split before the colour code `CD-Y20PE` / `(BM)VN`; split after it `EF-Z30(BK)` / `VN` ; a lowercase typo (`AB-xX10(W1)VN`) is read too, so it is reported | `run_reader` marks ×4 |
 | Form D box 10 invoice no. | the number may wrap onto the next line in its column (`ACME26` / `11E0001`); the pieces in the same column are joined until the date | baseline |
 | Form D totals | `TOTAL : ONE THOUSAND … (1,250) CARTON(S)***` on one line, or `CARTON***` on the next line | `run_reader` Form D total |
 | Form D goods (box 7) | the goods name may wrap over several lines in its column; the package count `FIVE HUNDRED (500) CARTON(S)` that follows it is not part of the name; the brand gives the full name `"ACME" BRAND ELECTRIC KETTLE` | baseline |
@@ -44,7 +44,31 @@ carry it). The labels looked for are listed per document in `extract_net.py` (`a
 `FINAL DESTINATION :` or `MADE IN` / `ORIGIN`, an invoice without a container line. A yellow cell on a real
 document is a reading gap; a `·` is normal.
 
-## 4. When LDV reads something wrongly
+## 4. Typos: nothing may pass silently
+
+A value LDV cannot read is a value it cannot check, so a typo must never make a value simply disappear. Three
+safeguards, in this order:
+
+1. **`TEXT_TYPO`** looks at every word of every page, whether LDV reads that field or not: a lowercase letter among
+   capitals (`HAIPhONG`, `SEtS`, `xX10`, `20l`), a digit for a letter (`C0LLECT`, `1NDUSTRIES`), a letter for a
+   digit (`2O26`, `1,O43`, `36.O0`, `I2/11/2026`), and typos only their place shows (`(2S) CARTON`, `ONE (I)
+   CONTAINER`, `CARTON I-1250`, `Page : I of 2`, `1x4OHQ`, `1x41HQ`, `U.5 Dollars`). A short doubtful word (`PC5`,
+   `TW0`, `LA1`) counts only when its correction is written elsewhere in the package, so product codes stay quiet.
+2. **`VALUE_UNREADABLE`**: a value found at its label but not understood (an impossible date such as month 13)
+   is reported; it never stands in as text for a date or a number.
+3. **`required_fields`** in `config.json`: fields every real document of that type has; one that is not read is
+   listed under "could not read".
+
+Plus rules for typos that look valid: `DATE_FAR` (a date more than 300 days from the invoice date: a mistyped
+year), `PL_LINE` / `CI_LINE_DESC` (line description), `CNTR_ATTACH_SUM` to the last decimal.
+
+**Proof:** `python tools/typo_sweep.py tests/baseline/SET.zip …` puts a one-character typo into every value LDV reads
+(lowercase letter, look-alike, changed digit), checks the package again and lists each typo that gives no new
+finding (`SILENT`) or stops the check (`CRASH`). Run it after any change to the readers or rules. Known limits:
+the B/L number (no other document prints it) and two-letter words in Title case (`Hp` for `HP`: `By`, `No.` are
+written that way on purpose).
+
+## 5. When LDV reads something wrongly
 
 1. Put the documents in `tests/baseline/` (folder or zip; confidential, never committed).
 2. `python tools/find_unread.py tests/baseline/<set>` lists values printed in the PDF but shown as not read.
@@ -56,7 +80,8 @@ document is a reading gap; a `·` is normal.
    not for one document. Run `tests/run_reader.py`: it must pass.
 6. `python tests/run_baseline.py`: every other set must give the same results. Review the differences; when they
    are all right, approve them with `--update`.
-7. Add the layout to the table in section 2.
+7. `python tools/typo_sweep.py tests/baseline/<set>`: no `CRASH`, no new `SILENT`.
+8. Add the layout to the table in section 2.
 
 ### Layouts learned so far (2.1)
 
@@ -74,3 +99,11 @@ document is a reading gap; a `·` is normal.
 | Wrong document blamed for the HS code (4 findings) | every Form D item compared with the B/L | when all Form D items agree, the B/L is the odd one out (one finding) |
 | Carton ranges blamed after a wrong quantity (3 extra findings) | range expected from the wrong quantity | the range that fits the invoice is right; continue from where it really ends |
 | Attach-sheet sum "should be" the wrong B/L total | the sheet agrees with the packing list | no finding; the B/L total is reported once |
+| Wrong shipping-mark model not reported | the model had a lowercase typo (`AB-xX10(W1)VN`), so it was not read as a model and nothing was checked | marks accept lowercase letters after the first one |
+| Check crashed on a mistyped date (`21-NOV-2O26`, month 13) | an unreadable date was kept as text and compared with dates | the date stays empty and is reported (VALUE_UNREADABLE) |
+| A typo in a capital word matched anyway (`HAIPhONG` = `HAIPHONG`) | names are compared without case | TEXT_TYPO on the word itself |
+| A look-alike typo made the value disappear (`C0LLECT`, `10S3`) | the pattern did not match, nothing was said | TEXT_TYPO + required fields |
+| `I2/11/2026` read as 2 November | the date was found inside the longer text | a day glued to a letter is no date |
+| Form D package figure not read when split in pieces | pieces joined as `( 500 )` | spaces allowed inside the brackets |
+| Invoice line description not checked | only the packing list's was read | description read per invoice line, compared with the packing list |
+

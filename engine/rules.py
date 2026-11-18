@@ -69,8 +69,8 @@ class Finding:
 def at(doc: Doc, f: Field | None, role="wrong") -> list:
     if f is None:
         return []
-    if f.end > f.start:
-        spans = f.line.spans_for(f.start, f.end)
+    spans = f.line.spans_for(f.start, f.end) if f.end > f.start else []
+    if spans:
         clip = (min(s.bbox[0] for s in spans), min(s.bbox[1] for s in spans),
                 max(s.bbox[2] for s in spans), max(s.bbox[3] for s in spans))
         return [Loc(doc, f.page, clip, f.raw, role)]
@@ -438,7 +438,7 @@ def r_containers(ci, bl, out):
         for k, i, label in (("ctn", 1, "@ctn"), ("gw", 2, "@gw"), ("cbm", 3, "@cbm")):
             tot = bl.f.get(k)
             s_ = sum(x.value[i] for x in loads.values())
-            if not tot or _close(s_, tot.value, 0.01):
+            if not tot or _close(s_, tot.value, 0.0005):      # printed to the last decimal: a 0.01 change counts
                 continue
             pl = ci.f.get(f"pl_total_{k}") if ci else None
             if pl and _close(s_, pl.value, 0.0005) and not _close(tot.value, pl.value, 0.0005):

@@ -10,14 +10,23 @@ def num(s) -> float:
 
 
 def parse_date(s: str):
+    """The date written in s, or None when there is none or it cannot exist (month 13, 31 June …)."""
+    try:
+        return _parse_date(s)
+    except ValueError:
+        return None
+
+
+def _parse_date(s: str):
     s = s.strip().upper().replace(",", " ")
-    m = re.search(r"(\d{1,2})/(\d{1,2})/(\d{4})", s)
+    # (?<![A-Z0-9]): the day starts the number. 'I2/11/2026' (a letter typed for 1) is not 2/11/2026: no date.
+    m = re.search(r"(?<![A-Z0-9])(\d{1,2})/(\d{1,2})/(\d{4})", s)
     if m:
         return date(int(m[3]), int(m[2]), int(m[1]))
     m = re.search(r"(\d{4})-(\d{2})-(\d{2})", s)
     if m:
         return date(int(m[1]), int(m[2]), int(m[3]))
-    m = re.search(r"(\d{1,2})[\s\-]+([A-Z]{3})[A-Z]*[\s\-]+(\d{4})", s)
+    m = re.search(r"(?<![A-Z0-9])(\d{1,2})[\s\-]+([A-Z]{3})[A-Z]*[\s\-]+(\d{4})", s)
     if m and m[2] in _MONTHS:
         return date(int(m[3]), _MONTHS[m[2]], int(m[1]))
     m = re.search(r"([A-Z]{3})[A-Z]*\s+(\d{1,2})\s+(\d{4})", s)

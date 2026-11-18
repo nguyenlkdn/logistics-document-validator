@@ -9,7 +9,9 @@ Self-checks inside one document:
   CO_SUM, CO_NUMBERING, CO_PAGES  Form D items add up to its totals; items numbered 1..n; "Page n of m" right
 Between documents:
   CI_PL_CTN                       invoice carton total = packing-list carton total
-  LINE_COUNT, PL_LINE             invoice lines = packing-list lines (count, then model / quantity / P/O per line)
+  LINE_COUNT, PL_LINE             invoice lines = packing-list lines (count, then model / quantity / P/O /
+                                  description per line)
+  CI_LINE_DESC                    invoice line description names another series than its model and the packing list
   CO_MODEL                        Form D item n model = invoice line n model
   MARKS_MISSING, CI_MARKS_MODEL   shipping marks list every invoice model / only invoice models
   ORIGIN, CO_IMPORT_COUNTRY       country of origin and importing country agree
@@ -18,6 +20,11 @@ Between documents:
   SC_GOODS_DESC                   goods named on the contract = goods on the invoice
   PL_HEADER                       packing-list header = invoice header (consignee, vessel, ports, terms, P/O …)
   FREIGHT_TERM                    freight COLLECT / PREPAID agrees on invoice, packing list, B/L and with the Incoterm
+Typos anywhere in the text (whether LDV reads that field or not):
+  TEXT_TYPO                       a word that looks mistyped: a lowercase letter inside a capital word ('HAIPhONG'),
+                                  a digit inside a word ('C0LLECT') or a letter inside a number ('2O26', '1,O43')
+  VALUE_UNREADABLE                a value found at its label but not understood (e.g. the date '21-NOV-2O26')
+  DATE_FAR                        a date more than 300 days from the invoice date (a mistyped year)
 
 Where several documents state the same thing, the value most of them agree on is the reference and the document
 that differs is blamed. Nothing is reported when a value was not read.
@@ -27,7 +34,7 @@ import re
 from collections import Counter
 
 from . import master
-from .extract import Field
+from .extract import NUMBER_WORDS, Field
 from .rules import Finding, _close, at, fmt_like
 
 ZIP = zip
@@ -193,6 +200,15 @@ def r_lines(ci, out):
             diffs.append(("@qty", p["qty"].raw, fmt_like(a["qty"].value, p["qty"].raw)))
         if a.get("po") and p.get("po") and a["po"] != p["po"]:
             diffs.append(("@po", p["po"], a["po"]))
+        da, dp = a.get("desc"), p.get("desc")                # '20L' vs '21L', '(AB12)' vs '(A812)'
+        if da and dp and re.sub(r"\s+", "", da.value.upper()) != re.sub(r"\s+", "", dp.value.upper()):
+            core = re.search(r"-([A-Z0-9\-]+)\(", a.get("model") or "")   # CD-Y20PE(BM)VN -> Y20PE
+            if core and core[1] in dp.value.upper() and core[1] not in da.value.upper():
+                # the packing list names the model's series, the invoice does not: the invoice is wrong
+                out.append(Finding("CI_LINE_DESC", "ERROR", [ci], dict(no=a.get("no") or n, model=a["model"]),
+                                   da.value, dp.value, at(ci, da) + at(ci, dp, "ref")))
+            else:
+                diffs.append(("@desc", dp.value, da.value))
         if diffs:
             out.append(Finding("PL_LINE", "ERROR", [ci], dict(no=a.get("no") or n, what=" / ".join(d[0] for d in diffs)),
                                "; ".join(d[1] for d in diffs), "; ".join(d[2] for d in diffs),
@@ -379,6 +395,162 @@ def _line_loc(doc, f: Field):
     return Loc(doc, f.line.page, f.line.bbox, None)
 
 
+_LOOK_LETTER = {"0": "O", "1": "I", "5": "S", "8": "B"}       # digit written for a letter
+_LOOK_DIGIT = {"O": "0", "I": "1", "l": "1", "S": "5", "B": "8"}  # letter written for a digit
+
+
+def typo_words(text: str, vocab=frozenset()):
+    """(start, end, word, kind, suggestion) for every word of text that looks mistyped. Made to stay quiet on real
+    documents: codes mix letters and digits freely (ACME2611E001, Y20PE, 40HC, (S1)), so a word counts only when
+    it is all letters but one digit, or all digits but one letter, or has a lowercase letter among capitals.
+    vocab: the words of the whole package. A short or doubtful word ('PC5', 'TW0', 'LA1') counts only when
+    its corrected form is written elsewhere in the package (PCS, TWO, LAI), so a product code is left alone.
+    Not caught: a two-letter word in Title case ('Hp' for 'HP'): 'By', 'No.' are written that way on purpose."""
+    for m in re.finditer(r"[A-Za-z0-9]+", text):
+        w = m[0]
+        up, lo, dg = (sum(c.isupper() for c in w), sum(c.islower() for c in w), sum(c.isdigit() for c in w))
+        al = up + lo
+        to_letter = re.sub(r"[0158]", lambda c: _LOOK_LETTER[c[0]], w)
+        if (lo and (up >= 2 or re.search(r"[a-z][A-Z]", w) or (up and dg and not re.fullmatch(r"\d+[A-Z][a-z]+", w)))
+                and not re.fullmatch(r"(?:[A-Z][a-z]+)+", w)                          # VietNam, McKay: CamelCase
+                and not re.fullmatch(r"[A-Z]{2,}s", w)                                # PCs, CTNs
+                and not re.fullmatch(r"(?:\d+x)+\d*[A-Z0-9']*", w)):                  # 1x40HQ
+            yield m.start(), m.end(), w, "case", w.upper()                           # HAIPhONG, SEtS, xX10, 40hC
+        elif dg == 1 and al >= 2 and re.search(r"[A-Za-z][0158][A-Za-z]", w) and (al >= 4 or to_letter in vocab):
+            yield m.start(), m.end(), w, "letter", to_letter                         # C0LLECT, HAIPH0NG, M1NH, U5D
+        elif dg == 1 and re.fullmatch(r"[0158][A-Z]{2,}", w) and (al >= 5 or to_letter in vocab):
+            yield m.start(), m.end(), w, "letter", to_letter                         # 1NDUSTRIES, 5EVEN, 0VEN
+        elif dg == 1 and re.fullmatch(r"[A-Z]{2,}[0158]", w) and to_letter in vocab \
+                and not re.match(r"-\d", text[m.end():]):                            # PC5, TW0, LA1 (not CARTON1-25)
+            yield m.start(), m.end(), w, "letter", to_letter
+        elif re.fullmatch(r"\d+[a-z]{1,2}", w) and not re.fullmatch(r"\d*(?:1st|2nd|3rd|[04-9]th|1[1-3]th)", w) \
+                and text[max(0, m.start() - 12):m.start()].upper() == text[max(0, m.start() - 12):m.start()]:
+            yield m.start(), m.end(), w, "case", w.upper()                           # 20l (20L), V.74n (not 17th)
+        elif dg >= 2 and al == 1 and re.fullmatch(r"[0-9OIlSB]+", w):               # 2O26, I053, 10S3
+            yield m.start(), m.end(), w, "digit", re.sub(r"[OIlSB]", lambda c: _LOOK_DIGIT[c[0]], w)
+        elif dg >= 6 and re.search(r"\d[OIl]\d", w):                                # AC00O000000001 (a P/O no.)
+            yield m.start(), m.end(), w, "digit", re.sub(r"(?<=\d)[OIl](?=\d)", lambda c: _LOOK_DIGIT[c[0]], w)
+    yield from _typo_contexts(text)
+
+
+_PKG = r"(?:CARTON|CASE|PALLET|PACKAGE|BOX|CONTAINER|SET|PCS|PIECE)"
+_CNTR_TYPES = r"(?:HC|HQ|GP|DC|RF|OT|FR)"
+
+
+def _typo_contexts(text: str):
+    """Typos a word alone does not show, but its place does: a figure in brackets before a package word, a carton
+    range, a page number, a container size, an abbreviation."""
+    d2 = lambda t: re.sub(r"[OIlSB]", lambda c: _LOOK_DIGIT[c[0]], t)
+    pats = [  # (regex, group, kind, fix)
+        (r"(?:\b(?:" + "|".join(sorted(NUMBER_WORDS)) + r")\s*)?\(\s*([0-9OIlSB,]*[OIlSB][0-9OIlSB,]*)\s*\)\s*" + _PKG,
+         1, "digit", d2),                                                     # (2S) CARTON, ONE (I) CONTAINER
+        (_PKG + r"\(([0-9])\)", 1, "letter", lambda t: "S"),                  # CARTON(5)
+        (r"\bCARTONS?\s*([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\s*-\s*[0-9OIlSB]+", 1, "digit", d2),   # CARTON I-1043
+        (r"\bCARTONS?\s*\d+\s*-\s*([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\b", 1, "digit", d2),       # CARTON 1-1O43
+        (r"\bPage\s*:\s*([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\s+of\b", 1, "digit", d2),          # Page : I of 2
+        (r"\bPage\s*:\s*\d+\s+of\s+([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\b", 1, "digit", d2),
+        (r"(?:\b|(?<=\d[Xx]))(?:\d+\s*[Xx]\s*)?([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\s*'?\s*" + _CNTR_TYPES + r"\b", 1,
+         "digit", d2),                                                         # 4OHC, 1x4OHQ
+        (r"(?:\b|(?<=\d[Xx]))(?!(?:20|40|45)(?!\d))(\d{2})\s*'?\s*" + _CNTR_TYPES + r"\b", 1, "size",
+         lambda t: {"2": "20", "4": "40"}.get(t[0], "40")),                  # 1x41HQ: no 41-foot container
+        (r"\b\d+\s*X?\s*\d{2}\s*'?\s*((?i:hc|hq|gp|dc|rf|ot|fr))\b", 1, "case", str.upper),   # 40'Hc
+        (r"\b[A-Z]\.([0158])(?=\.|\s+[A-Za-z])", 1, "letter", lambda t: _LOOK_LETTER[t]),  # U.5. / U.5 Dollars
+        (r"(?<![A-Za-z0-9])((?=[0-9OIlSB/]*[OIlSB])(?=[0-9OIlSB/]*\d)[0-9OIlSB]{1,2}/[0-9OIlSB]{1,2}/[0-9OIlSB]{4})(?![A-Za-z0-9])",
+         1, "digit", d2),                                                     # I2/11/2026, 12/11/2O26
+        (r"\d[.,]([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\b", 1, "digit", d2),          # 36.O0, 11,633.6O
+        (r"\b([0-9OIlSB]*[OIlSB][0-9OIlSB]*)[.,]\d", 1, "digit", d2),          # 1O,727.60
+        (r"(?i:\b(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*\.?)\s+([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\b",
+         1, "digit", d2),                                                     # November I0, 2026
+        (r"\b([0-9OIlSB]*[OIlSB][0-9OIlSB]*)[\s\-]+(?i:(?:JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)[A-Z]*)\b",
+         1, "digit", d2),                                                     # I5-NOV-2026
+    ]
+    for rx, g, kind, fix in pats:
+        for m in re.finditer(rx, text):
+            t = m[g]
+            if (rx is pats[0][0] and not re.search(r"\d", t)
+                    and not re.search(r"\b(?:" + "|".join(NUMBER_WORDS) + r")\s*\($", text[:m.start(g)])):
+                continue                      # '(S)' alone is a plural; '(I)' counts only after a number word
+            if kind == "case" and t.isupper():
+                continue
+            yield m.start(g), m.end(g), t, kind, fix(t)
+
+
+def _reported(out, d, page, text):
+    """Some earlier finding already shows this text as the wrong value, on this page of d (CI_MARKS_MODEL for
+    'AB-xX10(W1)VN'). A finding that only boxes the same line for another reason does not count."""
+    rx = re.compile(r"(?<![A-Za-z0-9])" + re.escape(text) + r"(?![A-Za-z0-9])")      # 'I' is not inside 'INVOICE'
+    return any(rx.search(str(f.current)) and any(l.doc is d and l.role == "wrong" and l.page in (page, None)
+                                                 for l in f.locs) for f in out)
+
+
+def r_text_typo(docs, out):
+    """A mistyped word anywhere in a document: this does not depend on LDV reading that field, so a typo in a value
+    LDV does not compare (or cannot read because of the typo) is still shown."""
+    vocab = frozenset(w.upper() for d in docs for l in d.lines for w in re.findall(r"[A-Za-z0-9]+", l.text)
+                      if not re.search(r"[a-z]", w) or w.isupper()) | NUMBER_WORDS | {"PCS", "SETS", "SET", "CARTONS"}
+    found = {}
+    for d in docs:
+        for l in d.lines:
+            for a, b, w, kind, fix in typo_words(l.text, vocab):
+                if any(x < b and a < y for x, y in found.get(id(l), [])) or _reported(out, d, l.page, w):
+                    continue                        # the same place found by a word rule and a context rule: once
+                found.setdefault(id(l), []).append((a, b))
+                out.append(Finding("TEXT_TYPO", "WARNING", [d], dict(word=w, kind=f"@typo_{kind}"), w, fix,
+                                   at(d, Field(w, w, l, a, b))))
+
+
+def _fields(obj):
+    if isinstance(obj, Field):
+        yield obj
+    elif isinstance(obj, dict):
+        for v in obj.values():
+            yield from _fields(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            yield from _fields(v)
+
+
+def r_unreadable(docs, out):
+    """A value found at its label but not understood (value None): reported, never silently left out."""
+    for d in docs:
+        seen = set()
+        for f in _fields([d.f, d.lists, d.items, d.pl_items]):
+            if f.value is not None or not str(f.raw or "").strip():
+                continue
+            key = (f.page, round(f.line.y, 1), f.start, f.raw)
+            if key in seen or _reported(out, d, f.page, f.raw) or any(
+                    _reported(out, d, f.page, w) for _a, _b, w, _k, _x in typo_words(f.raw)):
+                continue
+            seen.add(key)
+            out.append(Finding("VALUE_UNREADABLE", "WARNING", [d], dict(value=f.raw.strip()), f.raw.strip(), "",
+                               at(d, f)))
+
+
+DATE_FAR_DAYS = 300
+
+
+def r_date_far(docs, ci, out):
+    """Every date read in the package lies within DATE_FAR_DAYS of the invoice date: '17/11/3026' or '2025' for
+    '2026' is a typo that no other rule would see when the date is not compared with another document."""
+    ref_f = ci.f.get("invoice_date") if ci else None
+    ref = ref_f.value if ref_f and hasattr(ref_f.value, "year") else None
+    if not ref:
+        return
+    seen = set()
+    for d in docs:
+        for f in _fields([d.f, d.lists, d.items, d.pl_items]):
+            v = f.value
+            if not (hasattr(v, "year") and not hasattr(v, "hour")) or abs((v - ref).days) <= DATE_FAR_DAYS:
+                continue
+            key = (d.name, f.page, f.raw)
+            if key in seen or _reported(out, d, f.page, f.raw):
+                continue
+            seen.add(key)
+            out.append(Finding("DATE_FAR", "WARNING", [d], dict(date=f.raw.strip(), days=f"{abs((v - ref).days):,}",
+                                                                ref=f"{ref:%d/%m/%Y}"),
+                               f.raw.strip(), "", at(d, f) + at(ci, ref_f, "ref")))
+
+
 def validate_net(docs, ci, bl, co, scs, out):
     r_cover_totals(ci, out)
     r_gw_nw(ci, out)
@@ -398,3 +570,6 @@ def validate_net(docs, ci, bl, co, scs, out):
     r_sc_goods(ci, scs, out)
     r_pl_header(ci, [d for d in docs if d is not ci], out)
     r_freight(ci, bl, out)
+    r_date_far(docs, ci, out)
+    r_text_typo(docs, out)                          # last: an earlier finding on the same text comes first
+    r_unreadable(docs, out)

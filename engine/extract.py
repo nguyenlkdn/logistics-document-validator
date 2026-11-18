@@ -9,6 +9,10 @@ from .pdftext import Line, doc_lines
 from .util import num, parse_date
 
 MODEL_RE = r"\b[A-Z][A-Z0-9]*-[A-Z0-9\-]+\([A-Z0-9]+\)[A-Z]*"   # e.g. AB-X10(W1)VN, CD-Y20PE(BM)VN
+# A model in the shipping marks: lowercase letters accepted after the first letter, so a typo such as
+# "AB-xX10(W1)VN" is read and reported as a wrong model instead of being skipped (no model read = nothing checked).
+MARK_RE = r"\b[A-Z][A-Za-z0-9]*-[A-Za-z0-9\-]+\([A-Za-z0-9]+\)[A-Za-z]*"
+MARK_HEAD = r"[A-Z][A-Za-z0-9]*-[A-Za-z0-9\-]+"               # the part before the colour code
 PO_RE = r"PR\d{12}"
 
 
@@ -25,9 +29,15 @@ class Field:
         return self.line.page
 
 
-def F(line: Line, m: re.Match, group=1, value=None) -> Field:
+_RAW = object()
+
+
+def F(line: Line, m: re.Match, group=1, value=_RAW) -> Field:
+    """The matched text as a Field. value: what it means (a number, a date …); without it the text itself.
+    value=None means "printed but not understood" (e.g. the date '21-NOV-2O26'): the field stays empty and the
+    VALUE_UNREADABLE rule reports it, instead of a text standing in for a date."""
     raw = m.group(group)
-    return Field(raw if value is None else value, raw, line, m.start(group), m.end(group))
+    return Field(raw if value is _RAW else value, raw, line, m.start(group), m.end(group))
 
 
 @dataclass
@@ -70,7 +80,7 @@ def _search(lines, pattern, flags=re.I):
 
 def _first(lines, pattern, group=1, conv=None, flags=re.I):
     for _, l, m in _search(lines, pattern, flags):
-        return F(l, m, group, conv(m.group(group)) if conv else None)
+        return F(l, m, group, conv(m.group(group)) if conv else _RAW)
     return None
 
 
@@ -80,7 +90,7 @@ def _after(lines, label_pattern, value_pattern, group=1, conv=None):
         for nl in lines[i + 1:i + 3]:
             m = re.search(value_pattern, nl.text, re.I)
             if m:
-                return F(nl, m, group, conv(m.group(group)) if conv else None)
+                return F(nl, m, group, conv(m.group(group)) if conv else _RAW)
     return None
 
 
@@ -94,15 +104,15 @@ def column_models(lines: list) -> list:
             skip = False
             continue
         t = l.text
-        m = re.match(r"\s*(" + MODEL_RE[2:] + r")\s*$", t)
+        m = re.match(r"\s*(" + MARK_RE[2:] + r")\s*$", t)
         nxt = lines[i + 1].text if i + 1 < len(lines) else ""
         if m:
             tail = re.fullmatch(r"\s*([A-Z]{1,3})\s*", nxt) if m[1].endswith(")") else None
             out.append(Field(m[1] + (tail[1] if tail else ""), m[1], l, m.start(1), m.end(1)))
             skip = bool(tail)
             continue
-        m = re.match(r"\s*([A-Z][A-Z0-9]*-[A-Z0-9\-]+)\s*$", t)
-        tail = re.fullmatch(r"\s*(\([A-Z0-9]+\)[A-Z]*)\s*", nxt)
+        m = re.match(r"\s*(" + MARK_HEAD + r")\s*$", t)
+        tail = re.fullmatch(r"\s*(\([A-Za-z0-9]+\)[A-Za-z]*)\s*", nxt)
         if m and tail:
             out.append(Field(m[1] + tail[1], m[1], l, m.start(1), m.end(1)))
             skip = True
@@ -169,10 +179,16 @@ def _extract_ci(d: Doc):
     d.lists["fob"] = _fob_all(L)
 
     item_rx = r"([\d,]+)\s*(?:SET\(S\)|PCS|SETS)\s{2,}([\d,]+\.\d{2})\s{2,}([\d,]+\.\d{2})\s*$"
-    for i, l, m in _search(inv, item_rx):
+    hits = list(_search(inv, item_rx))
+    for n, (i, l, m) in enumerate(hits):
         po = re.search(PO_RE, l.text)
+        desc = None                                 # '"ACME" BRAND RICE COOKER 1.8L(AB)SERIES' under the line
+        for nl in inv[i + 1:min(i + 4, hits[n + 1][0] if n + 1 < len(hits) else len(inv))]:
+            dm = re.search(r"\bBRAND\s+(.+?)\s*$", nl.text)
+            if dm:
+                desc = F(nl, dm, 1); break
         d.items.append(dict(model=_model_near(inv, i), qty=F(l, m, 1, num(m[1])), price=F(l, m, 2, num(m[2])),
-                            amount=F(l, m, 3, num(m[3])), po=po.group(0) if po else None))
+                            amount=F(l, m, 3, num(m[3])), po=po.group(0) if po else None, desc=desc))
     for _, l, m in _search(inv, r"^(?:TTL|TOTAL)\b.*?(?:USD\s*)?([\d,]+\.\d{2})\s*$"):
         d.f["total_amount"] = F(l, m, 1, num(m[1]))
     for _, l, m in _search(inv, r"^(?:TTL|TOTAL)\b.*?([\d,]+)\s*(?:SET\(S\)|PCS)"):
@@ -283,7 +299,7 @@ def _extract_bl_cargo(d: Doc):
         if inside and re.search(r"FINAL DESTINATION|AS PER ATTACHED|FREIGHT|\[ Total number", l.text):
             break
         if inside:
-            m = re.match(r"\s*(" + MODEL_RE[2:] + r")", l.text)
+            m = re.match(r"\s*(" + MARK_RE[2:] + r")", l.text)
             if m:
                 marks.append(F(l, m, 1))
     d.lists["marks_models"] = marks
@@ -344,7 +360,7 @@ def _extract_co(d: Doc):
 NUMBER_WORDS = set("ZERO ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE TEN ELEVEN TWELVE THIRTEEN FOURTEEN FIFTEEN "
                    "SIXTEEN SEVENTEEN EIGHTEEN NINETEEN TWENTY THIRTY FORTY FIFTY SIXTY SEVENTY EIGHTY NINETY "
                    "HUNDRED THOUSAND MILLION".split())
-PKG_RE = r"((?:[A-Z]+[\- ])*[A-Z]+)\s*\(([\d,]+)\)\s*(?:CARTON|CASE|PALLET|PACKAGE|BOX)"
+PKG_RE = r"((?:[A-Z]+[\- ])*[A-Z]+)\s*\(\s*([\d,]+)\s*\)\s*(?:CARTON|CASE|PALLET|PACKAGE|BOX)"   # '( 500 )': pieces joined
 
 
 def _co_item_details(block: list) -> dict:
@@ -366,15 +382,16 @@ def _co_item_details(block: list) -> dict:
         while toks and toks[0].split("-")[0] not in NUMBER_WORDS:   # drop 'BRAND WASHING MACHINE' etc.
             toks.pop(0)
         out["pkg_words"] = " ".join(toks) or None
-        fig_rx = r"\((" + re.escape(m[2]) + r")\)\s*(?:CARTON|CASE|PALLET|PACKAGE|BOX)"
+        fig_rx = r"\(\s*(" + re.escape(m[2]) + r")\s*\)\s*(?:CARTON|CASE|PALLET|PACKAGE|BOX)"
         for x in block:
             fm = re.search(fig_rx, x.text)
             if fm:
                 out["pkg_fig"] = F(x, fm, 1, num(fm[1])); break
     m = re.search(r"1\s*CARTON\s*=\s*(\d+)\s*(?:SET|PCS|PIECE)", col, re.I)
     out["per_ctn"] = int(m[1]) if m else None
-    m = re.search(r"MODEL\s*:\s*(" + MODEL_RE[2:] + ")", col)
-    out["model"] = m[1] if m else None
+    # 'AB-X10(W1)VN', also when the pieces were joined with a space ('AB-X10 (W1)VN') or a letter is mistyped
+    m = re.search(r"MODEL\s*:\s*(" + MARK_HEAD + r")\s*(\([A-Za-z0-9]+\)[A-Za-z]*)", col)
+    out["model"] = m[1] + m[2] if m else None
     m = re.search(r"\bBRAND\s+(.+?)\s*(?:\(\s*1\s*CARTON|MODEL\s*:|$)", col)
     if m:
         goods = m[1].strip()
@@ -414,7 +431,7 @@ def load(path: Path, kind: str | None = None) -> Doc | None:
     EXTRACTORS[kind](d)
     if kind == "CO":                                # box 6 marks: model on one line, colour code "(BK)" on the next
         d.lists["marks_models"] = [Field(a + b, a, Line(pno, 0.0), 0, 0) for pno, pg in enumerate(pdf)
-                                   for a, b in re.findall(r"(?m)^([A-Z][A-Z0-9]*-[A-Z0-9\-]+)\s*\n\s*(\([A-Z0-9]+\)[A-Z]*)\s*$",
+                                   for a, b in re.findall(r"(?m)^(" + MARK_HEAD + r")\s*\n\s*(\([A-Za-z0-9]+\)[A-Za-z]*)\s*$",
                                                           pg.get_text())]
     d.lists["unparsed"] = _unparsed_rows(d)
     from .extract_net import EXTRA                   # extra fields for the cross-document / self-check rules

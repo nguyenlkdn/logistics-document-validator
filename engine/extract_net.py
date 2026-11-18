@@ -5,7 +5,7 @@ Every field keeps its place in the PDF (Field), so findings can be boxed on the 
 """
 import re
 
-from .extract import MODEL_RE, PO_RE, Doc, F, Field, _after, _first, _search, column_models
+from .extract import MARK_HEAD, MODEL_RE, PO_RE, Doc, F, Field, _after, _first, _search, column_models
 from .util import num, parse_date
 
 CURRENCIES = ("USD", "EUR", "JPY", "THB", "VND", "CNY", "SGD", "GBP")
@@ -252,7 +252,7 @@ def extra_bl(d: Doc):
             if len(rows) == 1:
                 d.f["bl_qty"] = F(l, m, 2, total)
                 d.f["bl_qty_ctn"] = F(l, m, 1, total_ctn)
-                d.f["bl_qty_phrase"] = Field(None, l.text[m.start(1):m.end(3)], l, m.start(1), m.end(3))
+                d.f["bl_qty_phrase"] = Field(l.text[m.start(1):m.end(3)], l.text[m.start(1):m.end(3)], l, m.start(1), m.end(3))
             else:                                  # one field over all the quantities: the evidence box covers them
                 from .pdftext import Line
                 def over(fs):
@@ -331,8 +331,8 @@ def extra_co(d: Doc):
     pdf = __import__("pymupdf").open(d.path)
     for pno, pg in enumerate(pdf):
         t = pg.get_text()
-        pairs = re.findall(r"(?m)^([A-Z][A-Z0-9]*-[A-Z0-9\-]+\([A-Z0-9]+\))\s*\n\s*([A-Z]{1,3})\s*$", t)
-        pairs += [(a, "") for a in re.findall(r"(?m)^\s*([A-Z][A-Z0-9]*-[A-Z0-9\-]+\([A-Z0-9]+\)[A-Z]{1,3})\s*$", t)]
+        pairs = re.findall(r"(?m)^(" + MARK_HEAD + r"\([A-Za-z0-9]+\))\s*\n\s*([A-Z]{1,3})\s*$", t)
+        pairs += [(a, "") for a in re.findall(r"(?m)^\s*(" + MARK_HEAD + r"\([A-Za-z0-9]+\)[A-Za-z]{1,3})\s*$", t)]
         for a, b in pairs:                         # ... or on one line: 'AB-X10(W1)VN'
             if a + b not in have:
                 have.add(a + b)

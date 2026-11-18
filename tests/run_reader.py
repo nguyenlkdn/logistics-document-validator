@@ -100,6 +100,15 @@ def _():
     assert got == ["AB-X10(W1)VN", "CD-Y20PE(BM)VN", "EF-Z30(BK)VN"], got
 
 
+@test("shipping marks: a model with a lowercase typo is still read, so the typo is reported")
+def _():
+    got = [f.value for f in column_models(lines("ACME", "AB-xX10(W1)VN", "CD-Y20pE", "(BM)VN"))]
+    assert got == ["AB-xX10(W1)VN", "CD-Y20pE(BM)VN"], got
+    d = pdf("co_marks_lc", ["FORM D", "ACME", "AB-X1a(W1)VN", "CD-Y20Pe", "(BM)VN"], "CO")
+    got = sorted(f.value for f in d.lists["marks_models"])
+    assert got == ["AB-X1a(W1)VN", "CD-Y20Pe(BM)VN"], got
+
+
 @test("Form D total cartons: '(1,250) CARTON' on one line or 'CARTON***' on the next line")
 def _():
     for rows in (["TOTAL : ONE THOUSAND TWO HUNDRED FIFTY (1,250) CARTON(S)***"],
@@ -140,6 +149,70 @@ def _():
     assert d.f["final_dest"].value == "PORT A", d.f["final_dest"]
     d = pdf("bl_nodest", B_L + ["SAID TO CONTAIN"], "BL")
     assert "final_dest" in (d.f["absent"].value if d.f.get("absent") else ""), d.f.get("absent")
+
+
+# --- Typos: every one must give a finding; normal wording must give none (tools/typo_sweep.py checks real sets) ---
+TYPOS = [  # (printed text, the mistyped word LDV must report, its correction)
+    ("PORT OF DISCHARGE : PORT AlPHA", "AlPHA", "ALPHA"),        # lowercase letter in a capital word
+    ("UNIT : SEtS", "SEtS", "SETS"),
+    ("AB-xX10(W1)VN", "xX10", "XX10"),
+    ("AB-Xx10(W1)VN", "Xx10", "XX10"),
+    ("RICE COOKER 1.8l(AB)SERIES", "8l", "8L"),
+    ("VESSEL : ABC STAR V.012n", "012n", "012N"),
+    ("FREIGHT C0LLECT", "C0LLECT", "COLLECT"),                   # digit for a letter
+    ("ORIGIN : NOWH3RE 1NDUSTRIES", "1NDUSTRIES", "INDUSTRIES"),
+    ("DATE : 12/11/2O26", "12/11/2O26", "12/11/2026"),           # letter for a digit
+    ("No. :   AC000000000001   I2/11/2026", "I2/11/2026", "12/11/2026"),
+    ("TOTAL :   1,O43 CARTON(S)", "O43", "043"),
+    ("NET 36.O0", "O0", "00"),
+    ("P/O NO.AC00O000000001", "AC00O000000001", "AC000000000001"),
+    ("FIVE HUNDRED (2S) CARTON(S)", "2S", "25"),
+    ("ONE (I) CONTAINER(S) ONLY", "I", "1"),
+    ("1,250 CARTON(5)", "5", "S"),
+    ("CARTON I-1250   1,250 SET(S)", "I", "1"),
+    ("Page : I of 2", "I", "1"),
+    ("TOTAL CONTAINER : 1x4OHQ", "4O", "40"),
+    ("TOTAL CONTAINER : 1x41HQ", "41", "40"),                    # no 41-foot container
+    ("3X40'Hc", "Hc", "HC"),
+    ("November I0, 2026", "I0", "10"),
+    ("AMOUNT : U.5 Dollars", "5", "S"),
+]
+CLEAN = ["TOTAL CONTAINER : 1x40HQ,1x20GP", "2 X 40'HC + 1 X 20'GP", "AB-X10(S1)VN", "Factory : VietNam",
+         "9.1This contract", "CARTON1-25   100 SET(S)", "By T/T 90 days", "No. 12, Street 15", "17th November",
+         "1,250 CARTON(S) OF \"ACME\" BRAND", "INVOICE NO. ACME26110001   DATE : 12/11/2026", "Page : 1 of 2",
+         "1,234.500 KGS   12.50 CBM", "U.S. Dollars", "ABCU1234567/ SEAL123/ 40HC", "ABC STAR V.0123-045A"]
+
+
+@test("typos: a mistyped word is reported wherever it is, with its correction")
+def _():
+    from engine.rules_net import typo_words
+    for text, word, fix in TYPOS:
+        got = [(w, f) for _a, _b, w, _k, f in typo_words(text)]
+        assert (word, fix) in got, (text, got)
+
+
+@test("typos: normal wording of the documents gives no typo")
+def _():
+    from engine.rules_net import typo_words
+    for text in CLEAN:
+        got = [w for _a, _b, w, _k, _f in typo_words(text)]
+        assert not got, (text, got)
+
+
+@test("typos: a short doubtful word counts only when its correction is written elsewhere in the package")
+def _():
+    from engine.rules_net import typo_words
+    assert not list(typo_words("459 PC5")) and [w for *_x, w, _k, _f in typo_words("459 PC5", frozenset({"PCS"}))]
+    assert [f for *_x, f in typo_words("CAT LA1", frozenset({"LAI"}))] == ["LAI"]
+
+
+@test("dates: an impossible or mistyped date is 'not understood' (no crash, no wrong date)")
+def _():
+    for s in ("2026-13-11", "31/02/2026", "21-NOV-2O26", "I2/11/2026", "I5-NOV-2026"):
+        assert parse_date(s) is None, (s, parse_date(s))
+    assert parse_date("12/11/2026").day == 12 and parse_date("15-NOV-2026").day == 15
+    d = pdf("sc_baddate", ["SALES CONTRACT", "No. :   AC000000000001   12/11/2026", "4. SHIPMENT   By 21-NOV-2O26"], "SC")
+    assert d.f["shipment_by"] is not None and d.f["shipment_by"].value is None, d.f.get("shipment_by")
 
 
 if __name__ == "__main__":
