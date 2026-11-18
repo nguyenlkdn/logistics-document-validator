@@ -161,6 +161,13 @@ T = {
     "zoom": ("Zoom", "Thu phóng"),
     "fit_width": ("Fit width", "Vừa chiều ngang"),
     "fit_page": ("Fit page", "Vừa trang"),
+    "zoom_in": ("Zoom in (Ctrl + mouse wheel, or +)", "Phóng to (Ctrl + lăn chuột, hoặc +)"),
+    "zoom_out": ("Zoom out (Ctrl + mouse wheel, or −)", "Thu nhỏ (Ctrl + lăn chuột, hoặc −)"),
+    "zoom_reset": ("Back to the toolbar zoom (0)", "Về mức thu phóng ở thanh công cụ (0)"),
+    "zoom_hint": ("Zoom on the page: Ctrl + mouse wheel or pinch on the touchpad (zooms where the pointer is), "
+                  "or the − / + buttons in the corner.",
+                  "Thu phóng ngay trên trang: Ctrl + lăn chuột hoặc chụm hai ngón trên touchpad (phóng tại vị trí con trỏ), "
+                  "hoặc nút − / + ở góc."),
     "find_in_doc": ("Find in this document", "Tìm trong chứng từ này"),
     "find_hits": ("{n} match(es) on page {pages}", "{n} kết quả ở trang {pages}"),
     "find_none": ("No match in this document", "Không tìm thấy trong chứng từ này"),

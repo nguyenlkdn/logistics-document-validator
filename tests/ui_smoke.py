@@ -164,6 +164,36 @@ def run(p, url, zip_path, shots):
         assert p.get_by_text(re.compile(r"match\(es\) on page|No match in this document")).count() == 1
     step("workspace: find in document", find_in_doc, p)
 
+    def zoom():
+        pg, pct = p.locator(".ldv-page"), p.locator(".ldv-zpct")
+        w0, z0 = pg.bounding_box()["width"], pct.inner_text()
+        p.locator("[data-ldvz=in]").click()
+        p.locator("[data-ldvz=in]").click()
+        time.sleep(0.3)
+        w1 = pg.bounding_box()["width"]
+        assert w1 > w0 * 1.5, f"+ did not zoom in: {w0:.0f} -> {w1:.0f}px"
+        assert pct.inner_text() != z0, "zoom % not updated"
+        v = p.locator(".ldv-viewer").bounding_box()
+        p.mouse.move(v["x"] + v["width"] / 2, v["y"] + v["height"] / 2)
+        p.keyboard.down("Control")
+        p.mouse.wheel(0, 300)
+        p.keyboard.up("Control")
+        time.sleep(0.3)
+        w2 = pg.bounding_box()["width"]
+        assert w2 < w1 * 0.8, f"Ctrl + wheel did not zoom out: {w1:.0f} -> {w2:.0f}px"
+        p.locator("[data-ldvz=in]").click()
+        time.sleep(0.3)
+        w3 = pg.bounding_box()["width"]
+        p.locator("input[aria-label='Find in this document']").fill("")     # a rerun redraws the page
+        p.keyboard.press("Enter")
+        wait(2)
+        assert abs(pg.bounding_box()["width"] - w3) < 2, "zoom lost after the page was drawn again"
+        shot("03b_zoom")
+        p.locator("[data-ldvz=reset]").click()
+        time.sleep(0.3)
+        assert abs(pg.bounding_box()["width"] - w0) < 2, "reset did not go back to the toolbar zoom"
+    step("workspace: zoom on the page (+, Ctrl + wheel, kept after rerun, reset)", zoom, p)
+
     def crosscheck():
         nav("Cross-check")
         assert p.locator("table.ldv-xc tbody tr").count() >= 5, "no comparison table"

@@ -174,6 +174,7 @@ def render():
     with panel:
         finding_panel(s, sel, listed, base, mk, cid, doc, scope)
     viewer.keyboard()
+    viewer.zoom_on_page()
 
 
 # ------------------------------------------------------------------ centre: page viewer
@@ -239,6 +240,7 @@ def page_view(s, doc, sel, base):
                               title=f"#{f['no']} {msg(f)}" + (f" — {t1('ref_value')}" if l["role"] == "ref" else "")))
     viewer.render(path, pno, zoom, boxes, hits.get(pno, []))
     st.caption(t("boxes_v2"))
+    st.caption(t("zoom_hint"))
     if sel and st.session_state.get("v_focus_last") != (sel["no"], doc, pno, zoom):
         st.session_state["v_focus_last"] = (sel["no"], doc, pno, zoom)
         if any(b["focus"] for b in boxes):

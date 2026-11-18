@@ -100,6 +100,13 @@ CSS = """
   /* page viewer */
   .ldv-viewer {overflow: auto; background: #e8eaed; border: 1px solid #dadce0; border-radius: 6px; padding: 12px;}
   .ldv-viewer:focus {outline: 2px solid #aecbfa;}
+  .ldv-zbar {position: sticky; top: 0; left: 0; height: 0; z-index: 6; display: flex; justify-content: flex-end;}
+  .ldv-zbar > div {display: flex; margin: -4px -4px 0 0; background: #fff; border: 1px solid #dadce0; border-radius: 6px;
+                   box-shadow: 0 1px 3px rgba(0,0,0,.18); height: 30px;}
+  .ldv-zbar button {border: 0; background: none; min-width: 30px; padding: 0 6px; font: 500 15px/28px sans-serif;
+                    color: #3c4043; cursor: pointer;}
+  .ldv-zbar button:hover {background: #f1f3f4;}
+  .ldv-zbar .ldv-zpct {font-size: 12px; min-width: 48px; border-left: 1px solid #e3e5e8; border-right: 1px solid #e3e5e8;}
   .ldv-page {position: relative; margin: 0 auto; background: #fff; box-shadow: 0 1px 4px rgba(0,0,0,.2);
              container-type: inline-size;}
   .ldv-page img {width: 100%; display: block; user-select: none; -webkit-user-drag: none;}
