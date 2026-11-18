@@ -164,6 +164,25 @@ def run(p, url, zip_path, shots):
         assert p.get_by_text(re.compile(r"match\(es\) on page|No match in this document")).count() == 1
     step("workspace: find in document", find_in_doc, p)
 
+    def click_box():
+        p.locator("input[aria-label='Find in this document']").fill("")
+        p.keyboard.press("Enter")
+        wait(1.5)
+        box = p.locator(".ldv-box[data-f]:not(.ldv-focus)").first
+        assert box.count(), "no highlight box on the page"
+        no = box.get_attribute("data-f")
+        bb = box.bounding_box()
+        p.mouse.move(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2)
+        time.sleep(0.2)
+        assert p.locator(".ldv-box.ldv-hover").count() == 1, "box not highlighted under the pointer"
+        p.mouse.click(bb["x"] + bb["width"] / 2, bb["y"] + bb["height"] / 2)
+        wait(2)
+        sel = p.locator("div[class*=st-key-fbtn_] button[kind=primary]")
+        assert sel.count() == 1 and f"#{no}" in sel.first.inner_text(), f"clicking box #{no} did not open finding #{no}"
+        assert p.locator(f".ldv-box.ldv-focus[data-f='{no}']").count() >= 1, "clicked box not shown as selected"
+        shot("03a_click_box")
+    step("workspace: click a highlight box opens its finding", click_box, p)
+
     def zoom():
         pg, pct = p.locator(".ldv-page"), p.locator(".ldv-zpct")
         w0, z0 = pg.bounding_box()["width"], pct.inner_text()

@@ -3,7 +3,7 @@ import difflib
 import json
 import re
 from collections import Counter
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 
 from . import master
@@ -150,8 +150,10 @@ def r_bl_vs_pl(ci, bl, out):
     for k, pk in (("gw", "pl_total_gw"), ("cbm", "pl_total_cbm"), ("ctn", "pl_total_ctn")):
         b, p = bl.f.get(k), ci.f.get(pk)
         if b and p and not _close(b.value, p.value, 0.0005):
+            rows = [x["ctn" if k == "ctn" else k] for x in bl.lists.get("cntr_load_parts", [])]
+            agree = rows and _close(sum(r.value for r in rows), p.value, 0.0005)   # the B/L attach sheet agrees with the PL
             out.append(Finding("BL_VS_PL", "ERROR", [bl, ci], dict(label=f"@{k}"), b.raw, fmt_like(p.value, b.raw),
-                               at(bl, b) + at(ci, p, "ref")))
+                               at(bl, b) + at(ci, p, "ref") + ([x for r in rows for x in at(bl, r, "ref")] if agree else [])))
     c1, c2 = bl.f.get("containers"), ci.f.get("containers")
     if c1 and c2 and c1.value != c2.value:
         out.append(Finding("CONTAINERS", "ERROR", [bl, ci], {}, str(c1.value), str(c2.value),
@@ -296,6 +298,24 @@ def r_co(ci, co, bl, out):
     # only the values themselves are checked (CO_QTY per item, CO_TOTAL for the totals).
 
 
+def _bl_qty(bl, refs, qty, qty_locs, ctn, ctn_locs, out):
+    """'1,251 CARTONS (1,251 SETS)' in the B/L description: the sets against the invoice total quantity and the
+    cartons against the packing-list total cartons. Both wrong: one finding over the whole phrase."""
+    q, c, ph = bl.f.get("bl_qty"), bl.f.get("bl_qty_ctn"), bl.f.get("bl_qty_phrase")
+    bad_q = bool(q and qty is not None and not _close(q.value, qty))
+    bad_c = bool(c and ctn is not None and not _close(c.value, ctn))
+    if bad_q and bad_c and ph and ph.line is q.line is c.line:
+        t = ph.line.text
+        want = (t[ph.start:c.start] + fmt_like(ctn, c.raw) + t[c.end:q.start] + fmt_like(qty, q.raw) + t[q.end:ph.end])
+        out.append(Finding("BL_DESC_QTY", "ERROR", [bl] + refs, {}, ph.raw.strip(), want.strip(),
+                           at(bl, ph) + ctn_locs + qty_locs))
+        return
+    if bad_q:
+        out.append(Finding("BL_QTY", "ERROR", [bl] + refs, {}, q.raw, fmt_like(qty, q.raw), at(bl, q) + qty_locs))
+    if bad_c:
+        out.append(Finding("BL_DESC_CTN", "ERROR", [bl] + refs, {}, c.raw, fmt_like(ctn, c.raw), at(bl, c) + ctn_locs))
+
+
 def r_hs(ci, co, bl, out):
     """HS codes. With the HS master list (company Excel) the master is the reference and the document that
     differs is blamed: each Form D item, the B/L heading, and invoice models missing from the list.
@@ -316,6 +336,7 @@ def r_hs(ci, co, bl, out):
                 line = next((l for l in ci.lines if m in l.text), None)
                 out.append(Finding("HS_MASTER_MISSING", "WARNING", [ci], dict(model=m), m, "",
                                    [Loc(ci, line.page if line else None, None, m)]))
+    off = []                                              # Form D items not under the B/L heading (no master)
     for it in (co.items if co else []):
         m = sval(it.get("model"))
         ref = master.hs_for(m) if (have and m) else None
@@ -325,6 +346,16 @@ def r_hs(ci, co, bl, out):
                 out.append(Finding("CO_HS_MASTER", "ERROR", [co], dict(no=it["no"], model=m, ref=master.fmt(ref)),
                                    it["hs"], master.fmt(ref), loc))
         elif hs_bl and not master.digits(it["hs"]).startswith(hs_bl):
+            off.append((it, loc))
+    heads = {master.digits(it["hs"])[:len(hs_bl)] for it, _ in off}
+    if len(off) >= 2 and len(off) == len(co.items) and len(heads) == 1:
+        # every Form D item agrees with the others and none is under the B/L heading: the B/L is the odd one out
+        hs = off[0][0]["hs"]
+        out.append(Finding("BL_HS_CODE", "ERROR", [bl, co], dict(hs=_v(hs_bl_f), ref=hs), _v(hs_bl_f),
+                           master.digits(hs)[:len(hs_bl)], at(bl, hs_bl_f) + [l for _, loc in off for l in
+                                                                            [replace(x, role="ref") for x in loc]]))
+    else:
+        for it, loc in off:
             out.append(Finding("HS_CODE", "ERROR", [co, bl], dict(no=it["no"], hs=it["hs"], hs_bl=_v(hs_bl_f)), it["hs"],
                                _v(hs_bl_f) + "…", loc + at(bl, hs_bl_f, "ref")))
     refs = [h for h in known.values() if h]
@@ -402,13 +433,20 @@ def r_containers(ci, bl, out):
         if ld and cap and ld.value[3] > cap and x.value[0] not in flagged:
             out.append(Finding("CNTR_CAPACITY", "WARNING", [bl], dict(no=x.value[0], type=x.value[1], cbm=f"{ld.value[3]:,.2f}",
                                                                         cap=f"{cap:g}"), x.value[1], "", at(bl, x) + at(bl, ld, "ref")))
+    parts = {x["no"]: x for x in bl.lists.get("cntr_load_parts", [])}
     if loads:
         for k, i, label in (("ctn", 1, "@ctn"), ("gw", 2, "@gw"), ("cbm", 3, "@cbm")):
             tot = bl.f.get(k)
             s_ = sum(x.value[i] for x in loads.values())
-            if tot and not _close(s_, tot.value, 0.01):
-                out.append(Finding("CNTR_ATTACH_SUM", "ERROR", [bl], dict(label=label), f"{s_:,.2f}".rstrip("0").rstrip("."),
-                                   tot.raw, at(bl, tot, "ref") + [x for ld in loads.values() for x in at(bl, ld)]))
+            if not tot or _close(s_, tot.value, 0.01):
+                continue
+            pl = ci.f.get(f"pl_total_{k}") if ci else None
+            if pl and _close(s_, pl.value, 0.0005) and not _close(tot.value, pl.value, 0.0005):
+                continue                              # the rows agree with the packing list: the B/L total is the wrong
+                                                      # one, and BL_VS_PL already says so
+            rows = [x for no, ld in loads.items() for x in at(bl, parts[no][k] if no in parts else ld)]
+            out.append(Finding("CNTR_ATTACH_SUM", "ERROR", [bl], dict(label=label), f"{s_:,.2f}".rstrip("0").rstrip("."),
+                               tot.raw, at(bl, tot, "ref") + rows))
 
 
 def r_bl_cargo(ci, co, bl, out):
@@ -421,10 +459,9 @@ def r_bl_cargo(ci, co, bl, out):
             near = difflib.get_close_matches(f.value, models, n=1, cutoff=0.75)
             out.append(Finding("BL_MARKS_MODEL", "ERROR" if near else "WARNING", [bl, ci], dict(model=f.value),
                                f.value, near[0] if near else "", at(bl, f)))
-    q, u = bl.f.get("bl_qty"), bl.f.get("bl_unit")
-    ci_qty = ci.f.get("total_qty") or ci.f.get("pl_total_qty")
-    if q and ci_qty and not _close(q.value, ci_qty.value):
-        out.append(Finding("BL_QTY", "ERROR", [bl, ci], {}, q.raw, fmt_like(ci_qty.value, q.raw), at(bl, q) + at(ci, ci_qty, "ref")))
+    u = bl.f.get("bl_unit")
+    ci_qty, ci_ctn = ci.f.get("total_qty") or ci.f.get("pl_total_qty"), ci.f.get("pl_total_ctn")
+    _bl_qty(bl, [ci], ci_qty and ci_qty.value, at(ci, ci_qty, "ref"), ci_ctn and ci_ctn.value, at(ci, ci_ctn, "ref"), out)
     unit_of = lambda t: {"SETS": "SET", "SET": "SET", "PCS": "PCS", "PC": "PCS", "PIECE": "PCS", "PIECES": "PCS",
                          "UNIT": "UNIT", "UNITS": "UNIT"}.get((t or "").upper())
     ci_unit = unit_of(_first_unit(ci))
@@ -519,6 +556,7 @@ def r_pl_ranges(ci, co, out):
     if not items:
         return
     co_of = {id(p): it for it, p in _pairs(ci, co)}
+    inv_of = {id(p): a for a, p in zip(ci.items, ci.pl_items)} if len(ci.items) == len(ci.pl_items) else {}
     expect = 1
     for p in items:
         a, b = p["rng"]
@@ -540,6 +578,12 @@ def r_pl_ranges(ci, co, out):
                 sev_ = "ERROR"
             else:
                 key, sev_ = "PL_RANGE_COUNT", "ERROR"
+                inv = inv_of.get(id(p))
+                if per and inv and _close(inv["qty"].value / per, have):
+                    # the range fits the invoice quantity: the packing-list quantity is the wrong one, and
+                    # PL_LINE already reports it. The range is right; carry on from where it really ends.
+                    expect = b + 1
+                    continue
             out.append(Finding(key, sev_, [ci] + ([co] if per else []),
                                dict(model=model, expect=expect, have=have, cnt=cnt, qty=p["qty"].raw, per=per or ""),
                                p["ctn_f"].raw, want, loc))
@@ -699,7 +743,7 @@ def validate(docs: list[Doc]) -> list[Finding]:
     return out
 
 
-_SHARED_TOTALS = ("BL_VS_PL", "BL_QTY", "INVOICE_REF", "CONTAINERS")   # B/L figures that cover all invoices of the package
+_SHARED_TOTALS = ("BL_VS_PL", "BL_QTY", "BL_DESC_CTN", "BL_DESC_QTY", "INVOICE_REF", "CONTAINERS")   # B/L figures that cover all invoices of the package
 
 
 def _pair_score(d: Doc, ci: Doc) -> int:
@@ -759,12 +803,11 @@ def _validate_multi(docs: list[Doc], cis: list[Doc]) -> list[Finding]:
             if not _close(b.value, total, 0.0005):
                 out.append(Finding("BL_VS_PL", "ERROR", [bl] + cis, dict(label=f"@{k}"), b.raw, fmt_like(total, b.raw),
                                    at(bl, b) + [l for c, p in zip(cis, ps) for l in at(c, p, "ref")]))
-        q, ps = bl.f.get("bl_qty"), [c.f.get("total_qty") or c.f.get("pl_total_qty") for c in cis]
-        if q and all(ps):
-            total = sum(p.value for p in ps)
-            if not _close(q.value, total):
-                out.append(Finding("BL_QTY", "ERROR", [bl] + cis, {}, q.raw, fmt_like(total, q.raw),
-                                   at(bl, q) + [l for c, p in zip(cis, ps) for l in at(c, p, "ref")]))
+        ps = [c.f.get("total_qty") or c.f.get("pl_total_qty") for c in cis]
+        cs = [c.f.get("pl_total_ctn") for c in cis]
+        _bl_qty(bl, cis, sum(p.value for p in ps) if all(ps) else None,
+                [l for c, p in zip(cis, ps) if p for l in at(c, p, "ref")],
+                sum(x.value for x in cs) if all(cs) else None, [l for c, x in zip(cis, cs) if x for l in at(c, x, "ref")], out)
     return out
 
 
@@ -779,7 +822,8 @@ def _bl_invoices(docs: list[Doc], cis: list[Doc], out: list):
         for n in extra:
             out.append(Finding("BL_INVOICE_EXTRA", "WARNING", [bl], dict(inv=n), n, "", at(bl, listed[n])))
         if extra:                                         # its weights / CBM / cartons include the missing invoice
-            out[:] = [f for f in out if not (f.key in ("BL_VS_PL", "BL_QTY") and f.docs[0] is bl)]
+            out[:] = [f for f in out if not (f.key in ("BL_VS_PL", "BL_QTY", "BL_DESC_CTN", "BL_DESC_QTY")
+                                             and f.docs[0] is bl)]
         if len(cis) > 1:
             for n, c in inv.items():
                 if n not in listed:

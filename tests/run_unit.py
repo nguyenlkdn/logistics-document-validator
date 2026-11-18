@@ -32,13 +32,13 @@ FIELD_RULES = {
     "sailing": {"DEPARTURE_DATE", "PL_HEADER"},
     "goods": {"BL_GOODS_DESC", "CO_GOODS_DESC", "PL_HEADER", "SC_GOODS_DESC"},
     "incoterm": {"INCOTERM", "PL_HEADER"},
-    "hs": {"BL_HS_MASTER", "CO_HS_MASTER", "HS_CODE"},
-    "qty": {"BL_INVOICE_EXTRA", "BL_QTY", "CI_PL_QTY", "CO_QTY", "CO_SUM", "CO_TOTAL", "LINE_COUNT", "PL_TOTAL", "SC_VS_CI", "TOTAL_QTY"},
+    "hs": {"BL_HS_CODE", "BL_HS_MASTER", "CO_HS_MASTER", "HS_CODE"},
+    "qty": {"BL_DESC_QTY", "BL_INVOICE_EXTRA", "BL_QTY", "CI_PL_QTY", "CO_QTY", "CO_SUM", "CO_TOTAL", "LINE_COUNT", "PL_TOTAL", "SC_VS_CI", "TOTAL_QTY"},
     "amount": {"CI_COVER_TOTAL", "CO_TOTAL", "SC_VS_CI", "TOTAL_AMOUNT"},
     "gw": {"BL_INVOICE_EXTRA", "BL_VS_PL", "PL_TOTAL"},
     "nw": {"PL_TOTAL"},
     "cbm": {"BL_INVOICE_EXTRA", "BL_VS_PL", "PL_TOTAL"},
-    "ctn": {"BL_INVOICE_EXTRA", "BL_VS_PL", "CI_PL_CTN", "CO_PKG_COUNT", "CO_SUM", "CO_TOTAL", "PL_RANGE_TOTAL"},
+    "ctn": {"BL_DESC_CTN", "BL_DESC_QTY", "BL_INVOICE_EXTRA", "BL_VS_PL", "CI_PL_CTN", "CO_PKG_COUNT", "CO_SUM", "CO_TOTAL", "PL_RANGE_TOTAL"},
     "containers": {"CNTR_COUNT", "CNTR_WORDS", "CONTAINERS", "PL_HEADER"},
     "consignee": {"PARTY_NAME", "PL_HEADER"},
     "shipper": {"PARTY_NAME", "PL_HEADER"},
@@ -189,6 +189,18 @@ def main():
         if bl:
             assert search.query(idx, bl)["refs"], "B/L no."
         assert not any(search.query(idx, "zzzz-no-such-thing").values())
+
+    @test("B/L attach sheet: cartons, KGS and CBM of each container are boxed on their own text")
+    def _():
+        seen = 0
+        for res, _cid in runs.values():
+            for d in res.docs:
+                for x in d.lists.get("cntr_load_parts", []):
+                    seen += 1
+                    for k, unit in (("ctn", "CARTON"), ("gw", "KGS"), ("cbm", "CBM")):
+                        t = x[k].line.text[x[k].start:x[k].end]
+                        assert unit in t and x[k].raw == t, f"{d.path.name} {x['no']} {k}: boxed '{t}'"
+        assert seen, "no attach sheet in the test sets"
 
     @test("messages: one or several field names (@qty / @po) shown as labels in EN and VI")
     def _():

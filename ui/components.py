@@ -101,6 +101,9 @@ CSS = """
   .ldv-viewer {overflow: auto; background: #e8eaed; border: 1px solid #dadce0; border-radius: 6px; padding: 12px;}
   .ldv-viewer:focus {outline: 2px solid #aecbfa;}
   .ldv-viewer.ldv-pannable .ldv-text {cursor: grab;}
+  .ldv-viewer.ldv-onbox .ldv-text, .ldv-viewer.ldv-onbox .ldv-text span {cursor: pointer;}
+  .ldv-box.ldv-hover {border-width: 3px; box-shadow: 0 0 0 4px rgba(26,115,232,.28); z-index: 3;}
+  .st-key-boxsel {display: none !important;}
   .ldv-viewer.ldv-panning, .ldv-viewer.ldv-panning * {cursor: grabbing !important; user-select: none;}
   .ldv-zbar {position: sticky; top: 0; left: 0; height: 0; z-index: 6; display: flex; justify-content: flex-end;}
   .ldv-zbar > div {display: flex; margin: -4px -4px 0 0; background: #fff; border: 1px solid #dadce0; border-radius: 6px;

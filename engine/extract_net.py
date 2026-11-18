@@ -5,7 +5,7 @@ Every field keeps its place in the PDF (Field), so findings can be boxed on the 
 """
 import re
 
-from .extract import MODEL_RE, PO_RE, Doc, F, Field, _after, _first, _search
+from .extract import MODEL_RE, PO_RE, Doc, F, Field, _after, _first, _search, column_models
 from .util import num, parse_date
 
 CURRENCIES = ("USD", "EUR", "JPY", "THB", "VND", "CNY", "SGD", "GBP")
@@ -100,6 +100,7 @@ def _pl_header(d: Doc, pl: list):
     for k in PL_HEADER:
         if sub.f.get(k) and sub.f[k].value not in (None, "", []):
             d.f["pl_" + k] = sub.f[k]
+    d.lists["pl_marks_models"] = sub.lists.get("marks_models", [])     # shipping marks printed on the packing list
     if sub.f.get("absent"):
         a = [x for x in sub.f["absent"].value.split(", ") if x in PL_HEADER]
         if a:
@@ -154,7 +155,7 @@ def extra_ci(d: Doc, header_only: bool = False):
     d.lists["cover_pos"] = [Field(sorted(set(re.findall(PO_RE, l.text))), l.text.strip(), l, 0, len(l.text))
                             for _, l, _m in _search(inv, r"^\s*P/O NO\.?\s*" + PO_RE) if not re.match(r"\s*\d+\.", l.text)][:1]
     # shipping marks on the invoice cover: models listed under SHIPPING MARK & NO.
-    marks, inside = [], False
+    block, inside = [], False
     for l in inv:
         if re.search(r"SHIPPING MARK", l.text, re.I):
             inside = True
@@ -162,10 +163,8 @@ def extra_ci(d: Doc, header_only: bool = False):
         if inside and (re.search(r"DETAILS AS PER|CO\.,? ?LTD|<", l.text) or re.match(r"\s*\d+\.", l.text)):
             break
         if inside:
-            m = re.match(r"\s*(" + MODEL_RE[2:] + r")\s*$", l.text)
-            if m:
-                marks.append(F(l, m, 1))
-    d.lists["marks_models"] = marks
+            block.append(l)
+    d.lists["marks_models"] = column_models(block)     # whole or split over two lines
     # header of every page: invoice no. and date (the invoice and the packing list repeat it)
     # seller / shipper: the company line signing the invoice (last company name that is not the buyer)
     buyer = re.sub(r"[^A-Z]", "", (d.f["consignee"].value if d.f.get("consignee") else "").upper())[:12]
@@ -238,24 +237,31 @@ def extra_bl(d: Doc):
     d.f["freight"] = _first(L, r"\bFREIGHT\s+(COLLECT|PREPAID)\b")
     d.f["origin"] = _first(L, r"\bMADE IN\s+([A-Z][A-Z ]*?[A-Z])\s*(?:\s{2,}|$)", flags=0)    # in the shipping marks
     whole = "\n".join(l.text for l in L)
-    absent = [k for k, rx in (("origin", r"MADE IN|\bORIGIN\b"), ("freight", r"\bFREIGHT\s+(?:COLLECT|PREPAID)"))
+    absent = [k for k, rx in (("origin", r"MADE IN|\bORIGIN\b"), ("freight", r"\bFREIGHT\s+(?:COLLECT|PREPAID)"),
+                              ("final_dest", r"FINAL DESTINATION\s*:"))
               if not d.f.get(k) and not re.search(rx, whole, re.I)]
     if absent:                                     # not printed on this B/L: "not on this document", not "not read"
         d.f["absent"] = Field(", ".join(absent), "", L[0], 0, 0)
     if not d.f.get("bl_qty"):                      # quantity per invoice, one line each: add them up
-        rows = list(_search(L, r"^\s*[\d,]+\s*CARTON\(?S?\)?\s+([\d,]+)\s*(PCS|PIECES?|SETS?|UNITS?)\s*$", 0))
+        rows = list(_search(L, r"^\s*([\d,]+)\s*CARTON\(?S?\)?\s+([\d,]+)\s*(PCS|PIECES?|SETS?|UNITS?)\s*$", 0))
         if rows:
-            d.lists["bl_qty_rows"] = [F(l, m, 1, num(m[1])) for _, l, m in rows]
-            total = sum(f.value for f in d.lists["bl_qty_rows"])
+            d.lists["bl_qty_rows"] = [F(l, m, 2, num(m[2])) for _, l, m in rows]
+            ctns = [F(l, m, 1, num(m[1])) for _, l, m in rows]
+            total, total_ctn = sum(f.value for f in d.lists["bl_qty_rows"]), sum(f.value for f in ctns)
             _, l, m = rows[0]
             if len(rows) == 1:
-                d.f["bl_qty"] = F(l, m, 1, total)
+                d.f["bl_qty"] = F(l, m, 2, total)
+                d.f["bl_qty_ctn"] = F(l, m, 1, total_ctn)
+                d.f["bl_qty_phrase"] = Field(None, l.text[m.start(1):m.end(3)], l, m.start(1), m.end(3))
             else:                                  # one field over all the quantities: the evidence box covers them
                 from .pdftext import Line
-                spans = [sp for f in d.lists["bl_qty_rows"] if f.page == l.page for sp in f.line.spans_for(f.start, f.end)]
-                both = Line(l.page, l.y, spans)
+                def over(fs):
+                    spans = [sp for f in fs if f.page == l.page for sp in f.line.spans_for(f.start, f.end)]
+                    return Line(l.page, l.y, spans)
+                both, both_c = over(d.lists["bl_qty_rows"]), over(ctns)
                 d.f["bl_qty"] = Field(total, f"{total:,.0f}", both, 0, len(both.text))
-            d.f["bl_unit"] = F(l, m, 2)
+                d.f["bl_qty_ctn"] = Field(total_ctn, f"{total_ctn:,.0f}", both_c, 0, len(both_c.text))
+            d.f["bl_unit"] = F(l, m, 3)
     # every invoice the B/L covers: one B/L can carry several invoices, one 'INVOICE NO.' line each
     d.lists["invoice_nos"] = [F(l, m, 1) for _, l, m in _search(L, r"INVOICE NO\.?\s*([A-Z0-9]{8,})")]
     if len(d.lists["invoice_nos"]) > 1:            # cross-check shows them all
@@ -319,12 +325,15 @@ def extra_co(d: Doc):
     d.lists["pages"] = [dict(n=int(m[1]), of=int(m[2]), f=F(l, m, 0)) for _, l, m in _search(L, r"Page\s*:\s*(\d+)\s*of\s*(\d+)")]
     d.lists["currency"] = _money_cur(L)
     _cur_field(d)
-    # box 6 marks split after the colour code: 'ER-SM20(W1)' + 'VN' (extract.py reads the 'MM2-MG20PE' + '(BM)VN' split)
+    # box 6 marks split after the colour code: 'EF-Z30(BK)' + 'VN' (extract.py reads the 'CD-Y20PE' + '(BM)VN' split)
     from .pdftext import Line
     have = {f.value for f in d.lists.get("marks_models", [])}
     pdf = __import__("pymupdf").open(d.path)
     for pno, pg in enumerate(pdf):
-        for a, b in re.findall(r"(?m)^([A-Z][A-Z0-9]*-[A-Z0-9\-]+\([A-Z0-9]+\))\s*\n\s*([A-Z]{1,3})\s*$", pg.get_text()):
+        t = pg.get_text()
+        pairs = re.findall(r"(?m)^([A-Z][A-Z0-9]*-[A-Z0-9\-]+\([A-Z0-9]+\))\s*\n\s*([A-Z]{1,3})\s*$", t)
+        pairs += [(a, "") for a in re.findall(r"(?m)^\s*([A-Z][A-Z0-9]*-[A-Z0-9\-]+\([A-Z0-9]+\)[A-Z]{1,3})\s*$", t)]
+        for a, b in pairs:                         # ... or on one line: 'AB-X10(W1)VN'
             if a + b not in have:
                 have.add(a + b)
                 d.lists.setdefault("marks_models", []).append(Field(a + b, a, Line(pno, 0.0), 0, 0))

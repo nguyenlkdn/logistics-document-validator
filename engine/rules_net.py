@@ -216,11 +216,13 @@ def r_marks(ci, bl, co, out):
     if not models:
         return
     cover = ci.lists.get("marks_models", [])
-    for f in cover:                                # the invoice's own marks: a model not on the invoice
-        if f.value not in models and f.value not in {p.get("model") for p in ci.pl_items}:
-            near = difflib.get_close_matches(f.value, models, n=1, cutoff=0.75)
-            out.append(Finding("CI_MARKS_MODEL", "ERROR" if near else "WARNING", [ci], dict(model=f.value),
-                               f.value, near[0] if near else "", at(ci, f)))
+    pl_marks = ci.lists.get("pl_marks_models", [])
+    for key, lst in (("CI_MARKS_MODEL", cover), ("PL_MARKS_MODEL", pl_marks)):
+        for f in lst:                              # the invoice's / packing list's own marks: a model not on the invoice
+            if f.value not in models and f.value not in {p.get("model") for p in ci.pl_items}:
+                near = difflib.get_close_matches(f.value, models, n=1, cutoff=0.75)
+                out.append(Finding(key, "ERROR" if near else "WARNING", [ci], dict(model=f.value),
+                                   f.value, near[0] if near else "", at(ci, f)))
     for d, lst in ((ci, cover), (bl, bl.lists.get("marks_models", []) if bl else []),
                    (co, co.lists.get("marks_models", []) if co else [])):
         if not d or not lst:

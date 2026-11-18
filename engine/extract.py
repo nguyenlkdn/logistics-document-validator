@@ -8,7 +8,7 @@ import pymupdf
 from .pdftext import Line, doc_lines
 from .util import num, parse_date
 
-MODEL_RE = r"\b[A-Z][A-Z0-9]*-[A-Z0-9\-]+\([A-Z0-9]+\)[A-Z]*"   # e.g. PLK-45SF(WT)VN, MM2-MG20PE(BM)VN
+MODEL_RE = r"\b[A-Z][A-Z0-9]*-[A-Z0-9\-]+\([A-Z0-9]+\)[A-Z]*"   # e.g. AB-X10(W1)VN, CD-Y20PE(BM)VN
 PO_RE = r"PR\d{12}"
 
 
@@ -84,6 +84,31 @@ def _after(lines, label_pattern, value_pattern, group=1, conv=None):
     return None
 
 
+def column_models(lines: list) -> list:
+    """Models listed one per line in a shipping-marks column, as Fields. A model may be written whole
+    ('CD-Y20PE(BM)VN') or split over two lines, before the colour code ('CD-Y20PE' / '(BM)VN') or after it
+    ('EF-Z30(BK)' / 'VN')."""
+    out, skip = [], False
+    for i, l in enumerate(lines):
+        if skip:
+            skip = False
+            continue
+        t = l.text
+        m = re.match(r"\s*(" + MODEL_RE[2:] + r")\s*$", t)
+        nxt = lines[i + 1].text if i + 1 < len(lines) else ""
+        if m:
+            tail = re.fullmatch(r"\s*([A-Z]{1,3})\s*", nxt) if m[1].endswith(")") else None
+            out.append(Field(m[1] + (tail[1] if tail else ""), m[1], l, m.start(1), m.end(1)))
+            skip = bool(tail)
+            continue
+        m = re.match(r"\s*([A-Z][A-Z0-9]*-[A-Z0-9\-]+)\s*$", t)
+        tail = re.fullmatch(r"\s*(\([A-Z0-9]+\)[A-Z]*)\s*", nxt)
+        if m and tail:
+            out.append(Field(m[1] + tail[1], m[1], l, m.start(1), m.end(1)))
+            skip = True
+    return out
+
+
 def _model_near(lines, i, span=3, backward=False):
     after, before = lines[i + 1:i + 1 + span], lines[max(0, i - span):i][::-1]
     for l in [lines[i]] + (before + after if backward else after + before):
@@ -132,6 +157,9 @@ def _extract_ci(d: Doc):
     d.f["containers"] = _first(L, r"TOTAL CONTAINER\s*:\s*(\d+)\s*x", conv=int)
     for _, l, m in _search(L, r"TOTAL CONTAINER\s*:\s*((?:\d+\s*[xX]\s*\d{2}\s*'?\s*[A-Z]{2}[\s+,&]*)+)"):
         d.lists["cntr_types"] = [F(l, m, 1)]
+        n = sum(int(k) for k in re.findall(r"(\d+)\s*[xX]\s*\d{2}", m.group(1)))   # 1x40HQ,1x20GP = 2
+        d.f["containers"] = F(l, m, 1, value=n)
+        d.f["containers"].raw = d.f["containers"].raw.strip(" ,&+")
         break
     d.f["goods"] = _first(L, r'"?TOSHIBA"?\s*BRAND\s+([A-Z][A-Z ]*?[A-Z])\s*(?:\s{2,}|$)')
     pos = set()
@@ -219,7 +247,10 @@ def _extract_bl(d: Doc):
         d.f["gw"] = F(l, m, 2, num(m[2]))
         d.f["cbm"] = F(l, m, 3, num(m[3]))
         break
-    d.f["ctn"] = _first(L, r"\b([\d,]+)\s*CARTONS\b", conv=num)
+    # total cartons of the said-to-contain box: not '1,250 CARTONS (1,250 SETS)' in the goods description and not
+    # an attach-sheet row ('... // 950 CARTONS // ...'), whichever comes first in the layout
+    d.f["ctn"] = (_first([l for l in L if "//" not in l.text], r"\b([\d,]+)\s*CARTONS\b(?!\s*\()", conv=num)
+                  or _first(L, r"\b([\d,]+)\s*CARTONS\b", conv=num))
     d.f["invoice_no"] = _first(L, r"INVOICE NO\.?\s*([A-Z0-9]{8,})")
     d.f["hs"] = _first(L, r"HS CODE:?\s*([\d.]+)")
     _extract_bl_cargo(d)
@@ -237,9 +268,13 @@ def _extract_bl_cargo(d: Doc):
         d.f["cntr_words"] = Field(m[1], l.text[m.start(1):m.end(2) + 1], l, m.start(1), m.end(2) + 1)
         d.f["cntr_words_n"] = F(l, m, 2, int(m[2]))
         break
-    d.lists["cntr_load"] = [Field((m[1], num(m[2]), num(m[3]), num(m[5])), m[4], l, m.start(4), m.end(4))
-                            for _, l, m in _search(L, r"([A-Z]{4}\d{7})\s*//\s*\S+\s*//\s*([\d,]+)\s*CARTONS?\s*//"
-                                                      r"\s*([\d,.]+)\s*KGS\s*//\s*(([\d,.]+)\s*CBM)", 0)]
+    load_rx = (r"([A-Z]{4}\d{7})\s*//\s*\S+\s*//\s*(([\d,]+)\s*CARTONS?)\s*//"
+               r"\s*(([\d,.]+)\s*KGS)\s*//\s*(([\d,.]+)\s*CBM)")
+    d.lists["cntr_load"], d.lists["cntr_load_parts"] = [], []
+    for _, l, m in _search(L, load_rx, 0):         # one attach-sheet row: container // seal // cartons // KGS // CBM
+        d.lists["cntr_load"].append(Field((m[1], num(m[3]), num(m[5]), num(m[7])), m[6], l, m.start(6), m.end(6)))
+        d.lists["cntr_load_parts"].append(dict(no=m[1], ctn=F(l, m, 2, num(m[3])), gw=F(l, m, 4, num(m[5])),
+                                               cbm=F(l, m, 6, num(m[7]))))   # each figure boxed on its own
     marks, inside = [], False
     for l in L:
         if re.search(r"SHIPPING MARK", l.text):
@@ -258,9 +293,11 @@ def _extract_bl_cargo(d: Doc):
         if nxt and re.fullmatch(r"\s*[A-Z]{1,3}\s*", nxt.text) and g.end == len(g.line.text.rstrip()):
             g = Field(g.value + nxt.text.strip(), g.raw, g.line, g.start, g.end)
     d.f["goods"] = g
-    for _, l, m in _search(L, r"[\d,]+\s*CARTONS?\s*\(\s*([\d,]+)\s*([A-Z]+)\s*\)", 0):
-        d.f["bl_qty"] = F(l, m, 1, num(m[1]))
-        d.f["bl_unit"] = F(l, m, 2)
+    for _, l, m in _search(L, r"([\d,]+)\s*CARTONS?\s*\(\s*([\d,]+)\s*([A-Z]+)\s*\)", 0):
+        d.f["bl_qty"] = F(l, m, 2, num(m[2]))
+        d.f["bl_unit"] = F(l, m, 3)
+        d.f["bl_qty_ctn"] = F(l, m, 1, num(m[1]))             # '1,250 CARTONS (1,250 SETS)': the cartons too
+        d.f["bl_qty_phrase"] = F(l, m, 0)
         break
     d.f["final_dest"] = _first(L, r"FINAL DESTINATION\s*:\s*([A-Z][A-Z .]*?)\s*(?:,|$)", flags=0)
     d.f["delivery"] = _after(L, r"\[ Place of Delivery \]", r"\s{2,}([A-Z][A-Z ]*?)(?=,|\s{2,}|$)")
@@ -286,7 +323,11 @@ def _extract_co(d: Doc):
         stop = next((k for k, x in enumerate(block) if k and re.match(r"\s*TOTAL\s*:", x.text)), len(block))
         d.items.append(dict(no=int(m[1]), hs=m[2], hs_f=F(l, m, 2, m[2]), qty=F(l, m, 3, num(m[3])), inv_ref=m[5], inv_date=date_f,
                             **_co_item_details(block[:stop])))
-    for _, l, m in _search(L, r"TOTAL\s*:\s*((?:[A-Z]+[\- ])*[A-Z]+)\s*\(([\d,]+)\)\s*CARTON"):
+    tot_rx = r"TOTAL\s*:\s*((?:[A-Z]+[\- ])*[A-Z]+)\s*\(([\d,]+)\)\s*"
+    hits = [(l, m) for _, l, m in _search(L, tot_rx + "CARTON")]
+    hits += [(l, m) for i, l, m in _search(L, tot_rx + "$")                  # '... (1,250)' / 'CARTON***' below
+             if i + 1 < len(L) and re.match(r"\s*CARTON", L[i + 1].text)]
+    for l, m in hits:
         d.f["total_ctn"] = F(l, m, 2, num(m[2]))
         tw = m[1].split()
         while tw and tw[0].split("-")[0] not in NUMBER_WORDS:

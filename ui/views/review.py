@@ -235,11 +235,14 @@ def page_view(s, doc, sel, base):
             tag = l["role"] == "wrong" and f["no"] not in tagged          # one "#n" per finding and page
             if tag:
                 tagged.add(f["no"])
-            boxes.append(dict(bbox=l["bbox"], sev=f["severity"], role=l["role"], focus=focus,
+            boxes.append(dict(bbox=l["bbox"], sev=f["severity"], role=l["role"], focus=focus, fno=f["no"],
                               no=f["no"] if tag else None,
                               title=f"#{f['no']} {msg(f)}" + (f" — {t1('ref_value')}" if l["role"] == "ref" else "")))
     token = f"{sel['no']}|{doc}|{pno}|{zoom}" if sel else ""
     viewer.render(path, pno, zoom, boxes, hits.get(pno, []), token)
+    with st.container(key="boxsel"):                      # hidden: clicking a box on the page presses one of these
+        for no in sorted({b["fno"] for b in boxes}):
+            st.button(f"#{no}", key=f"boxsel_{no}", on_click=st.session_state.update, kwargs=dict(f_sel=no))
     st.caption(t("boxes_v2"))
     st.caption(t("zoom_hint"))
     if sel and st.session_state.get("v_focus_last") != (sel["no"], doc, pno, zoom):

@@ -1,5 +1,5 @@
 {
-  "shipment_slack_days": 2,
+  "shipment_slack_days": 0,
   "report_dir": "~/Documents/LDV_reports",
   "data_dir": "~/Documents/LDV_data",
   "ports": {
@@ -355,6 +355,12 @@
       "en": "Form D item {no}: HS {hs} is not under B/L HS {hs_bl}",
       "vi": "C/O mục {no}: mã HS {hs} không thuộc nhóm HS {hs_bl} trên B/L"
     },
+    "BL_HS_CODE": {
+      "en": "B/L HS {hs} is not the heading of the Form D HS codes ({ref})",
+      "vi": "Mã HS {hs} trên B/L không phải nhóm của mã HS trên C/O ({ref})",
+      "note_en": "Every Form D item has the same HS code and none is under the B/L heading: the B/L is the one to correct",
+      "note_vi": "Mọi mục trên C/O có cùng mã HS và không mục nào thuộc nhóm HS trên B/L: cần sửa B/L"
+    },
     "PORT_NAME": {
       "en": "Port of discharge not in standard form",
       "vi": "Tên cảng dỡ hàng chưa theo chuẩn"
@@ -501,6 +507,16 @@
       "en": "B/L quantity in brackets ≠ invoice total quantity",
       "vi": "Số lượng trong ngoặc trên B/L ≠ tổng số lượng hóa đơn"
     },
+    "BL_DESC_CTN": {
+      "en": "B/L cartons in the goods description ≠ packing list total cartons",
+      "vi": "Số thùng trong mô tả hàng trên B/L ≠ tổng số thùng trên Packing List"
+    },
+    "BL_DESC_QTY": {
+      "en": "B/L cartons and quantity in the goods description ≠ packing list / invoice",
+      "vi": "Số thùng và số lượng trong mô tả hàng trên B/L ≠ Packing List / hóa đơn",
+      "note_en": "Both numbers are wrong: cartons against the packing list total, quantity in brackets against the invoice total",
+      "note_vi": "Cả hai số đều sai: số thùng so với tổng trên Packing List, số lượng trong ngoặc so với tổng trên hóa đơn"
+    },
     "BL_UNIT": {
       "en": "B/L quantity unit differs from the invoice ({unit})",
       "vi": "Đơn vị số lượng trên B/L khác hóa đơn ({unit})"
@@ -610,6 +626,10 @@
     "CI_MARKS_MODEL": {
       "en": "Invoice shipping mark: model {model} is not on the invoice",
       "vi": "Ký mã hiệu trên hóa đơn: model {model} không có trên hóa đơn"
+    },
+    "PL_MARKS_MODEL": {
+      "en": "Packing list shipping mark: model {model} is not on the invoice",
+      "vi": "Ký mã hiệu trên Packing List: model {model} không có trên hóa đơn"
     },
     "ORIGIN": {
       "en": "Country of origin {origin} ≠ {ref} on the other documents",
@@ -813,6 +833,18 @@
         }
       },
       {
+        "id": "sailing",
+        "en": "Shipment / departure date",
+        "vi": "Ngày tàu chạy",
+        "type": "date",
+        "unit": "",
+        "src": {
+          "CI": "sailing",
+          "PL": "pl_sailing",
+          "CO": "departure"
+        }
+      },
+      {
         "id": "pol",
         "en": "Port of loading",
         "vi": "Cảng xếp hàng",
@@ -839,15 +871,13 @@
         }
       },
       {
-        "id": "sailing",
-        "en": "Shipment / departure date",
-        "vi": "Ngày tàu chạy",
-        "type": "date",
+        "id": "final_dest",
+        "en": "Final destination",
+        "vi": "Nơi đến cuối cùng",
+        "type": "port",
         "unit": "",
         "src": {
-          "CI": "sailing",
-          "PL": "pl_sailing",
-          "CO": "departure"
+          "BL": "final_dest"
         }
       },
       {
@@ -876,9 +906,21 @@
         }
       },
       {
+        "id": "amount",
+        "en": "Total amount",
+        "vi": "Tổng trị giá",
+        "type": "number",
+        "unit": "",
+        "src": {
+          "CI": "total_amount",
+          "SC": "total_amount",
+          "CO": "total_value"
+        }
+      },
+      {
         "id": "qty",
-        "en": "Total quantity",
-        "vi": "Tổng số lượng",
+        "en": "Total quantity (PCS / SET)",
+        "vi": "Tổng số lượng (PCS / SET)",
         "type": "number",
         "unit": "",
         "src": {
@@ -890,15 +932,25 @@
         }
       },
       {
-        "id": "amount",
-        "en": "Total amount",
-        "vi": "Tổng trị giá",
+        "id": "ctn",
+        "en": "Total cartons",
+        "vi": "Tổng số thùng",
         "type": "number",
         "unit": "",
         "src": {
-          "CI": "total_amount",
-          "SC": "total_amount",
-          "CO": "total_value"
+          "PL": "pl_total_ctn",
+          "BL": "ctn",
+          "CO": "total_ctn"
+        }
+      },
+      {
+        "id": "nw",
+        "en": "Net weight",
+        "vi": "Trọng lượng tịnh",
+        "type": "number",
+        "unit": "KG",
+        "src": {
+          "PL": "pl_total_nw"
         }
       },
       {
@@ -913,16 +965,6 @@
         }
       },
       {
-        "id": "nw",
-        "en": "Net weight",
-        "vi": "Trọng lượng tịnh",
-        "type": "number",
-        "unit": "KG",
-        "src": {
-          "PL": "pl_total_nw"
-        }
-      },
-      {
         "id": "cbm",
         "en": "Measurement",
         "vi": "Thể tích",
@@ -931,18 +973,6 @@
         "src": {
           "PL": "pl_total_cbm",
           "BL": "cbm"
-        }
-      },
-      {
-        "id": "ctn",
-        "en": "Cartons",
-        "vi": "Số thùng",
-        "type": "number",
-        "unit": "",
-        "src": {
-          "PL": "pl_total_ctn",
-          "BL": "ctn",
-          "CO": "total_ctn"
         }
       },
       {

@@ -36,8 +36,11 @@ ui/
   views/               dashboard · new_review · review (workspace) · compare · findings · report · history ·
                        reference · settings
 docs/REDESIGN.md       UI modernisation: assessment and phased plan
+docs/READING.md        how documents are read: accepted layouts, and what to do when a value is read wrongly
 tests/baseline/        test sets + expected.json (confidential, local only, not in git)
 tests/run_baseline.py  regression test
+tests/run_reader.py    reader patterns on small made-up PDFs (no test data needed)
+tools/find_unread.py   values printed in a PDF that LDV did not read
 ```
 
 ## Develop / test
@@ -45,6 +48,8 @@ tests/run_baseline.py  regression test
 python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python tests/run_baseline.py            # must print ALL PASS
 .venv/bin/python tests/run_unit.py                # review features (cross-check, sign-off, reports, search)
+.venv/bin/python tests/run_reader.py              # layouts the reader must handle (see docs/READING.md)
+.venv/bin/python tools/find_unread.py tests/baseline/SET.zip   # printed values not read: reading gaps
 .venv/bin/python tests/ui_smoke.py                # optional, browser walk-through (pip install playwright)
 .venv/bin/python tools/rules_doc.py               # regenerate docs/RULES.md after adding or changing a rule
 .venv/bin/python -m streamlit run app.py

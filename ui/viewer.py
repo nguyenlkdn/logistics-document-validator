@@ -101,7 +101,8 @@ def render(path: str, pno: int, zoom, boxes: list[dict], hits: list[tuple], toke
         if b.get("focus"):
             style += f";box-shadow:0 0 0 4px {_rgba(col, .25)}"
         tag = f'<span class="ldv-tag" style="background:{col}">#{b["no"]}</span>' if b.get("no") else ""
-        parts.append(f'<div class="{cls}" style="{style}" title="{html.escape(b.get("title", ""))}">{tag}</div>')
+        parts.append(f'<div class="{cls}" style="{style}" data-f="{b.get("fno", "")}" '
+                     f'title="{html.escape(b.get("title", ""))}">{tag}</div>')
     text = []
     for x0, y0, x1, y1, s in page_lines(path, mtime, pno):
         fs = 100 * (y1 - y0) / w * 0.86
@@ -119,7 +120,7 @@ def render(path: str, pno: int, zoom, boxes: list[dict], hits: list[tuple], toke
 def zoom_on_page():
     """Zoom on the page itself, in the browser (no reload): Ctrl + mouse wheel or touchpad pinch zooms around the
     pointer; the -/%/+ buttons in the viewer corner, or + - 0 while the viewer has the focus. A page bigger than
-    the viewer can be dragged to move it. The extra zoom is a
+    the viewer can be dragged to move it. Clicking a highlight box opens its finding. The extra zoom is a
     factor on top of the toolbar zoom: it is kept across pages of the same document and reset when the toolbar
     zoom or the document changes."""
     st.iframe("""<script>
@@ -193,7 +194,7 @@ def zoom_on_page():
         });
         // Drag to move the page when it is bigger than the viewer (like the hand tool of a PDF reader).
         // Dragging on text still selects it; the middle mouse button moves the page from anywhere.
-        let pan = null;
+        let pan = null, panned = false;
         document.addEventListener('pointerdown', e => {
           const v = e.target.closest && e.target.closest('.ldv-viewer');
           if (!v || e.pointerType === 'touch' || e.target.closest('.ldv-zbar')) return;
@@ -202,11 +203,13 @@ def zoom_on_page():
           e.preventDefault();                            // no text selection, no autoscroll
           v.focus({preventScroll: true});                // keep + - 0 and the arrow keys working
           pan = {v, x: e.clientX, y: e.clientY, l: v.scrollLeft, t: v.scrollTop, id: e.pointerId};
+          panned = false;
           v.setPointerCapture(e.pointerId);
           v.classList.add('ldv-panning');
         }, true);
         document.addEventListener('pointermove', e => {
           if (!pan || e.pointerId !== pan.id) return;
+          if (Math.abs(e.clientX - pan.x) + Math.abs(e.clientY - pan.y) > 4) panned = true;
           pan.v.scrollLeft = pan.l - (e.clientX - pan.x);
           pan.v.scrollTop = pan.t - (e.clientY - pan.y);
         }, true);
@@ -218,13 +221,58 @@ def zoom_on_page():
         };
         document.addEventListener('pointerup', stop, true);
         document.addEventListener('pointercancel', stop, true);
+        // Click a highlight box to open its finding (the boxes lie under the text layer, so find them by position).
+        function boxAt(x, y) {
+          let best = null, area = Infinity;
+          for (const b of document.querySelectorAll('.ldv-viewer .ldv-box[data-f]')) {
+            const r = b.getBoundingClientRect(), pad = 3;
+            if (x < r.left - pad || x > r.right + pad || y < r.top - pad || y > r.bottom + pad) continue;
+            const a = r.width * r.height;              // boxes inside boxes: the smallest is the one meant
+            if (a < area) { best = b; area = a; }
+          }
+          return best;
+        }
+        document.addEventListener('click', e => {
+          if (e.button !== 0 || !e.target.closest || !e.target.closest('.ldv-viewer') || e.target.closest('.ldv-zbar')) return;
+          if (panned) { panned = false; return; }        // the end of a drag, not a click
+          if (String(window.getSelection() || '').trim()) return;     // text was being selected
+          const b = boxAt(e.clientX, e.clientY);
+          if (!b || b.classList.contains('ldv-focus')) return;       // already open
+          const btn = document.querySelector('div.st-key-boxsel_' + b.dataset.f + ' button');
+          if (btn) btn.click();
+        });
+        let hover = null, hoverKey = '';
+        function unhover() {                             // after a redraw the element may stand for another box
+          document.querySelectorAll('.ldv-box.ldv-hover').forEach(x => x.classList.remove('ldv-hover'));
+          hover = null; hoverKey = '';
+          const vv = document.querySelector('.ldv-viewer');
+          if (vv) { vv.classList.remove('ldv-onbox'); vv.title = ''; }
+        }
+        document.addEventListener('mousemove', e => {
+          if (pan) return;
+          const v = e.target.closest && e.target.closest('.ldv-viewer');
+          const b = v ? boxAt(e.clientX, e.clientY) : null;
+          const key = b ? b.dataset.f + '|' + b.getAttribute('style') : '';
+          if (b === hover && key === hoverKey) return;
+          unhover();
+          hover = b; hoverKey = key;
+          const vv = document.querySelector('.ldv-viewer');
+          if (vv) { vv.classList.toggle('ldv-onbox', !!b); vv.title = b ? b.title : ''; }
+          if (b) b.classList.add('ldv-hover');
+        }, {passive: true});
+
         function pannable() {                            // grab cursor only when there is something to move
           const v = document.querySelector('.ldv-viewer'); if (!v) return;
           v.classList.toggle('ldv-pannable', v.scrollWidth > v.clientWidth + 1 || v.scrollHeight > v.clientHeight + 1);
         }
 
         let queued = false;                              // the page is drawn again after every rerun
-        const later = () => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; apply(); }); } };
+        const later = () => { if (!queued) { queued = true; requestAnimationFrame(() => { queued = false; checkHover(); apply(); }); } };
+        function checkHover() {                          // the glowing element now stands for another box: clear it
+          const stale = document.querySelector('.ldv-box.ldv-hover');
+          if (stale && (stale !== hover || !hover.isConnected
+                        || hover.dataset.f + '|' + hover.getAttribute('style') !== hoverKey)) unhover();
+        }
         new MutationObserver(later).observe(document.body, {childList: true, subtree: true, attributes: true,
                                                             attributeFilter: ['data-key', 'data-width', 'src']});
         window.addEventListener('resize', later);
