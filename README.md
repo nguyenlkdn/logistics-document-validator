@@ -88,6 +88,8 @@ then the browser opens `http://localhost:8501/?job=<id>` and `app.py` checks tho
 `ldv_tray.py` (started by the Desktop shortcut or `Start.bat`) runs `updater.py` first, asking in a message box: it reads the latest GitHub release of `nguyenlkdn/logistics-document-validator`, compares it with `VERSION`,
 asks Y/N, checks the zip's SHA-256 against the digest GitHub reports, replaces only changed files (old copies → `_backup/<version>/`; `.venv`, `wheels`, `*.dll` untouched),
 then re-runs `Setup.bat auto` for new libraries. If it is offline or anything fails, the app just starts. It is skipped in a git checkout.
+While LDV runs, right-click the tray icon > **Check for updates**: a newer version is installed without asking and LDV restarts
+(an open browser tab reconnects); otherwise a message says it is up to date, offline or that the update failed.
 
 Release: bump `VERSION`, commit, run the baseline (ALL PASS), then `tools/release.sh <version> <notes.md>`.
 That tags, pushes, builds the zip with `git archive` (tracked files only, so confidential test data can't leak) and publishes it with `gh`.

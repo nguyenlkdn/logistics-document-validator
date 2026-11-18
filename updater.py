@@ -3,7 +3,8 @@
 Used by ldv_tray.pyw (asks in a Windows message box) or from a console:
   python updater.py            # check, ask Y/N, update
   python updater.py --yes      # update without asking
-Exit codes: 0 = nothing changed (up to date, declined, offline, error), 10 = updated.
+Exit codes: 10 = updated. Otherwise nothing changed: 0 = up to date or declined, 1 = check failed (offline),
+2 = download/install failed, 3 = developer checkout (update with git).
 
 Only files shipped in the release zip are replaced. .venv, wheels, DLLs and reports are never touched.
 Replaced files are first copied to _backup/<old version>/ so an update can be undone by hand.
@@ -78,39 +79,43 @@ def install(data: bytes, old: str) -> int:
     return n
 
 
+UPDATED, UP_TO_DATE, OFFLINE, FAILED, DEV = 10, 0, 1, 2, 3
+
+
 def check_and_update(ask, say=print) -> int:
-    """ask(text) -> bool asks the user; say(text) reports progress. Returns 10 if updated, else 0."""
+    """ask(text) -> bool asks the user (return True to update without asking); say(text) reports progress.
+    Returns UPDATED, or why nothing changed (see the exit codes above)."""
     if (APP / ".git").exists():
-        return 0                                          # developer checkout: update with git instead
+        return DEV                                        # developer checkout: update with git instead
     cur = current_version()
     say(f"LDV version {cur} - checking for updates / Dang kiem tra cap nhat...")
     try:
         rel = latest()
     except Exception as e:                                # offline, proxy, GitHub down: just start the app
         say(f"  Update check skipped / Bo qua kiem tra cap nhat ({type(e).__name__})")
-        return 0
+        return OFFLINE
     if not rel or parse(rel["version"]) <= parse(cur):
         say("  Up to date / Da la ban moi nhat")
-        return 0
+        return UP_TO_DATE
 
     notes = "\n".join(rel["notes"].splitlines()[:15])
     if not ask(f"New version {rel['version']} is available (you have {cur}).\n"
                f"Co phien ban moi {rel['version']} (ban dang dung {cur}).\n\n{notes}\n\n"
                "Update now? / Cap nhat ngay?"):
         say("  Skipped / Da bo qua")
-        return 0
+        return UP_TO_DATE
     try:
         say("  Downloading / Dang tai...")
         data = _get(rel["url"], timeout=120)
         if rel["sha256"] and hashlib.sha256(data).hexdigest() != rel["sha256"]:
             say("  [ERROR] Download is corrupted, not installed / File tai ve bi loi, khong cai dat")
-            return 0
+            return FAILED
         n = install(data, cur)
     except Exception as e:
         say(f"  [ERROR] Update failed, keeping version {cur} / Cap nhat that bai, giu ban {cur}: {e}")
-        return 0
+        return FAILED
     say(f"  Updated to {rel['version']} ({n} files) / Da cap nhat len {rel['version']}")
-    return 10
+    return UPDATED
 
 
 def _ask_console(text: str) -> bool:

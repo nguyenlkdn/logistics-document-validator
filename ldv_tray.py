@@ -1,6 +1,7 @@
 """Run LDV in the background: no console window, just an icon in the notification area (next to the clock).
 
-Tray menu: Open LDV (also double-click) · Open reports folder · Quit.
+Tray menu: Open LDV (also double-click) · Open reports folder · Check for updates · Quit.
+"Check for updates" installs a newer version without asking and restarts LDV.
 Started by the "LDV" desktop shortcut, Start.bat / start.sh, or the right-click menu (ldv_open.py passes "nobrowser").
 Run it with pythonw.exe so no window appears. Before starting, it checks for updates (Y/N message box).
 Streamlit's output goes to %TEMP%\\ldv.log.
@@ -79,21 +80,38 @@ def open_folder(p: Path):
         subprocess.Popen(["xdg-open", str(p)])
 
 
-def update_first():
-    """Ask about a newer version. After an update: refresh libraries, restart the new launcher."""
-    import updater
-    with open(LOG, "w", encoding="utf-8") as log:
-        code = updater.check_and_update(lambda text: msgbox(text, yesno=True), lambda m: print(m, file=log))
-    if code != 10:
-        return
+def restart(args: list[str]):
+    """After an update: refresh libraries, then start the new launcher (the caller exits)."""
     if WIN:                                               # visible window: pip may take a minute
         subprocess.run(["cmd", "/c", str(APP / "Setup.bat"), "auto"], cwd=APP,
                        creationflags=subprocess.CREATE_NEW_CONSOLE)
     else:
         with open(LOG, "a", encoding="utf-8") as log:
             subprocess.run(["bash", str(APP / "setup.sh"), "auto"], cwd=APP, stdout=log, stderr=subprocess.STDOUT)
-    subprocess.Popen([sys.executable, str(APP / "ldv_tray.py"), *sys.argv[1:]], cwd=APP)
-    sys.exit(0)
+    args = [a for a in args if a != "updated"] + ["updated"]
+    subprocess.Popen([sys.executable, str(APP / "ldv_tray.py"), *args], cwd=APP, start_new_session=not WIN)
+
+
+def update_first():
+    """Ask about a newer version. After an update: refresh libraries, restart the new launcher."""
+    import updater
+    with open(LOG, "w", encoding="utf-8") as log:
+        code = updater.check_and_update(lambda text: msgbox(text, yesno=True), lambda m: print(m, file=log))
+    if code == updater.UPDATED:
+        restart(sys.argv[1:])
+        sys.exit(0)
+
+
+def update_message(code: int, version: str) -> str:
+    import updater
+    return {
+        updater.UP_TO_DATE: f"LDV {version} is the latest version.\nLDV {version} la phien ban moi nhat.",
+        updater.OFFLINE: "Could not check for updates (no internet connection?).\n"
+                         "Khong kiem tra duoc cap nhat (khong co mang?).",
+        updater.DEV: "This copy is a developer checkout: update it with git pull.\n"
+                     "Ban nay la ban phat trien: cap nhat bang git pull.",
+    }.get(code, f"Update failed, LDV {version} is kept. Details: {LOG}\n"
+                f"Cap nhat that bai, giu ban LDV {version}. Chi tiet: {LOG}")
 
 
 def main() -> int:
@@ -124,6 +142,11 @@ def main() -> int:
         time.sleep(1)
     if show:
         webbrowser.open(URL)
+    if "updated" in sys.argv:                             # restarted after an update
+        import updater
+        v = updater.current_version()
+        threading.Thread(target=msgbox, args=(f"LDV was updated to {v}.\nLDV da duoc cap nhat len {v}.",),
+                         daemon=True).start()
 
     try:
         import pystray
@@ -147,9 +170,40 @@ def main() -> int:
             icon.stop()
             msgbox(f"LDV stopped unexpectedly. Details: {LOG}\nLDV da dung bat thuong. Chi tiet: {LOG}")
 
+    checking = threading.Lock()
+
+    def check_update(icon, _item=None):                   # menu: check now, update without asking, restart
+        if checking.acquire(blocking=False):
+            threading.Thread(target=do_update, args=(icon,), daemon=True).start()
+
+    def do_update(icon):
+        import updater
+        try:
+            with open(LOG, "a", encoding="utf-8") as log:
+                code = updater.check_and_update(lambda _text: True, lambda m: print(m, file=log, flush=True))
+            if code != updater.UPDATED:
+                msgbox(update_message(code, updater.current_version()))
+                return
+            try:
+                icon.notify(f"Restarting LDV {updater.current_version()}... / Dang khoi dong lai LDV...", TITLE)
+            except Exception:                             # notifications not supported here
+                pass
+            quitting.set()
+            proc.terminate()
+            try:
+                proc.wait(timeout=30)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+            restart(["nobrowser"])                        # the open browser tab reconnects by itself
+            icon.stop()
+        finally:
+            checking.release()
+
     icon = pystray.Icon("LDV", icon_image(64), f"{TITLE} - {URL}", pystray.Menu(
         pystray.MenuItem("Open LDV / Mở LDV", lambda: webbrowser.open(URL), default=True),
         pystray.MenuItem("Open reports folder / Mở thư mục báo cáo", lambda: open_folder(report_dir())),
+        pystray.MenuItem("Check for updates / Kiểm tra cập nhật", check_update),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Quit LDV / Thoát LDV", quit_app)))
     icon.run(setup=watch)
