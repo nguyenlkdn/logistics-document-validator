@@ -19,9 +19,14 @@ BG = dict(odd="#fce8e6", missing="#fef7e0", na="#f8f9fa", nodoc="#f1f3f4")
 PALETTE = ["#1a5fb4", "#8e24aa", "#00796b", "#c25e00", "#5d4037", "#c2185b", "#3949ab", "#558b2f"]
 
 TABLE_CSS = """<style>
-.ldv-xc {border-collapse: collapse; width: 100%; font-size: 0.86rem; margin: 0.3rem 0 0.4rem 0;}
-.ldv-xc th {position: sticky; top: 0; background: #f8f9fa; text-align: left; font-weight: 600; color: #3c4043;
-            padding: 6px 8px; border-bottom: 1px solid #dadce0; white-space: nowrap;}
+/* No scroll box of its own: the page scrolls, and the header row stays just under Streamlit's top bar (3.75rem). */
+.ldv-xc-wrap {border: 1px solid #e3e5e8; border-radius: 6px; margin: 0.3rem 0 0.4rem 0;}
+.ldv-xc {border-collapse: separate; border-spacing: 0; width: 100%; font-size: 0.86rem;}
+.ldv-xc th {position: sticky; top: 3.75rem; z-index: 2; background: #f8f9fa; text-align: left; font-weight: 600;
+            color: #3c4043; padding: 6px 8px; border-bottom: 1px solid #dadce0; white-space: nowrap;
+            box-shadow: 0 1px 0 #dadce0;}
+.ldv-xc th:first-child {left: 0; z-index: 3;}
+.ldv-xc td.f {position: sticky; left: 0; z-index: 1; background: #fff; box-shadow: 1px 0 0 #eceff1;}
 .ldv-xc td {padding: 5px 8px; border-bottom: 1px solid #eceff1; vertical-align: top; line-height: 1.35;}
 .ldv-xc td.f {font-weight: 500; color: #202124; white-space: nowrap;}
 .ldv-xc td.r {white-space: nowrap;}
@@ -136,7 +141,7 @@ def table_html(shown: list, cols: list) -> str:
         res = f"{RESULT_ICON[r['result']]} {t1('cmp_' + r['result'])}"
         rows.append(f'<tr><td class="f">{ui.esc(name)}</td>{"".join(tds)}'
                     f'<td class="r {r["result"]}">{ui.esc(res)}</td></tr>')
-    return (f'<div style="overflow-x:auto"><table class="ldv-xc"><thead><tr><th>{ui.esc(t1("cmp_field"))}</th>{head}'
+    return (f'<div class="ldv-xc-wrap"><table class="ldv-xc"><thead><tr><th>{ui.esc(t1("cmp_field"))}</th>{head}'
             f'<th>{ui.esc(t1("cmp_result"))}</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
 
 

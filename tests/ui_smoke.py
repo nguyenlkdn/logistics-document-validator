@@ -242,6 +242,17 @@ def run(p, url, zip_path, shots):
     def crosscheck():
         nav("Cross-check")
         assert p.locator("table.ldv-xc tbody tr").count() >= 5, "no comparison table"
+        g = p.evaluate("""() => {                          // scroll the page: the header row stays under the top bar
+            const m = document.querySelector('[data-testid=stMain]'), h = document.querySelector('table.ldv-xc th');
+            const bar = document.querySelector('[data-testid=stHeader]').getBoundingClientRect().bottom;
+            const rows = document.querySelectorAll('table.ldv-xc tbody tr');
+            m.scrollTop = 0;
+            m.scrollTop = h.getBoundingClientRect().top - m.getBoundingClientRect().top + 200;
+            const out = [m.scrollTop, Math.round(h.getBoundingClientRect().top), Math.round(bar),
+                         rows[0].getBoundingClientRect().top < bar];
+            m.scrollTop = 0;
+            return out; }""")
+        assert g[0] > 0 and g[3] and abs(g[1] - g[2]) < 3, f"header row did not stay at the top: {g}"
         p.locator("[data-testid=stExpander] summary", has_text="Where does a value come from?").click()
         wait(1.5)
         assert p.get_by_role("button", name="Open this page").count() >= 1, "no source of the selected value"
