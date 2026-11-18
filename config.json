@@ -951,7 +951,8 @@
         "unit": "",
         "src": {
           "BL": "final_dest"
-        }
+        },
+        "ref": "pod"
       },
       {
         "id": "goods",

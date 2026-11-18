@@ -40,6 +40,7 @@ FIELD_RULES = {
     "cbm": {"BL_INVOICE_EXTRA", "BL_VS_PL", "PL_TOTAL"},
     "ctn": {"BL_DESC_CTN", "BL_DESC_QTY", "BL_INVOICE_EXTRA", "BL_VS_PL", "CI_PL_CTN", "CO_PKG_COUNT", "CO_SUM", "CO_TOTAL", "PL_RANGE_TOTAL"},
     "containers": {"CNTR_COUNT", "CNTR_WORDS", "CONTAINERS", "PL_HEADER"},
+    "final_dest": {"BL_DESTINATION"},
     "consignee": {"PARTY_NAME", "PL_HEADER"},
     "shipper": {"PARTY_NAME", "PL_HEADER"},
     "origin": {"ORIGIN", "PL_HEADER"},

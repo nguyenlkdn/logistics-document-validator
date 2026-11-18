@@ -176,8 +176,35 @@ def compare(s: dict) -> dict:
                 cells[k]["odd"] = True
         rows.append(dict(id=fd["id"], en=fd["en"], vi=fd["vi"], type=fd["type"], unit=fd.get("unit", ""),
                          cells=cells, result=result))
+    _against_ref(rows, cfg["fields"])
     return dict(columns=[{k: c[k] for k in ("id", "kind", "en", "vi")} | dict(n_docs=len(c["docs"]))
                          for c in cols], rows=rows, lines=lines(s, by_kind), not_read=cfg.get("not_read", []))
+
+
+def _against_ref(rows: list, fields: list):
+    """A field printed on one document only, checked against a related row ("ref" in config): the B/L final
+    destination must be in the city of the port of discharge. Without this the row says "only one document" even
+    when the B/L sends the goods to another city (rule BL_DESTINATION reports it too)."""
+    by_id = {r["id"]: r for r in rows}
+    for fd in fields:
+        r, ref = by_id.get(fd["id"]), by_id.get(fd.get("ref") or "")
+        if not (r and ref):
+            continue
+        agreed = [v for v in ref["cells"].values() if v["state"] == "value" and not v.get("odd")]
+        if not agreed:
+            continue
+        want = agreed[0]
+        r["vs"] = dict(en=ref["en"], vi=ref["vi"], show=want["show"])
+        cells = [v for v in r["cells"].values() if v["state"] == "value"]
+        bad = [v for v in cells if not _same(want["norm"], v["norm"], r["type"])]
+        for v in bad:
+            v["odd"] = True
+        if bad:
+            r["result"], r["vs"]["same"] = "mismatch", False
+        elif cells:
+            r["vs"]["same"] = True
+            if r["result"] == "single":
+                r["result"] = "match"
 
 
 def lines(s: dict, by_kind: dict) -> list[dict]:

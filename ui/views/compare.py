@@ -138,9 +138,12 @@ def table_html(shown: list, cols: list) -> str:
             cls = "odd" if cell.get("odd") else cell["state"] if cell["state"] != "value" else ""
             tds.append(f'<td class="{cls}">{_cell_html(r, cell, colors)}</td>')
         name = _name(r) + (f" ({r['unit']})" if r["unit"] else "")
-        res = f"{RESULT_ICON[r['result']]} {t1('cmp_' + r['result'])}"
+        res = ui.esc(f"{RESULT_ICON[r['result']]} {t1('cmp_' + r['result'])}")
+        vs = r.get("vs")
+        if vs and "same" in vs:                    # checked against a related row (final destination vs port)
+            res += (f'<br><small>{"=" if vs["same"] else "≠"} {ui.esc(_name(vs))}: {ui.esc(vs["show"])}</small>')
         rows.append(f'<tr><td class="f">{ui.esc(name)}</td>{"".join(tds)}'
-                    f'<td class="r {r["result"]}">{ui.esc(res)}</td></tr>')
+                    f'<td class="r {r["result"]}">{res}</td></tr>')
     return (f'<div class="ldv-xc-wrap"><table class="ldv-xc"><thead><tr><th>{ui.esc(t1("cmp_field"))}</th>{head}'
             f'<th>{ui.esc(t1("cmp_result"))}</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div>')
 
