@@ -397,6 +397,35 @@ def _():
     assert _co_item_details(blk)["model"] == "EF-Z30-PQ(06)-MG", _co_item_details(blk)
 
 
+
+@test("invoice amount in words over three lines (… AND FORTY FIVE / CENTS ONLY) is read whole")
+def _():
+    from engine.util import words_to_number
+    d = pdf("words3_ci", [
+        "< COMMERCIAL INVOICE >",
+        [(40, "INVOICE NO. ACME26110001"), (300, "DATE : 01/11/2026")],
+        "SAY TOTAL U.S. DOLLARS ONE HUNDRED AND TWELVE",
+        "THOUSAND FOUR HUNDRED AND SIXTY ONE  AND FORTY FIVE",
+        "CENTS ONLY",
+        [(40, "TOTAL"), (300, "USD 112,461.45")]], "CI")
+    assert d.f["amount_words"].value.rstrip().endswith("CENTS ONLY"), d.f["amount_words"].value
+    assert words_to_number(d.f["amount_words"].value) == 112461.45
+
+
+@test("Form D box 7: wrong carton words are boxed on the words, not on the figure")
+def _():
+    from engine.extract import _co_item_details
+    blk = lines("1   HS. CODE. 8418.10.31", "SEVENTY (140) CARTON(S) OF \"ACME\" BRAND", "REFRIGERATOR", "( 1 CARTON = 1 SET)",
+                "MODEL: AB-X10(W1)VN ***")
+    blk[0].spans[0].text = "HS. CODE. 8418.10.31"
+    x0 = blk[0].spans[0].bbox[0]
+    for l in blk[1:]:
+        l.spans[0] = l.spans[0].__class__(l.spans[0].text, (x0 + 1,) + l.spans[0].bbox[1:], "helv", 8, 0, 0, l.spans[0].origin)
+    det = _co_item_details(blk)
+    w = det.get("_words_f")
+    assert det["pkg_words"] == "SEVENTY" and w is not None and w.line.text[w.start:w.end] == "SEVENTY", det
+
+
 if __name__ == "__main__":
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     sys.exit(1 if FAILS else 0)

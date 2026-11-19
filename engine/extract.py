@@ -244,7 +244,11 @@ def _extract_ci(d: Doc):
     words = [l.text for l in inv if re.search(r"\bSAY\b", l.text, re.I)]
     if words:
         i = inv.index(next(l for l in inv if l.text in words))
-        d.f["amount_words"] = Field(" ".join(x.text for x in inv[i:i + 2]), "", inv[i], 0, 0)
+        n = 2                                           # the phrase goes on until its 'ONLY' (up to 4 lines of words)
+        while (n < 4 and i + n < len(inv) and not re.search(r"\bONLY\b", " ".join(x.text for x in inv[i:i + n]), re.I)
+               and re.fullmatch(r"[A-Za-z .,\-]+", inv[i + n].text.strip())):
+            n += 1
+        d.f["amount_words"] = Field(" ".join(x.text for x in inv[i:i + n]), "", inv[i], 0, 0)
 
     pl_rx = rf"({NUM})\s*{QTY_UNIT}(?:\s+({NUM})\s*CTNS)?\s+({DEC})\s+({DEC})\s+({DEC})\s*$"
     for i, l, m in _search(pl, pl_rx):
@@ -453,8 +457,10 @@ def _extract_co(d: Doc):
         end = hits[n + 1][0] if n + 1 < len(hits) else len(L)
         block = [x for x in L[i:end] if x.page == l.page]
         stop = next((k for k, x in enumerate(block) if k and re.match(r"\s*TOTAL\s*:", x.text)), len(block))
+        det = _co_item_details(block[:stop])
+        d.lists.setdefault("pkg_words_f", []).append(det.pop("_words_f", None))   # positions, parallel to items
         d.items.append(dict(no=int(m[1]), hs=m[2], hs_f=F(l, m, 2, m[2]), qty=F(l, m, 3, num(m[3])), inv_ref=m[5], inv_date=date_f,
-                            **_co_item_details(block[:stop])))
+                            **det))
     tot_rx = rf"TOTAL\s*:\s*((?:[A-Z]+[\- ])*[A-Z]+)\s*\(({NUM})\)\s*"
     hits = [(l, m) for _, l, m in _search(L, tot_rx + "CARTON")]
     hits += [(l, m) for i, l, m in _search(L, tot_rx + "$")                  # '... (1,250)' / 'CARTON***' below
@@ -530,7 +536,12 @@ def _co_item_details(block: list) -> dict:
         for x in block:
             fm = re.search(fig_rx, x.text)
             if fm:
-                out["pkg_fig"] = F(x, fm, 1, num(fm[1])); break
+                out["pkg_fig"] = F(x, fm, 1, num(fm[1]))
+                w = out["pkg_words"]                    # the words before the figure on its line: their own box
+                k = x.text.rfind(w, 0, fm.start()) if w else -1
+                if k >= 0:
+                    out["_words_f"] = Field(w, w, x, k, k + len(w))
+                break
     m = re.search(r"1\s*CARTON\s*=\s*(\d+)\s*(?:SET|PCS|PIECE)", col, re.I)
     out["per_ctn"] = int(m[1]) if m else None
     # 'AB-X10(W1)VN', also when the pieces were joined with a space ('AB-X10 (W1)VN') or a letter is mistyped

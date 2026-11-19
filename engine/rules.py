@@ -1200,6 +1200,13 @@ def r_pl_ranges(ci, co, out):
     ck_t.end()
 
 
+def _item_list_at(d, name: str, it):
+    """The entry of d.lists[name] (kept parallel to d.items) for item it, or None."""
+    lst = d.lists.get(name) or []
+    k = next((i for i, x in enumerate(d.items) if x is it), None)
+    return lst[k] if k is not None and k < len(lst) else None
+
+
 def _product_name(desc: str) -> str:
     """'RICE COOKER SERIES 1.0L(NMF)' -> 'RICE COOKER'."""
     return re.split(r"\s+(?:SERIES\b|MODEL\b|\d|\()", desc.upper().strip(' "'))[0].strip()
@@ -1218,7 +1225,13 @@ def r_co_packages(ci, co, out):
         if co.items and ci.pl_items and not pairs:
             c.not_run("items_not_comparable", n=len(co.items), m=len(ci.pl_items))
     if pairs and len(pairs) < len(co.items):          # some Form D items have no packing-list line to compare with
-        ck.not_run("items_not_comparable", n=len(co.items), m=len(pairs))
+        pl_models = {master.key(p.get("model")) for p in ci.pl_items if p.get("model")}
+        paired = {id(it) for it, _p in pairs}
+        lost = [it for it in co.items if id(it) not in paired]
+        if lost and all(it.get("model") and master.key(it["model"]) not in pl_models for it in lost):
+            ck.blocked("CO_MODEL")                    # their model is wrong (CO_MODEL reports it): not a reading gap
+        else:
+            ck.not_run("items_not_comparable", n=len(co.items), m=len(pairs))
     for it, p in pairs:
         fig, words, per, qty = it.get("pkg_fig"), it.get("pkg_words"), it.get("per_ctn"), it["qty"].value
         rng = p["ctn"]
@@ -1236,8 +1249,9 @@ def r_co_packages(ci, co, out):
         if wv is not None and truth:
             ck.compared()
         if wv is not None and truth and not _close(wv, truth):
+            wf = _item_list_at(co, "pkg_words_f", it)          # box the words themselves (they are what is wrong)
             ck.add(Finding("CO_PKG_COUNT", "ERROR", [co, ci], dict(no=it["no"], what="@words", ref=f"{truth:,}"),
-                           words, number_to_words(truth), (at(co, fig) if fig else []) + ref_locs))
+                           words, _words_like(truth, words), (at(co, wf) if wf else at(co, fig) if fig else []) + ref_locs))
         if per and truth:
             ck.compared()
         if per and truth and not _close(per * truth, qty):
