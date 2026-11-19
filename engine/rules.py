@@ -532,8 +532,10 @@ def r_co(ci, co, bl, out):
     ck.need_items(co)
     ck.need_items(ci)
     ck.compared()
-    if len(co.items) != len(ci.items):
-        ck.add(Finding("CO_ITEMS", "ERROR", [co, ci], {}, str(len(co.items)), str(len(ci.items))))
+    if len(co.items) != len(ci.items):            # box every Form D item (wrong) and every invoice line (reference)
+        locs = [x for it in co.items for x in (at(co, it.get("hs_f")) or at_line(co, it["qty"].line))]
+        locs += [x for it in ci.items for x in at_line(ci, it["qty"].line, "ref")]
+        ck.add(Finding("CO_ITEMS", "ERROR", [co, ci], {}, str(len(co.items)), str(len(ci.items)), locs))
     ck.end()
     for k, ci_k in (("total_value", "amount"), ("total_qty", "qty")):
         ck = begin("CO_TOTAL.value" if k == "total_value" else "CO_TOTAL.qty", out)

@@ -466,11 +466,17 @@ def _extract_co(d: Doc):
             tw.pop(0)
         d.f["total_ctn_words"] = Field(" ".join(tw), " ".join(tw), l, m.end(1) - len(" ".join(tw)), m.end(1)) if tw else None
         break
+    # the totals keep the line they are printed on (their box on the page); the joined text is the fallback for a
+    # total whose figure is split over lines
     joined = " ".join(l.text for l in L)
-    m = re.search(rf"\(({NUM})\)\s*USD", joined)
-    d.f["total_value"] = Field(num(m[1]), m[1], L[0], 0, 0) if m else None
-    m = re.search(rf"TOTAL : [A-Z\- ]+\(({NUM})\) (?:SET|PIECE|PCS)", joined)
-    d.f["total_qty"] = Field(num(m[1]), m[1], L[0], 0, 0) if m else None
+    d.f["total_value"] = _first(L, rf"\(({NUM})\)\s*USD", conv=num, flags=0)
+    if d.f["total_value"] is None:
+        m = re.search(rf"\(({NUM})\)\s*USD", joined)
+        d.f["total_value"] = Field(num(m[1]), m[1], L[0], 0, 0) if m else None
+    d.f["total_qty"] = _first(L, rf"TOTAL\s*:\s*[A-Z\- ]+\(({NUM})\)\s*(?:SET|PIECE|PCS)", conv=num, flags=0)
+    if d.f["total_qty"] is None:
+        m = re.search(rf"TOTAL : [A-Z\- ]+\(({NUM})\) (?:SET|PIECE|PCS)", joined)
+        d.f["total_qty"] = Field(num(m[1]), m[1], L[0], 0, 0) if m else None
 
 
 NUMBER_WORDS = set("ZERO ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE TEN ELEVEN TWELVE THIRTEEN FOURTEEN FIFTEEN "

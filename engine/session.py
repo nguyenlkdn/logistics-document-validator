@@ -64,7 +64,10 @@ def build(res) -> dict:
         findings.append(dict(
             no=i, sig=sig, key=f.key, severity=f.severity,
             doc=f.doc_names[0] if f.docs else "", doc_kind=f.docs[0].kind if f.docs else "",
-            related=f.doc_names[1:], page=f.page, current=f.current, suggested=f.suggested,
+            related=f.doc_names[1:], current=f.current, suggested=f.suggested,
+            # a value found by text search on the page (no position from the reader): its page from where it was found
+            page=f.page or next((l["page"] + 1 for l in locs[i - 1] if l.get("role") == "wrong" and l.get("page") is not None),
+                                None),
             msg_en=f.text("en"), msg_vi=f.text("vi"), note_en=f.note("en"), note_vi=f.note("vi"),
             evidence=[rel(p) for p in f.evidence], locs=locs[i - 1], check=getattr(f, "check", ""),
             suspect=getattr(f, "suspect", "")))

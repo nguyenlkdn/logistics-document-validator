@@ -395,7 +395,8 @@ def _hyphen_split(page) -> list:
             continue
         below = [(b2, t2) for b2, t2 in spans if abs(b2[0] - b1[0]) < 5 and 0 < b2[1] - b1[1] < 16 and _HY_TAIL.match(t2)]
         if below:
-            out.append((t1, min(below, key=lambda x: x[0][1])[1]))
+            b2, t2 = min(below, key=lambda x: x[0][1])
+            out.append((t1, t2, (min(b1[0], b2[0]), b1[1], max(b1[2], b2[2]), b2[3])))   # + the box over both lines
     return out
 
 
@@ -426,11 +427,15 @@ def extra_co(d: Doc):
         pairs = re.findall(r"(?m)^(" + MARK_HEAD + r"\([A-Za-z0-9]+\))\s*\n\s*([A-Z]{1,3})\s*$", t)
         pairs += [(a, "") for a in re.findall(r"(?m)^\s*(" + MARK_HEAD + r"\([A-Za-z0-9]+\)(?=[A-Za-z\-])[A-Za-z]{0,3}"
                                               + MARK_TAIL + r")\s*$", t)]          # ...(W1)VN, ...(06)-MG
-        pairs += _hyphen_split(pg)                 # 'EF-Z30-' / 'PQ(06)-MG' (split at a hyphen, same column)
-        for a, b in pairs:                         # ... or on one line: 'AB-X10(W1)VN'
+        for a, b, *box in pairs + _hyphen_split(pg):   # 'EF-Z30-' / 'PQ(06)-MG': split at a hyphen, same column
             if a + b not in have:
                 have.add(a + b)
-                d.lists.setdefault("marks_models", []).append(Field(a + b, a, Line(pno, 0.0), 0, 0))
+                if box:                            # its place is known: box it there (not by searching the text)
+                    from .pdftext import Span
+                    ln = Line(pno, (box[0][1] + box[0][3]) / 2, [Span(a + b, box[0], "", 8.0, 0, 0, (box[0][0], box[0][3]))])
+                    d.lists.setdefault("marks_models", []).append(Field(a + b, a + b, ln, 0, len(a + b)))
+                else:
+                    d.lists.setdefault("marks_models", []).append(Field(a + b, a, Line(pno, 0.0), 0, 0))
     pdf.close()
 
 

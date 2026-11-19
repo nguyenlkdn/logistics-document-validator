@@ -386,7 +386,9 @@ def _():
     pg.insert_text((65, 380), "EF-Z30-", fontsize=8, fontname="helv")
     pg.insert_text((65, 390), "PQ(06)-MG", fontsize=8, fontname="helv")
     pg.insert_text((200, 380), "ONE HUNDRED (100) CARTON(S)", fontsize=8, fontname="helv")
-    assert _hyphen_split(pg) == [("EF-Z30-", "PQ(06)-MG")], _hyphen_split(pg)
+    got = _hyphen_split(pg)
+    assert [g[:2] for g in got] == [("EF-Z30-", "PQ(06)-MG")], got
+    assert got[0][2][0] == 65 and got[0][2][3] > got[0][2][1] + 12, got        # a box over both lines
     blk = lines("1   HS. CODE. 8418.10.32", "MODEL: EF-Z30-", "PQ(06)-MG ***")
     blk[0].spans[0].text = "HS. CODE. 8418.10.32"
     for l in blk[1:]:
