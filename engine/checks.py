@@ -626,6 +626,14 @@ class Ck:
         if not self.state:
             self.state, self.reason, self.detail = CheckStatus.NOT_RUN, reason, {**self.detail, **detail}
 
+    def master_missing(self, model: str):
+        """A model not in the HS master list: NOT_RUN master_data_missing, naming every such model."""
+        self.not_run("master_data_missing", what="model")
+        if self.reason == "master_data_missing":
+            ms = self.detail.setdefault("models", [])
+            if model and model not in ms:
+                ms.append(model)
+
     def blocked(self, by: str):
         self.not_run("blocked_by", by=by)
 
@@ -794,12 +802,14 @@ def reason_text(r: dict, lang: str) -> str:
         key = "incomplete"
     else:
         return ""
+    if key == "master_data_missing" and d.get("models"):
+        key = "master_data_missing_models"
     m = msgs.get(key) or msgs.get("na" if key.startswith("na_") else "not_reported") or {}
     miss = d.get("missing") or []
     fld = ", ".join(f"{x['name']} ({x['doc']})" if x.get("doc") else x["name"] for x in miss) or d.get("field", "")
     vals = dict(kind=_kind_label(d.get("kind", ""), lang), inv=d.get("inv", ""), field=fld, doc=d.get("doc", r.get("doc", "")),
                 by=d.get("by", ""), rule=d.get("rule", ""), error=d.get("error", ""), invoices=d.get("invoices", ""),
-                what=d.get("what", ""))
+                what=d.get("what", ""), models=", ".join(d.get("models") or []))
     try:
         return m.get(lang, m.get("en", key)).format(**vals)
     except (KeyError, IndexError):

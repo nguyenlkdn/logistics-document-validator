@@ -690,7 +690,7 @@ def _():
     assert len(s223["findings"]) == len(s["findings"])
 
 
-@test("Form D item table wrong as a whole (CO_ITEMS): item details not reported, header and totals still checked")
+@test("Form D item table wrong as a whole (CO_ITEMS): item-by-item pairing checks blocked, header, totals and box-10 / HS / marks still checked")
 def _():
     docs = package()
     co = docs[3]
@@ -701,9 +701,11 @@ def _():
     keys = {f.key for f in fs}
     assert "CO_ITEMS" in keys and "DEPARTURE_DATE" in keys, keys
     assert not keys & {"CO_QTY", "CO_MODEL", "CO_INVOICE_NO", "CO_INVOICE_DATE", "CO_PKG_COUNT", "CO_MARKS_MODEL"}, keys
-    for cid in ("CO_QTY", "CO_MODEL", "CO_PKG", "CO_HS"):
+    for cid in ("CO_QTY", "CO_MODEL", "CO_PKG", "CO_GOODS_DESC"):
         r = by_id(res, cid)[0]
         assert (r.status, r.reason, r.detail.get("by")) == ("NOT_RUN", "blocked_by", "CO_ITEMS"), (cid, r.status, r.detail)
+    for cid in ("CO_HS", "CO_INVOICE_NO", "CO_INVOICE_DATE", "CO_NUMBERING"):        # need no line pairing: they run
+        assert all(r.reason != "blocked_by" for r in by_id(res, cid)), (cid, [(r.status, r.detail) for r in by_id(res, cid)])
     assert status(res, "CO_ITEMS") == {"FAIL"}
     f = next(x for x in fs if x.key == "CO_ITEMS")
     assert "missing on Form D: AB-X10(W1)VN, CD-Y20(W1)VN" in f.text("en"), f.text("en")
@@ -798,6 +800,27 @@ def _():
     fs, _res = run(docs)
     assert not [f for f in fs if f.key == "MARKS_NONE"]
     assert [f.severity for f in fs if f.key == "BL_MARKS_MODEL"] == ["WARNING"], [(f.key, f.severity) for f in fs]
+
+
+@test("Form D item table wrong (CO_ITEMS): box-10 invoice no. is still checked on every item; a wrong one is reported")
+def _():
+    docs = package()
+    co, ci = docs[3], docs[0]
+    extra = dict(co.items[0]); extra["no"] = len(co.items) + 1; extra["inv_ref"] = "ACME9999"; extra["inv_ref_f"] = None
+    co.items.append(extra)
+    fs, res = run(docs)
+    keys = [f.key for f in fs]
+    assert "CO_ITEMS" in keys and "CO_INVOICE_NO" in keys, keys
+    r = by_id(res, "CO_INVOICE_NO", "inv1")[0]
+    assert r.status == "FAIL", (r.status, r.reason)
+
+
+@test("HS master missing: the reason names every model to add")
+def _():
+    from engine.checks import reason_text
+    r = dict(status="NOT_RUN", reason="master_data_missing", detail=dict(what="model", models=["AB-X10(W1)VN", "CD-Y20(Q2)VN"]))
+    assert "AB-X10(W1)VN, CD-Y20(Q2)VN" in reason_text(r, "en") and "AB-X10(W1)VN" in reason_text(r, "vi")
+    assert "city list" in reason_text(dict(status="NOT_RUN", reason="master_data_missing", detail=dict(what="city_list")), "en")
 
 
 # ----------------------------------------------------------------------------------------------- P5 plausibility gate

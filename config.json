@@ -1636,6 +1636,10 @@
       "en": "Master data missing (HS master list / city list): add it, then check again.",
       "vi": "Thiếu dữ liệu gốc (danh mục HS / danh sách thành phố): bổ sung rồi kiểm tra lại."
     },
+    "master_data_missing_models": {
+      "en": "Not in the HS master list: {models}. Add them to the HS master Excel, then check again.",
+      "vi": "Chưa có trong danh mục HS: {models}. Bổ sung vào file Excel danh mục HS rồi kiểm tra lại."
+    },
     "blocked_by": {
       "en": "Not meaningful on its own: {by} already reports this difference.",
       "vi": "Không xét riêng: {by} đã báo sự khác biệt này."

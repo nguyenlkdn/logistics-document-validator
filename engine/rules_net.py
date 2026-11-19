@@ -251,10 +251,10 @@ def r_co_self(co, out):
     tq = co.f.get("total_qty")
     s = sum(it["qty"].value for it in co.items)
     ck_s.need(co, "total_qty")
-    if tq and seen & {"CO_QTY", "CO_TOTAL"}:
-        ck_s.blocked("CO_QTY / CO_TOTAL")
+    if tq and seen & {"CO_QTY", "CO_TOTAL"} and not _close(s, tq.value):
+        ck_s.blocked("CO_QTY / CO_TOTAL")         # the difference is already reported there
     elif tq:
-        ck_s.compared()
+        ck_s.compared()                            # items add up to the Form D's own TOTAL: a pass even if both are wrong
     if tq and not _close(s, tq.value) and not seen & {"CO_QTY", "CO_TOTAL"}:
         ck_s.add(Finding("CO_SUM", "ERROR", [co], dict(label="@total_qty"), tq.raw, _num_fmt(s),
                          at(co, tq) + [x for it in co.items for x in at(co, it["qty"], "ref")]))

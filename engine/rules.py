@@ -511,8 +511,8 @@ def r_co(ci, co, bl, out):
     for ck in (ck_q, ck_n):
         ck.need_items(co)
         ck.need_items(ci)
-        if len(co.items) != len(ci.items):           # zip() pairs only the first lines: the rest is not compared
-            ck.not_run("items_not_comparable", by="CO_ITEMS", n=len(co.items), m=len(ci.items))
+    if len(co.items) != len(ci.items):               # zip() pairs only the first lines: the rest is not compared
+        ck_q.not_run("items_not_comparable", by="CO_ITEMS", n=len(co.items), m=len(ci.items))
     ck_n.need(ci, "invoice_no")
     for it, ci_it in zip(co.items, ci.items):
         ck_q.compared()
@@ -520,6 +520,7 @@ def r_co(ci, co, bl, out):
             ck_q.add(Finding("CO_QTY", "ERROR", [co, ci], dict(no=it["no"]), it["qty"].raw,
                              fmt_like(ci_it["qty"].value, it["qty"].raw),
                              at(co, it["qty"]) + at(ci, ci_it["qty"], "ref")))
+    for it in co.items:                              # box 10 of every item names the invoice: no line pairing needed
         full = it.get("inv_ref_f")                 # whole number read from box 10 (it can wrap onto the next line)
         if inv_no:
             ck_n.compared()
@@ -650,12 +651,11 @@ def _co_table(co) -> list:
     return out
 
 
-# Form D item details: not checked one by one when the item table itself is wrong (CO_ITEMS FAIL, owner 2026-11-19)
-CO_DETAIL = ("CO_QTY", "CO_INVOICE_NO", "CO_INVOICE_DATE", "CO_MODEL", "CO_HS", "CO_PKG", "CO_GOODS_DESC",
-             "CO_MARKS_MODEL", "CO_SUM", "CO_NUMBERING")
-CO_DETAIL_KEYS = ("CO_QTY", "CO_INVOICE_NO", "CO_INVOICE_DATE", "CO_MODEL", "CO_HS_MASTER", "HS_CODE", "BL_HS_CODE",
-                  "CO_PKG_COUNT", "CO_SET_PER_CTN", "PL_SET_PER_CTN", "CO_GOODS_DESC", "CO_MARKS_MODEL", "CO_SUM",
-                  "CO_NUMBERING")
+# Form D item details: not checked one by one when the item table itself is wrong (CO_ITEMS FAIL, owner 2026-11-19).
+# Only the checks that pair a Form D item with an invoice / packing-list line. Checks that read the Form D on its own
+# or against the invoice header (box 10 invoice no. / date, HS codes, marks, numbering, items vs TOTAL) still run.
+CO_DETAIL = ("CO_QTY", "CO_MODEL", "CO_PKG", "CO_GOODS_DESC")
+CO_DETAIL_KEYS = ("CO_QTY", "CO_MODEL", "CO_PKG_COUNT", "CO_SET_PER_CTN", "PL_SET_PER_CTN", "CO_GOODS_DESC")
 
 
 def _co_items_gate(out: list, docs: list):
@@ -740,7 +740,7 @@ def r_hs(ci, co, bl, out):
             hs = master.hs_for(m)
             known[m] = hs
             if hs is None:                                # master data, not a reading problem: NOT_RUN + the WARNING
-                ck.not_run("master_data_missing", what="model")
+                ck.master_missing(m)
                 line = next((l for l in ci.lines if m in l.text), None)
                 ck.add(Finding("HS_MASTER_MISSING", "WARNING", [ci], dict(model=m), m, "",
                                [Loc(ci, line.page if line else None, None, m)]))
@@ -765,7 +765,7 @@ def r_hs(ci, co, bl, out):
                 off.append((it, loc))
         else:                                             # no master entry and no B/L heading: nothing to compare with
             if not have or m:
-                ck.master(False) if not have else ck.not_run("master_data_missing", what="model")
+                ck.master(False) if not have else ck.master_missing(m)
             ck.need(bl, "hs")
     heads = {master.digits(it["hs"])[:len(hs_bl)] for it, _ in off}
     if len(off) >= 2 and len(off) == len(co.items) and len(heads) == 1:
@@ -785,7 +785,8 @@ def r_hs(ci, co, bl, out):
     ck.need(bl, "hs")
     refs = [h for h in known.values() if h]
     if ck.master(have) and hs_bl and not refs:
-        ck.not_run("master_data_missing", what="model")
+        for m in [m for m, h in known.items() if not h]:
+            ck.master_missing(m)
     if hs_bl and refs:
         ck.compared()
     if hs_bl and refs and not any(h.startswith(hs_bl) for h in refs):
