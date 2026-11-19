@@ -20,8 +20,10 @@ engine/
   extract_net.py       extra fields for the cross-document / self-check rules (parties, origin, TTL lines, …)
   rules.py             validation rules → Finding (message key, current, suggested, locations)
   rules_net.py         cross-document and self-consistency rules (2.1); full list: docs/RULES.md
+  checks.py            check registry + runner: every check leaves a record (PASS / FAIL / REVIEW_REQUIRED /
+                       NOT_RUN + reason / NOT_APPLICABLE), field status, RED / AMBER / GREEN verdict (docs/CHECKS.md)
   evidence.py          page screenshots: red = wrong value, green = reference
-  report.py            report.xlsx (Findings · Extracted data · Not recognised) + report.md
+  report.py            report.xlsx (Findings · Extracted data · Not recognised · Checks) + report.md
   review_report.py     review report (PDF / Excel / HTML) with reviewer sign-off; saved in <report folder>/reports/
   search.py            global search (Ctrl+K) over the history
   compare.py           cross-check of the same fields across documents (map: config.json "compare")
@@ -34,13 +36,14 @@ ui/
   state.py             open review, reviewer marks, filters, page switching
   components.py        styling, severity chips, workflow stepper, number tiles, bars
   viewer.py            page viewer: page image + HTML boxes, search, selectable text (PDF is only read)
-  views/               dashboard · new_review · review (workspace) · compare · findings · report · history ·
+  views/               dashboard · new_review · review (workspace) · compare · checks · findings · report · history ·
                        reference · settings
 docs/REDESIGN.md       UI modernisation: assessment and phased plan
 docs/READING.md        how documents are read: accepted layouts, and what to do when a value is read wrongly
 tests/baseline/        test sets + expected.json (confidential, local only, not in git)
 tests/run_baseline.py  regression test
 tests/run_reader.py    reader patterns on small made-up PDFs (no test data needed)
+tests/run_checks.py    check runner: closure, blank-out sweep, applicability, verdict, sessions (made-up package)
 tools/find_unread.py   values printed in a PDF that LDV did not read
 ```
 
@@ -50,6 +53,7 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python tests/run_baseline.py            # must print ALL PASS
 .venv/bin/python tests/run_unit.py                # review features (cross-check, sign-off, reports, search)
 .venv/bin/python tests/run_reader.py              # layouts the reader must handle (see docs/READING.md)
+.venv/bin/python tests/run_checks.py [--local]    # every check leaves a record; no PASS without its inputs
 .venv/bin/python tools/find_unread.py tests/baseline/SET.zip   # printed values not read: reading gaps
 .venv/bin/python tests/ui_smoke.py                # optional, browser walk-through (pip install playwright)
 .venv/bin/python tools/rules_doc.py               # regenerate docs/RULES.md after adding or changing a rule
@@ -105,7 +109,10 @@ That tags, pushes, builds the zip with `git archive` (tracked files only, so con
 
 ## Extending
 - New typo / port alias / message wording → `config.json` only.
-- New rule → function `r_xxx()` in `engine/rules.py`, call it in `validate()`, add message to `config.json`.
+- New rule → function `r_xxx()` in `engine/rules.py`, called through `_call()` in `_validate_group()`; each check
+  it makes gets a `CheckDef` in `engine/checks.py` and a name in `config.json "checks"`, and runs through
+  `ck = begin(id, out)` / `ck.need(...)` / `ck.compared()` / `ck.add(Finding)` / `ck.end()` (docs/CHECKS.md).
+  `tests/run_checks.py` fails when a check leaves no record or reads an input it does not declare.
 - New supplier layout → adjust regexes in `engine/extract.py`, add its zip to `tests/baseline/`, update baseline.
 
 ## Offline install (if the office proxy blocks pip)

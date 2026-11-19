@@ -34,8 +34,9 @@ import re
 from collections import Counter
 
 from . import master
+from .checks import begin, has_text, status_of
 from .extract import NUMBER_WORDS, Field
-from .rules import Finding, _close, at, fmt_like, true_total
+from .rules import Finding, _call, _close, at, fmt_like, true_total
 
 ZIP = zip
 
@@ -81,118 +82,254 @@ def _odd_ones(entries: list, norm) -> tuple[list, str | None]:
     return [(d, f) for d, f in have if norm(f.value) != top], ref
 
 
+def _sources(ck, entries):
+    """Inputs of a "same value on every document" check. entries = [(doc, field name, Field | None)].
+    Two or more values read: compared (a document whose value was not read is recorded as missing, so the check
+    cannot PASS for it). Fewer: NOT_RUN(too_few_values) when another document prints it, NOT_APPLICABLE when every
+    other document is known not to print it (reader 'absent' list)."""
+    read, unread = 0, 0
+    for d, name, f in entries:
+        if d is None:
+            continue
+        if f is not None and str(f.value).strip():
+            ck._input(d, name, "READ")
+            read += 1
+            continue
+        st = status_of(d, name) if not name.startswith("lists.") else "NOT_FOUND"
+        if st == "ABSENT":
+            ck.inputs.append(dict(doc=d.name, kind=d.kind, name=name, status=st))
+        else:
+            ck._input(d, name, st)
+            unread += 1
+    if read >= 2:
+        ck.compared()
+    elif unread:
+        ck.not_run("too_few_values", n=read)
+    else:
+        ck.na(evidence="fewer_than_two_sources")
+
+
 # ----------------------------------------------------------------------------- self-checks
+def _ttl_row(text: str, n: int) -> bool:
+    """A printed totals row: starts with TTL / TOTAL and holds at least n figures ('TOTAL PACKED IN … (500) CARTONS'
+    is a sentence, not a totals row)."""
+    return bool(re.match(r"\s*(?:TTL|TOTAL)\b", text, re.I)) and len(re.findall(r"\d[\d,]*(?:\.\d+)?", text)) >= n
+
+
 def r_cover_totals(ci, out):
     if not ci:
         return
+    L = ci.lines
+    pl_start = next((i for i, l in enumerate(L) if "PACKING LIST" in l.text.upper()), len(L))
+    parts = dict(ci_ttls=L[:pl_start], pl_ttls=L[pl_start:])
     for lst, key, keys in (("ci_ttls", "CI_COVER_TOTAL", ("ctn", "qty", "amount")),
                            ("pl_ttls", "PL_COVER_TOTAL", ("ctn", "qty", "nw", "gw", "cbm"))):
+        ck = begin(key, out, ci)
         rows = ci.lists.get(lst, [])
         if len(rows) < 2:
+            n_ttl = sum(_ttl_row(l.text, 2 if lst == "ci_ttls" else 3) for l in parts[lst])
+            if n_ttl < 2:                          # no cover page repeating the totals: nothing to compare
+                ck.na(evidence="not_printed", field=f"lists.{lst}", doc=ci.name)
+            else:                                  # printed twice, read fewer times
+                ck._input(ci, f"lists.{lst}", "NOT_FOUND")
+            ck.end()
             continue
+        ck._input(ci, f"lists.{lst}", "READ")
         last = rows[-1]                            # the attachment's TTL: checked against the lines by PL_TOTAL & co.
         # every other TTL row against what the lines add up to, not against the attachment's printed TTL
         calc = {k: true_total(ci, {"qty": "qty" if lst == "ci_ttls" else "pl_qty"}.get(k, k)) for k in keys}
         for row in rows[:-1]:
             for k in keys:
                 a, b = row.get(k), calc[k] or last.get(k)
+                if a and b:
+                    ck.compared()
                 if a and b and not _close(a.value, b.value, 0.005):
-                    out.append(Finding(key, "ERROR", [ci], dict(label=f"@{k}"), a.raw, fmt_like(b.value, a.raw),
-                                       at(ci, a) + at(ci, b, "ref")))
+                    ck.add(Finding(key, "ERROR", [ci], dict(label=f"@{k}"), a.raw, fmt_like(b.value, a.raw),
+                                   at(ci, a) + at(ci, b, "ref")))
+        ck.end()
 
 
 def r_gw_nw(ci, out):
     if not ci:
         return
+    ck = begin("PL_GW_NW", out, ci)
+    ck.need_items(ci, "pl_items")
+    ck.need(ci, "pl_total_nw")
+    ck.need(ci, "pl_total_gw")
     rows = [(p.get("model") or "", p) for p in ci.pl_items] + [("TTL", {k: ci.f.get(f"pl_total_{k}") for k in ("nw", "gw")})]
     for model, p in rows:
         nw, gw = p.get("nw"), p.get("gw")
+        if model != "TTL" or p is not rows[-1][1]:
+            for k in ("nw", "gw"):
+                if not p.get(k):
+                    ck.need_item(ci, p, k)
+        if nw and gw:
+            ck.compared()
         if nw and gw and gw.value < nw.value - 0.0005:
-            out.append(Finding("PL_GW_NW", "ERROR", [ci], dict(model=model, nw=nw.raw), gw.raw, f"≥ {nw.raw}",
-                               at(ci, gw) + at(ci, nw, "ref")))
+            ck.add(Finding("PL_GW_NW", "ERROR", [ci], dict(model=model, nw=nw.raw), gw.raw, f"≥ {nw.raw}",
+                           at(ci, gw) + at(ci, nw, "ref")))
+    ck.end()
 
 
 def r_eta(ci, out):
     if not ci:
         return
+    ck = begin("ETA_DATE", out, ci)
     eta, sail = ci.f.get("eta"), ci.f.get("sailing")
+    if ck.need(ci, "eta", trace=r"\bETA\b"):
+        ck.need(ci, "sailing")
+    if eta and sail and eta.value and sail.value:
+        ck.compared()
     if eta and sail and eta.value and sail.value and eta.value < sail.value:
-        out.append(Finding("ETA_DATE", "ERROR", [ci], {}, f"{eta.value:%d/%m/%Y}", f"≥ {sail.value:%d/%m/%Y}",
-                           at(ci, eta) + at(ci, sail, "ref")))
+        ck.add(Finding("ETA_DATE", "ERROR", [ci], {}, f"{eta.value:%d/%m/%Y}", f"≥ {sail.value:%d/%m/%Y}",
+                       at(ci, eta) + at(ci, sail, "ref")))
+    ck.end()
 
 
 def r_headers(ci, out):
     if not ci:
         return
+    ck = begin("DOC_HEADER", out, ci)
     heads = ci.lists.get("headers", [])
+    n_trace = sum(bool(re.search(r"(?i)INVOICE\s*NO", l.text)) for l in ci.lines)   # one header line per page
+    if len(heads) >= 2:
+        ck.compared()
+        ck._input(ci, "lists.headers", "READ")
+        if len(heads) < n_trace:                   # some page headers were not read
+            ck._input(ci, "lists.headers", "NOT_FOUND")
+    elif n_trace < 2:
+        ck.na(evidence="not_printed", field="lists.headers", doc=ci.name)
+    else:
+        ck._input(ci, "lists.headers", "NOT_FOUND")
     for k, show in (("no", lambda v: v), ("date", lambda v: f"{v:%d/%m/%Y}")):
         odd, ref = _odd_ones([(ci, h[k]) for h in heads], lambda v: v)
         for _, f in odd:
-            out.append(Finding("DOC_HEADER", "ERROR", [ci], dict(label=f"@hdr_{k}", page=f.page + 1), f.raw, show(ref),
-                               at(ci, f)))
+            ck.add(Finding("DOC_HEADER", "ERROR", [ci], dict(label=f"@hdr_{k}", page=f.page + 1), f.raw, show(ref),
+                           at(ci, f)))
+    ck.end()
 
 
 def r_cover_pos(ci, out):
-    if not ci or not ci.lists.get("cover_pos"):
+    if not ci:
         return
+    ck = begin("CI_PO_LIST", out, ci)
+    if not ci.lists.get("cover_pos"):                   # a P/O list line without a line number: 'P/O NO.A, B'
+        ck.need_list(ci, "cover_pos", trace=r"(?m)^\s*P/O NO")
+        ck.end()
+        return
+    ck.need_list(ci, "cover_pos")
     cover = ci.lists["cover_pos"][0]
     lines = {it.get("po") for it in ci.items if it.get("po")}
     if not lines:
+        for it in ci.items or [{}]:
+            ck.need_item(ci, it, "po")
+        ck.end()
         return
+    ck.compared()
     missing, extra = sorted(lines - set(cover.value)), sorted(set(cover.value) - lines)
     if missing or extra:
-        out.append(Finding("CI_PO_LIST", "WARNING", [ci], dict(missing=", ".join(missing) or "—", extra=", ".join(extra) or "—"),
-                           ", ".join(cover.value), ", ".join(sorted(lines)), [_line_loc(ci, cover)]))
+        ck.add(Finding("CI_PO_LIST", "WARNING", [ci], dict(missing=", ".join(missing) or "—", extra=", ".join(extra) or "—"),
+                       ", ".join(cover.value), ", ".join(sorted(lines)), [_line_loc(ci, cover)]))
+    ck.end()
 
 
 def r_co_self(co, out):
     """Form D items vs its own totals. Only reported when no other rule already explains the difference
     (CO_QTY / CO_PKG_COUNT blame the items, CO_TOTAL blames the total against the invoice / packing list)."""
-    if not co or not co.items:
+    if not co:
         return
+    cks = [begin(c, out, co) for c in ("CO_SUM", "CO_NUMBERING", "CO_PAGES")]
+    if not co.items:
+        for ck in cks:
+            ck.need_items(co)
+            ck.end()
+        return
+    ck_s, ck_n, ck_p = cks
     seen = {f.key for f in out if f.docs and f.docs[0] is co}
     tq = co.f.get("total_qty")
     s = sum(it["qty"].value for it in co.items)
+    ck_s.need(co, "total_qty")
+    if tq and seen & {"CO_QTY", "CO_TOTAL"}:
+        ck_s.blocked("CO_QTY / CO_TOTAL")
+    elif tq:
+        ck_s.compared()
     if tq and not _close(s, tq.value) and not seen & {"CO_QTY", "CO_TOTAL"}:
-        out.append(Finding("CO_SUM", "ERROR", [co], dict(label="@total_qty"), tq.raw, _num_fmt(s),
-                           at(co, tq) + [x for it in co.items for x in at(co, it["qty"], "ref")]))
+        ck_s.add(Finding("CO_SUM", "ERROR", [co], dict(label="@total_qty"), tq.raw, _num_fmt(s),
+                         at(co, tq) + [x for it in co.items for x in at(co, it["qty"], "ref")]))
     tc = co.f.get("total_ctn")
     figs = [it.get("pkg_fig") for it in co.items]
     if tc and all(figs) and not seen & {"CO_PKG_COUNT", "CO_TOTAL"}:
+        ck_s.compared()
         s = sum(f.value for f in figs)
         if not _close(s, tc.value):
-            out.append(Finding("CO_SUM", "ERROR", [co], dict(label="@ctn"), tc.raw, _num_fmt(s),
-                               at(co, tc) + [x for f in figs for x in at(co, f, "ref")]))
+            ck_s.add(Finding("CO_SUM", "ERROR", [co], dict(label="@ctn"), tc.raw, _num_fmt(s),
+                             at(co, tc) + [x for f in figs for x in at(co, f, "ref")]))
+    ck_s.end()
     nos = [it["no"] for it in co.items]
+    ck_n.compared()
     if nos != list(range(1, len(nos) + 1)):
-        out.append(Finding("CO_NUMBERING", "MINOR", [co], {}, ",".join(map(str, nos)),
-                           ",".join(str(i) for i in range(1, len(nos) + 1)),
-                           [x for it, i in ZIP(co.items, range(1, len(nos) + 1)) if it["no"] != i
-                            for x in at(co, it.get("hs_f"))]))
+        ck_n.add(Finding("CO_NUMBERING", "MINOR", [co], {}, ",".join(map(str, nos)),
+                         ",".join(str(i) for i in range(1, len(nos) + 1)),
+                         [x for it, i in ZIP(co.items, range(1, len(nos) + 1)) if it["no"] != i
+                          for x in at(co, it.get("hs_f"))]))
+    ck_n.end()
     pages = co.lists.get("pages", [])
+    ck_p.need_list(co, "pages", trace=r"(?i)Page\s*:?\s*\d+\s*of")
     n_pages = max((l.page for l in co.lines), default=-1) + 1
     for i, pg in enumerate(sorted(pages, key=lambda p: p["f"].page)):
+        ck_p.compared()
         want_n, want_of = pg["f"].page + 1, n_pages
         if (pg["n"], pg["of"]) != (want_n, want_of):
-            out.append(Finding("CO_PAGES", "MINOR", [co], {}, pg["f"].raw, f"Page : {want_n} of {want_of}", at(co, pg["f"])))
+            ck_p.add(Finding("CO_PAGES", "MINOR", [co], {}, pg["f"].raw, f"Page : {want_n} of {want_of}", at(co, pg["f"])))
+    ck_p.end()
 
 
 # ----------------------------------------------------------------------------- between documents
 def r_ci_pl_ctn(ci, out):
-    if not ci or not ci.lists.get("ci_ttls"):
+    if not ci:
         return
-    a, b = ci.lists["ci_ttls"][-1].get("ctn"), true_total(ci, "ctn")
+    ck = begin("CI_PL_CTN", out, ci)
+    if not ci.lists.get("ci_ttls"):
+        L = ci.lines
+        pl_start = next((i for i, l in enumerate(L) if "PACKING LIST" in l.text.upper()), len(L))
+        if any(re.match(r"\s*(?:TTL|TOTAL)\b", l.text, re.I) for l in L[:pl_start]):
+            ck._input(ci, "lists.ci_ttls", "NOT_FOUND")
+        else:
+            ck.na(evidence="not_printed", field="lists.ci_ttls", doc=ci.name)
+        ck.end()
+        return
+    ck._input(ci, "lists.ci_ttls", "READ")
+    last = ci.lists["ci_ttls"][-1]
+    a, b = last.get("ctn"), true_total(ci, "ctn")
+    if not a:                                      # the invoice TTL row prints no carton count: nothing to compare
+        row = next((x.line.text for x in last.values()), "")
+        if re.search(r"(?i)CARTON", row):
+            ck._input(ci, "lists.ci_ttls", "NOT_FOUND")
+        else:
+            ck.na(evidence="not_printed", field="ci_ttls.ctn", doc=ci.name)
+    ck.need_total_val(ci, "ctn", b)
+    if a and b:
+        ck.compared()
     if a and b and not _close(a.value, b.value):
-        out.append(Finding("CI_PL_CTN", "ERROR", [ci], {}, a.raw, fmt_like(b.value, a.raw), at(ci, a) + at(ci, b, "ref")))
+        ck.add(Finding("CI_PL_CTN", "ERROR", [ci], {}, a.raw, fmt_like(b.value, a.raw), at(ci, a) + at(ci, b, "ref")))
+    ck.end()
 
 
 def r_lines(ci, out):
-    if not ci or not ci.items or not ci.pl_items:
+    if not ci:
         return
+    ck = begin("LINES", out, ci)
+    ck.need_items(ci)
+    ck.need_items(ci, "pl_items")
+    if not ci.items or not ci.pl_items:
+        ck.end()
+        return
+    ck.compared()
     if len(ci.items) != len(ci.pl_items):
         ref = ci.f.get("pl_total_qty") or ci.pl_items[-1]["qty"]
-        out.append(Finding("LINE_COUNT", "ERROR", [ci], dict(have=len(ci.pl_items), want=len(ci.items)),
-                           str(len(ci.pl_items)), str(len(ci.items)), at(ci, ref)))
+        ck.add(Finding("LINE_COUNT", "ERROR", [ci], dict(have=len(ci.pl_items), want=len(ci.items)),
+                       str(len(ci.pl_items)), str(len(ci.items)), at(ci, ref)))
+        ck.end()
         return
     for n, (a, p) in enumerate(ZIP(ci.items, ci.pl_items), 1):
         diffs = []
@@ -207,117 +344,191 @@ def r_lines(ci, out):
             core = re.search(r"-([A-Z0-9\-]+)\(", a.get("model") or "")   # CD-Y20PE(BM)VN -> Y20PE
             if core and core[1] in dp.value.upper() and core[1] not in da.value.upper():
                 # the packing list names the model's series, the invoice does not: the invoice is wrong
-                out.append(Finding("CI_LINE_DESC", "ERROR", [ci], dict(no=a.get("no") or n, model=a["model"]),
-                                   da.value, dp.value, at(ci, da) + at(ci, dp, "ref")))
+                ck.add(Finding("CI_LINE_DESC", "ERROR", [ci], dict(no=a.get("no") or n, model=a["model"]),
+                               da.value, dp.value, at(ci, da) + at(ci, dp, "ref")))
             else:
                 diffs.append(("@desc", dp.value, da.value))
         if diffs:
-            out.append(Finding("PL_LINE", "ERROR", [ci], dict(no=a.get("no") or n, what=" / ".join(d[0] for d in diffs)),
-                               "; ".join(d[1] for d in diffs), "; ".join(d[2] for d in diffs),
-                               at(ci, p["qty"]) + at(ci, a["qty"], "ref")))
+            ck.add(Finding("PL_LINE", "ERROR", [ci], dict(no=a.get("no") or n, what=" / ".join(d[0] for d in diffs)),
+                           "; ".join(d[1] for d in diffs), "; ".join(d[2] for d in diffs),
+                           at(ci, p["qty"]) + at(ci, a["qty"], "ref")))
+    ck.end()
 
 
 def r_co_model(ci, co, out):
-    if not (ci and co) or len(co.items) != len(ci.items):
-        return                                     # CO_ITEMS already reports a different number of items
+    if not (ci and co):
+        return
+    ck = begin("CO_MODEL", out)
+    ck.need_items(co)
+    ck.need_items(ci)
+    if len(co.items) != len(ci.items):
+        ck.blocked("CO_ITEMS")                     # CO_ITEMS already reports a different number of items
+        ck.end()
+        return
     for it, a in ZIP(co.items, ci.items):
         m, ref = it.get("model"), a.get("model")
+        ck.need_item(co, it, "model")
+        ck.need_item(ci, a, "model")
+        if m and ref:
+            ck.compared()
         if m and ref and master.key(m) != master.key(ref):
-            out.append(Finding("CO_MODEL", "ERROR", [co, ci], dict(no=it["no"], model=m, ref=ref), m, ref,
-                               at(co, it.get("hs_f")) + at(ci, a["qty"], "ref")))
+            ck.add(Finding("CO_MODEL", "ERROR", [co, ci], dict(no=it["no"], model=m, ref=ref), m, ref,
+                           at(co, it.get("hs_f")) + at(ci, a["qty"], "ref")))
+    ck.end()
 
 
 def r_marks(ci, bl, co, out):
     if not ci:
         return
+    ck = begin("MARKS", out)
     models = sorted({it["model"] for it in ci.items if it.get("model")})
     if not models:
+        ck.need_items(ci)
+        for it in ci.items:
+            ck.need_item(ci, it, "model")
+        ck.end()
         return
     cover = ci.lists.get("marks_models", [])
     pl_marks = ci.lists.get("pl_marks_models", [])
+    lists = [(ci, cover), (bl, bl.lists.get("marks_models", []) if bl else []),
+             (co, co.lists.get("marks_models", []) if co else [])]
+    if not cover and not pl_marks and not any(lst for _, lst in lists):
+        from .rules import _MODEL_TRACE
+        if any(has_text(d, _MODEL_TRACE, 0) for d in (bl, co) if d):   # a model printed on the B/L / Form D, not read
+            ck._input(bl or co, "lists.marks_models", "NOT_FOUND")
+        else:                                      # marks written as a brand / code ('BRAND/ABCD'): nothing to check
+            ck.na(evidence="marks_not_models")
     for key, lst in (("CI_MARKS_MODEL", cover), ("PL_MARKS_MODEL", pl_marks)):
         for f in lst:                              # the invoice's / packing list's own marks: a model not on the invoice
+            ck.compared()
             if f.value not in models and f.value not in {p.get("model") for p in ci.pl_items}:
                 near = difflib.get_close_matches(f.value, models, n=1, cutoff=0.75)
-                out.append(Finding(key, "ERROR" if near else "WARNING", [ci], dict(model=f.value),
-                                   f.value, near[0] if near else "", at(ci, f)))
-    for d, lst in ((ci, cover), (bl, bl.lists.get("marks_models", []) if bl else []),
-                   (co, co.lists.get("marks_models", []) if co else [])):
+                ck.add(Finding(key, "ERROR" if near else "WARNING", [ci], dict(model=f.value),
+                               f.value, near[0] if near else "", at(ci, f)))
+    for d, lst in lists:
         if not d or not lst:
             continue                               # marks not written as model list (e.g. 'BRAND/ABCD'): nothing to check
+        ck.compared()
         have = {master.key(f.value) for f in lst}
         typos = [f.value for f in lst if f.value not in models]          # reported as *_MARKS_MODEL already
         missing = [m for m in models if master.key(m) not in have
                    and not difflib.get_close_matches(m, typos, n=1, cutoff=0.75)]
         if missing:
-            out.append(Finding("MARKS_MISSING", "WARNING", [d, ci], dict(models=", ".join(missing)),
-                               ", ".join(f.value for f in lst), ", ".join(models), at(d, lst[-1])))
+            ck.add(Finding("MARKS_MISSING", "WARNING", [d, ci], dict(models=", ".join(missing)),
+                           ", ".join(f.value for f in lst), ", ".join(models), at(d, lst[-1])))
+    ck.end()
 
 
 def r_origin(ci, scs, co, out, bl=None):
     entries = ([(co, f) for f in co.lists.get("origin", [])] if co else []) + \
               ([(ci, ci.f.get("origin"))] if ci else []) + [(s, s.f.get("origin")) for s in scs] + \
               ([(bl, bl.f.get("origin"))] if bl else [])          # B/L: 'MADE IN ...' in the marks
+    ck = begin("ORIGIN", out)
+    src = ([(co, "lists.origin", f) for f in co.lists.get("origin", [])] or [(co, "lists.origin", None)] if co else []) + \
+          ([(ci, "origin", ci.f.get("origin"))] if ci else []) + [(s, "origin", s.f.get("origin")) for s in scs] + \
+          ([(bl, "origin", bl.f.get("origin"))] if bl else [])
+    _sources(ck, src)
     odd, ref = _odd_ones(entries, lambda v: str(v).upper().strip())
     for d, f in odd:
-        out.append(Finding("ORIGIN", "ERROR", [d], dict(origin=f.value, ref=ref.upper()), f.value, ref.upper(), at(d, f)))
+        ck.add(Finding("ORIGIN", "ERROR", [d], dict(origin=f.value, ref=ref.upper()), f.value, ref.upper(), at(d, f)))
+    ck.end()
 
 
 def r_import_country(co, bl, out):
-    if not (co and bl and bl.f.get("dest_country")):
+    if not (co and bl):
+        return
+    ck = begin("CO_IMPORT_COUNTRY", out)
+    ck.need(bl, "dest_country")
+    ck.need_list(co, "import_country")
+    if not bl.f.get("dest_country"):
+        ck.end()
         return
     dest = bl.f["dest_country"]
     for f in co.lists.get("import_country", []):
+        ck.compared()
         if f.value.upper().strip() != dest.value.upper().strip():
-            out.append(Finding("CO_IMPORT_COUNTRY", "ERROR", [co, bl], dict(country=f.value, ref=dest.value), f.value,
-                               dest.value, at(co, f) + at(bl, dest, "ref")))
+            ck.add(Finding("CO_IMPORT_COUNTRY", "ERROR", [co, bl], dict(country=f.value, ref=dest.value), f.value,
+                           dest.value, at(co, f) + at(bl, dest, "ref")))
+    ck.end()
 
 
 def r_parties(ci, scs, bl, co, out):
     # order = which document wins a tie: contract / invoice, then Form D (certified), the B/L (typed by the forwarder) last
+    names = dict(consignee=[(ci, "consignee")] + [(s, "buyer") for s in scs] + [(co, "consignee"), (bl, "consignee")],
+                 shipper=[(s, "seller") for s in scs] + [(co, "exporter"), (bl, "shipper")])
     for role, entries in (
             ("@consignee", [(ci, ci.f.get("consignee") if ci else None)] + [(s, s.f.get("buyer")) for s in scs]
              + [(co, co.f.get("consignee") if co else None), (bl, bl.f.get("consignee") if bl else None)]),
             ("@shipper", [(s, s.f.get("seller")) for s in scs]
              + [(co, co.f.get("exporter") if co else None), (bl, bl.f.get("shipper") if bl else None)])):
+        ck = begin(f"PARTY.{role[1:]}", out)
+        _sources(ck, [(d, n, d.f.get(n)) for d, n in names[role[1:]] if d is not None])
         odd, ref = _odd_ones([(d, f) for d, f in entries if d], _party)
         for d, f in odd:
-            out.append(Finding("PARTY_NAME", "WARNING", [d], dict(role=role, name=f.value, ref=ref), f.value, ref, at(d, f)))
+            ck.add(Finding("PARTY_NAME", "WARNING", [d], dict(role=role, name=f.value, ref=ref), f.value, ref, at(d, f)))
+        ck.end()
 
 
 def r_currency(ci, scs, co, out):
+    ck = begin("CURRENCY", out)
+    docs_ = [d for d in ([ci] + list(scs) + [co]) if d]
+    for d in docs_:
+        if d.lists.get("currency"):
+            ck._input(d, "lists.currency", "READ")
+        else:
+            ck._input(d, "lists.currency", "NOT_FOUND")
     per_doc = [(d, d.lists.get("currency", [])) for d in ([ci] + list(scs) + [co]) if d]
     per_doc = [(d, fs) for d, fs in per_doc if fs]
+    if len(per_doc) >= 2:
+        ck.compared()
+    elif not ck.missing:
+        ck.na(evidence="fewer_than_two_sources")
     codes = Counter(c for _, fs in per_doc for c in {f.value for f in fs})
     if len(codes) < 2:
+        ck.end()
         return
     top = codes.most_common(1)[0][0]
     for d, fs in per_doc:
         bad = [f for f in fs if f.value != top]
         if bad:
-            out.append(Finding("CURRENCY", "ERROR", [d], dict(cur=bad[0].value, ref=top), bad[0].raw, top, at(d, bad[0])))
+            ck.add(Finding("CURRENCY", "ERROR", [d], dict(cur=bad[0].value, ref=top), bad[0].raw, top, at(d, bad[0])))
+    ck.end()
 
 
 def r_payment(ci, scs, out):
     a = ci.f.get("payment") if ci else None
+    ck = begin("PAYMENT_TERMS", out)
+    ck.need(ci, "payment")
     for s in scs:
         b = s.f.get("payment")
+        ck.need(s, "payment")
+        if a and b:
+            ck.compared()
         if a and b and _terms(a.value) != _terms(b.value):
-            out.append(Finding("PAYMENT_TERMS", "WARNING", [ci, s], {}, a.value, re.sub(r"^\s*By\s+", "", b.value),
-                               at(ci, a) + at(s, b, "ref")))
+            ck.add(Finding("PAYMENT_TERMS", "WARNING", [ci, s], {}, a.value, re.sub(r"^\s*By\s+", "", b.value),
+                           at(ci, a) + at(s, b, "ref")))
+    ck.end()
 
 
 def r_sc_goods(ci, scs, out):
     """Goods named on the Sales Contract = goods on the invoice (one may name more products than the other)."""
     ref = ci.f.get("goods_full") or ci.f.get("goods") if ci else None
+    ck = begin("SC_GOODS_DESC", out)
     if not ref:
+        ck.need(ci, "goods_full")
+        ck.end()
         return
+    ck._input(ci, "goods_full" if ci.f.get("goods_full") else "goods", "READ")   # the description it compares with
     want = _goods_words(ref.value)
     for sc in scs:
         g = sc.f.get("goods_full")
+        ck.need(sc, "goods_full")
         have = _goods_words(g.value) if g else set()
+        if have:
+            ck.compared()
         if have and not (have <= want or want <= have):
-            out.append(Finding("SC_GOODS_DESC", "ERROR", [sc, ci], {}, g.value, ref.value, at(sc, g) + at(ci, ref, "ref")))
+            ck.add(Finding("SC_GOODS_DESC", "ERROR", [sc, ci], {}, g.value, ref.value, at(sc, g) + at(ci, ref, "ref")))
+    ck.end()
 
 
 def _same_val(k: str, a, b) -> bool:
@@ -349,6 +560,12 @@ _ELSEWHERE = dict(consignee=(("SC", "buyer"), ("BL", "consignee"), ("CO", "consi
                   containers=(("BL", "containers"),), incoterm=(("SC", "incoterm"),), freight=(("BL", "freight"),))
 
 
+_OTHER_RULE = dict(consignee="PARTY.consignee", shipper="PARTY.shipper", vessel="VESSEL.ci", pol="INCOTERM_PORT",
+                   pod="BL_DESTINATION", sailing="DEPARTURE_DATE", payment="PAYMENT_TERMS", origin="ORIGIN",
+                   goods_full="SC_GOODS_DESC", pos="SC_PO_COVERAGE", containers="CONTAINERS", incoterm="INCOTERM_PORT",
+                   freight="FREIGHT_TERM")
+
+
 def r_pl_header(ci, others, out):
     """The packing list repeats the invoice header: consignee, shipper, vessel, ports, dates, terms, P/O … must be the
     same. (Invoice no. and date on every page: DOC_HEADER.) When the other documents agree with the packing list, the
@@ -356,19 +573,35 @@ def r_pl_header(ci, others, out):
     if not ci:
         return
     from .extract_net import PL_HEADER
+    has_pl = any("PACKING LIST" in l.text.upper() for l in ci.lines)
     for k in PL_HEADER:
+        ck = begin(f"PL_HEADER.{k}", out, ci)
         a, b = ci.f.get(k), ci.f.get("pl_" + k)
+        if not has_pl:                             # no packing-list part in this file: nothing repeats the header
+            ck.na(evidence="no_packing_list", doc=ci.name)
+        elif k == "pos" and not (a and a.value) and not (b and b.value):
+            ck.need(ci, k, trace=r"(?i)\bP/?O\b|PURCHASE ORDER")    # 'pos' is always set (maybe empty)
+            ck.need(ci, "pl_" + k, trace=r"(?i)\bP/?O\b|PURCHASE ORDER")
+        else:
+            ck.need(ci, k, absent_ok=True)
+            ck.need(ci, "pl_" + k, absent_ok=True)
+        if a and b and a.value not in (None, "", []) and b.value not in (None, "", []):
+            ck.compared()
         if not (a and b and a.value not in (None, "", []) and b.value not in (None, "", [])) or _same_val(k, a.value, b.value):
+            ck.end()
             continue
         if any(d.kind == kind and d.f.get(fk) and _same_val(k, d.f[fk].value, b.value)
                for kind, fk in _ELSEWHERE.get(k, ()) for d in others):
+            ck.blocked(_OTHER_RULE.get(k, "cross-document rule"))   # the invoice is the odd one out: reported there
+            ck.end()
             continue
         if True:
             show = lambda f: ", ".join(f.value) if isinstance(f.value, list) else (
                 f"{f.value[0]} V.{f.value[1]}" if isinstance(f.value, tuple) else
                 f"{f.value:%d/%m/%Y}" if hasattr(f.value, "strftime") else str(f.value))
-            out.append(Finding("PL_HEADER", "ERROR", [ci], dict(label=PL_LABELS[k]), show(b), show(a),
-                               at(ci, b) + at(ci, a, "ref")))
+            ck.add(Finding("PL_HEADER", "ERROR", [ci], dict(label=PL_LABELS[k]), show(b), show(a),
+                           at(ci, b) + at(ci, a, "ref")))
+        ck.end()
 
 
 _COLLECT = ("EXW", "FCA", "FAS", "FOB")             # buyer pays the main freight
@@ -380,16 +613,26 @@ def r_freight(ci, bl, out):
     inco = (ci.f.get("incoterm") if ci else None)
     term = inco.value.split()[0] if inco else None
     want = "COLLECT" if term in _COLLECT else "PREPAID" if term in _PREPAID else None
+    ck = begin("FREIGHT_TERM", out)
+    for d, k in ((ci, "freight"), (ci, "pl_freight"), (bl, "freight")):
+        ck.need(d, k, absent_ok=True, trace=r"(?i)\bFREIGHT\s+(?:COLLECT|PREPAID)")
     entries = [(d, d.f.get(k)) for d, k in ((ci, "freight"), (ci, "pl_freight"), (bl, "freight")) if d and d.f.get(k)]
     if not entries:
+        ck.end()
         return
     if not want:
+        ck.need(ci, "incoterm", absent_ok=True)
         odd, ref = _odd_ones(entries, lambda v: str(v).upper())
         want = ref.upper() if odd and ref else None
+        if len(entries) >= 2:
+            ck.compared()
+    else:
+        ck.compared()
     for d, f in entries:
         if want and f.value.upper() != want:
-            out.append(Finding("FREIGHT_TERM", "ERROR", [d], dict(term=term or want, want=want), f"FREIGHT {f.value}",
-                               f"FREIGHT {want}", at(d, f) + (at(ci, inco, "ref") if inco else [])))
+            ck.add(Finding("FREIGHT_TERM", "ERROR", [d], dict(term=term or want, want=want), f"FREIGHT {f.value}",
+                           f"FREIGHT {want}", at(d, f) + (at(ci, inco, "ref") if inco else [])))
+    ck.end()
 
 
 def _line_loc(doc, f: Field):
@@ -492,13 +735,16 @@ def r_text_typo(docs, out):
                       if not re.search(r"[a-z]", w) or w.isupper()) | NUMBER_WORDS | {"PCS", "SETS", "SET", "CARTONS"}
     found = {}
     for d in docs:
+        ck = begin("TEXT_TYPO", out, d)
+        ck.compared()
         for l in d.lines:
             for a, b, w, kind, fix in typo_words(l.text, vocab):
                 if any(x < b and a < y for x, y in found.get(id(l), [])) or _reported(out, d, l.page, w):
                     continue                        # the same place found by a word rule and a context rule: once
                 found.setdefault(id(l), []).append((a, b))
-                out.append(Finding("TEXT_TYPO", "WARNING", [d], dict(word=w, kind=f"@typo_{kind}"), w, fix,
-                                   at(d, Field(w, w, l, a, b))))
+                ck.add(Finding("TEXT_TYPO", "WARNING", [d], dict(word=w, kind=f"@typo_{kind}"), w, fix,
+                               at(d, Field(w, w, l, a, b))))
+        ck.end()
 
 
 def _fields(obj):
@@ -515,6 +761,8 @@ def _fields(obj):
 def r_unreadable(docs, out):
     """A value found at its label but not understood (value None): reported, never silently left out."""
     for d in docs:
+        ck = begin("VALUE_UNREADABLE", out, d)
+        ck.compared()
         seen = set()
         for f in _fields([d.f, d.lists, d.items, d.pl_items]):
             if f.value is not None or not str(f.raw or "").strip():
@@ -524,8 +772,9 @@ def r_unreadable(docs, out):
                     _reported(out, d, f.page, w) for _a, _b, w, _k, _x in typo_words(f.raw)):
                 continue
             seen.add(key)
-            out.append(Finding("VALUE_UNREADABLE", "WARNING", [d], dict(value=f.raw.strip()), f.raw.strip(), "",
-                               at(d, f)))
+            ck.add(Finding("VALUE_UNREADABLE", "WARNING", [d], dict(value=f.raw.strip()), f.raw.strip(), "",
+                           at(d, f)))
+        ck.end()
 
 
 DATE_FAR_DAYS = 300
@@ -537,9 +786,19 @@ def r_date_far(docs, ci, out):
     ref_f = ci.f.get("invoice_date") if ci else None
     ref = ref_f.value if ref_f and hasattr(ref_f.value, "year") else None
     if not ref:
+        for d in docs:
+            ck = begin("DATE_FAR", out, d)
+            if ci is not None:
+                ck.need(ci, "invoice_date")
+            else:
+                ck.not_run("document_missing", kind="CI")
+            ck.end()
         return
     seen = set()
     for d in docs:
+        ck = begin("DATE_FAR", out, d)
+        ck._input(ci, "invoice_date", "READ")
+        ck.compared()
         for f in _fields([d.f, d.lists, d.items, d.pl_items]):
             v = f.value
             if not (hasattr(v, "year") and not hasattr(v, "hour")) or abs((v - ref).days) <= DATE_FAR_DAYS:
@@ -548,30 +807,31 @@ def r_date_far(docs, ci, out):
             if key in seen or _reported(out, d, f.page, f.raw):
                 continue
             seen.add(key)
-            out.append(Finding("DATE_FAR", "WARNING", [d], dict(date=f.raw.strip(), days=f"{abs((v - ref).days):,}",
-                                                                ref=f"{ref:%d/%m/%Y}"),
-                               f.raw.strip(), "", at(d, f) + at(ci, ref_f, "ref")))
+            ck.add(Finding("DATE_FAR", "WARNING", [d], dict(date=f.raw.strip(), days=f"{abs((v - ref).days):,}",
+                                                            ref=f"{ref:%d/%m/%Y}"),
+                           f.raw.strip(), "", at(d, f) + at(ci, ref_f, "ref")))
+        ck.end()
 
 
 def validate_net(docs, ci, bl, co, scs, out):
-    r_cover_totals(ci, out)
-    r_gw_nw(ci, out)
-    r_eta(ci, out)
-    r_headers(ci, out)
-    r_cover_pos(ci, out)
-    r_co_self(co, out)
-    r_ci_pl_ctn(ci, out)
-    r_lines(ci, out)
-    r_co_model(ci, co, out)
-    r_marks(ci, bl, co, out)
-    r_origin(ci, scs, co, out, bl)
-    r_import_country(co, bl, out)
-    r_parties(ci, scs, bl, co, out)
-    r_currency(ci, scs, co, out)
-    r_payment(ci, scs, out)
-    r_sc_goods(ci, scs, out)
-    r_pl_header(ci, [d for d in docs if d is not ci], out)
-    r_freight(ci, bl, out)
-    r_date_far(docs, ci, out)
-    r_text_typo(docs, out)                          # last: an earlier finding on the same text comes first
-    r_unreadable(docs, out)
+    _call(r_cover_totals, ci, out)
+    _call(r_gw_nw, ci, out)
+    _call(r_eta, ci, out)
+    _call(r_headers, ci, out)
+    _call(r_cover_pos, ci, out)
+    _call(r_co_self, co, out)
+    _call(r_ci_pl_ctn, ci, out)
+    _call(r_lines, ci, out)
+    _call(r_co_model, ci, co, out)
+    _call(r_marks, ci, bl, co, out)
+    _call(r_origin, ci, scs, co, out, bl)
+    _call(r_import_country, co, bl, out)
+    _call(r_parties, ci, scs, bl, co, out)
+    _call(r_currency, ci, scs, co, out)
+    _call(r_payment, ci, scs, out)
+    _call(r_sc_goods, ci, scs, out)
+    _call(r_pl_header, ci, [d for d in docs if d is not ci], out)
+    _call(r_freight, ci, bl, out)
+    _call(r_date_far, docs, ci, out)
+    _call(r_text_typo, docs, out)                          # last: an earlier finding on the same text comes first
+    _call(r_unreadable, docs, out)

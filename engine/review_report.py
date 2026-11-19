@@ -33,6 +33,10 @@ TXT = {
     "auto_gaps": ("No open errors or warnings; {n} item(s) could not be read and need a manual check",
                   "Không còn lỗi hay cảnh báo; {n} mục không đọc được cần kiểm tra thủ công"),
     "auto_ok": ("No open errors or warnings", "Không còn lỗi hay cảnh báo"),
+    "v_red": ("RED: document error. {n} open error(s)", "ĐỎ: lỗi chứng từ. Còn {n} lỗi"),
+    "v_amber": ("AMBER: not verified. {n} core check(s) could not run or need review",
+                "VÀNG: chưa kiểm chứng. {n} bước kiểm tra chính chưa chạy được hoặc cần xem lại"),
+    "v_green": ("GREEN: verified. Every applicable core check passed", "XANH: đã kiểm chứng. Mọi bước kiểm tra chính áp dụng đều đạt"),
     "so_none": ("Not signed off", "Chưa xác nhận"),
     "so_approved": ("Approved", "Đạt"),
     "so_approved_exception": ("Approved with exception", "Đạt có ngoại lệ"),
@@ -125,7 +129,14 @@ def _ts(s: str) -> str:
 
 
 def outcome(s: dict, marks: dict) -> tuple[str, str, int, int]:
-    """(automated result key, colour, open errors, open warnings) — same logic as the dashboard."""
+    """(automated result key, colour, open errors, open warnings / core checks open) — same logic as the dashboard.
+    Reviews with check records (LDV >= 2.3): the three-state verdict; older reviews: the legacy finding count."""
+    from .checks import effective
+    v = effective(s, marks)
+    if v is not None:
+        n_open = v["core_not_run"] + v["core_review"]
+        return dict(RED=("v_red", "ERROR"), AMBER=("v_amber", "WARNING"), GREEN=("v_green", "OK"))[v["state"]] + (
+            v["open_errors"], n_open)
     st = lambda f: marks.get(f["sig"], {}).get("status", "open")
     e = sum(f["severity"] == "ERROR" and st(f) in OPEN for f in s["findings"])
     w = sum(f["severity"] == "WARNING" and st(f) in OPEN for f in s["findings"])

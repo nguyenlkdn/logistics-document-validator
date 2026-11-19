@@ -12,7 +12,7 @@ from pathlib import Path
 from . import _dllpath  # noqa: F401  (must come before anything that imports pymupdf)
 from . import evidence, master, report, session
 from .extract import load
-from .rules import CONFIG, unrecognised, validate
+from .rules import CONFIG, unrecognised, validate, validate_checks
 
 
 @dataclass
@@ -30,6 +30,9 @@ class Result:
     marks: dict = field(default_factory=dict)      # document name -> finding locations (preview highlights)
     fingerprint: str = ""          # hash of the PDF contents: same files -> same fingerprint (history)
     kinds: dict = field(default_factory=dict)      # file name -> document type set by the user
+    checks: list = field(default_factory=list)     # one CheckResult per check and group (engine/checks.py)
+    verdict: dict = field(default_factory=dict)    # automated package verdict (RED / AMBER / GREEN)
+    diagnostics: list = field(default_factory=list)   # tracebacks of rules that failed (written to diagnostics.log)
 
 
 def report_root() -> Path:
@@ -76,13 +79,17 @@ def check(inputs: list[Path], name: str | None = None, out_root: Path | None = N
             continue
         d = load(p, kinds.get(p.name))
         (docs if d else skipped).append(d or p)
-    findings = validate(docs)
+    from .checks import verdict
+    findings, checks = validate_checks(docs)
     if not name:
         ci = next((d for d in docs if d.kind == "CI" and d.f.get("invoice_no")), None)
         name = ci.f["invoice_no"].value if ci else (inputs[0].stem if inputs else "shipment")
     name = re.sub(r"[^\w\-. ]", "_", name).strip() or "shipment"
     res = Result(name, docs, skipped, findings, unrecognised(docs, skipped), workdir=workdir, fingerprint=fp,
-                 kinds={k: v for k, v in kinds.items() if any(d.name == k for d in docs)})
+                 kinds={k: v for k, v in kinds.items() if any(d.name == k for d in docs)}, checks=checks)
+    res.diagnostics = list(getattr(checks, "diagnostics", []))
+    res.verdict = verdict([c.to_dict() for c in checks],
+                          [dict(no=i, severity=f.severity) for i, f in enumerate(findings, 1)])
 
     out = (out_root or report_root()) / f"{name}_{datetime.now():%Y%m%d-%H%M%S}"
     (out / "evidence").mkdir(parents=True, exist_ok=True)
@@ -95,6 +102,8 @@ def check(inputs: list[Path], name: str | None = None, out_root: Path | None = N
     for d in docs:
         shutil.copy2(d.path, out / "documents" / d.name)
         res.doc_files[d.name] = out / "documents" / d.name
+    if res.diagnostics:                            # rule errors: tracebacks for the developer, not in the report
+        (out / "diagnostics.log").write_text("\n\n".join(res.diagnostics), encoding="utf-8")
     report.excel(res, res.excel)
     res.markdown = report.markdown(res)
     (out / "report.md").write_text(res.markdown, encoding="utf-8")

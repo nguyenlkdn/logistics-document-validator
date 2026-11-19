@@ -96,7 +96,7 @@ def main():
             except Exception:                                # no Chrome: Playwright's own Chromium
                 browser = pw.chromium.launch(headless=not a.headed)
             p = browser.new_page(viewport={"width": 1600, "height": 1000})
-            run(p, url, zip_path, shots)
+            run(p, url, zip_path, shots, tmp / "reports")
             browser.close()
     finally:
         srv.terminate()
@@ -106,7 +106,7 @@ def main():
     return 1 if FAILS else 0
 
 
-def run(p, url, zip_path, shots):
+def run(p, url, zip_path, shots, report_dir=None):
     def wait(t=1.2):
         time.sleep(0.4)
         p.wait_for_function("() => !document.querySelector('[data-testid=\"stStatusWidget\"]')", timeout=180000)
@@ -136,8 +136,26 @@ def run(p, url, zip_path, shots):
         p.get_by_role("button", name="Start analysis").click()
         wait(4)
         assert p.locator(".ldv-verdict").count() >= 1, "no verdict on the dashboard"
+        v = p.locator(".ldv-verdict").first.inner_text()
+        assert re.match(r"(RED|AMBER|GREEN):", v), f"not a three-state verdict: {v[:80]!r}"
+        assert "Core checks:" in v, "verdict without its core-check line"
         shot("02_dashboard")
     step("upload, inventory, analysis, dashboard verdict", upload, p)
+
+    def checks_page():
+        p.locator("div.st-key-tile_checks_nr button").first.click()      # dashboard tile "Checks not run"
+        wait(2)
+        assert p.get_by_role("heading", name="Checks").count() >= 1, "Checks page not opened from the tile"
+        assert p.locator("[data-testid=stDataFrame]").count() + p.get_by_text("No check matches").count() >= 1
+        nav("Checks")
+        p.get_by_text(re.compile(r"Pass \(\d+\)$")).first.click()
+        wait(1.5)
+        assert p.locator("[data-testid=stDataFrame]").count() >= 1, "no checks table"
+        p.locator("label", has_text="Core checks only").first.click()
+        wait(1.5)
+        assert p.locator("[data-testid=stDataFrame]").count() + p.get_by_text("No check matches").count() >= 1
+        shot("02b_checks")
+    step("checks page: opened from the dashboard tile, status / core filters", checks_page, p)
 
     def workspace():
         nav("Review workspace")
@@ -282,6 +300,17 @@ def run(p, url, zip_path, shots):
 
     def report():
         nav("Report")
+        verdict_txt = p.locator(".ldv-verdict").first.inner_text()
+        if not verdict_txt.startswith("GREEN"):            # plain approval only on GREEN
+            p.get_by_text("Approved", exact=True).click()
+            wait(1)
+            p.locator("input[aria-label='Your name']").fill("UI Tester")
+            p.keyboard.press("Tab")
+            wait(1)
+            assert p.get_by_role("button", name="Sign off").is_disabled(), f"plain approval allowed on {verdict_txt[:20]}"
+            p.locator("input[aria-label='Your name']").fill("")          # the next steps start without a name
+            p.keyboard.press("Tab")
+            wait(1)
         p.get_by_text("Approved with exception", exact=True).click()
         wait(1)
         sign = p.get_by_role("button", name="Sign off")
@@ -339,6 +368,27 @@ def run(p, url, zip_path, shots):
                     bad.append(f"{code} page {i + 1}")
         assert not bad, ", ".join(bad)
     step("every page in EN / VI / both without errors", sweep, p)
+
+    def legacy():                                    # a review saved by LDV <= 2.2 (no check records) still opens
+        import json
+        files = sorted((report_dir or Path(".")).rglob("review.json"))
+        assert files, "no review.json written"
+        d = json.loads(files[-1].read_text(encoding="utf-8"))
+        for k in ("checks", "verdict"):
+            d.pop(k, None)
+        d["schema"] = 1
+        files[-1].write_text(json.dumps(d, ensure_ascii=False), encoding="utf-8")
+        p.locator("section[data-testid=stSidebar] summary", has_text="Recent reviews").first.click()
+        wait(1)
+        p.locator("section[data-testid=stSidebar] [data-testid=stExpanderDetails] button").first.click()
+        wait(3)
+        assert p.get_by_text(re.compile(r"no check list")).count() >= 1, "legacy banner missing"
+        assert p.locator(".ldv-verdict").count() >= 1, "no legacy verdict"
+        nav("Checks")
+        assert p.get_by_text(re.compile(r"before check records existed")).count() >= 1, "Checks page: no legacy note"
+        shot("09_legacy")
+    if report_dir:
+        step("old review (schema 1) opens with the legacy verdict", legacy, p)
 
     def small():
         p.set_viewport_size({"width": 1366, "height": 768})

@@ -124,9 +124,10 @@ class History:
                        (shipment, sig, now, who, old_st, status, note if note != old_note else None))
             return True
 
-    def sign(self, check_id: int, result: str, note: str = "", who: str = "") -> int:
+    def sign(self, check_id: int, result: str, note: str = "", who: str = "", verdict: str | None = None) -> int:
         """Record the reviewer's conclusion for one check (revision). A package can only be 'approved' when no error
-        is open; with open errors the reviewer must choose 'approved_exception' and write the reason."""
+        is open and (LDV >= 2.3, verdict given) its verdict is GREEN; otherwise the reviewer must choose
+        'approved_exception' and write the reason. The automated results are never changed by a sign-off."""
         if result not in SIGNOFF:
             raise ValueError(f"unknown sign-off result: {result}")
         c = self.check(check_id)
@@ -137,6 +138,8 @@ class History:
         warnings = sum(f["severity"] == "WARNING" and f["status"] in OPEN for f in fs)
         if result == "approved" and errors:
             raise ValueError(f"{errors} error(s) still open: record an exception with a reason instead")
+        if result == "approved" and verdict is not None and verdict != "GREEN":
+            raise ValueError(f"verdict {verdict}: plain approval needs GREEN; record an exception with a reason instead")
         if result in ("approved_exception", "returned") and not (note or "").strip():
             raise ValueError("a reason is required")
         with closing(self._db()) as db, db:

@@ -47,7 +47,7 @@ def signoff(s, cid, c):
     with a:
         ui.label(t1("so_auto"))
         ui_key = dict(auto_err="verdict_errors", auto_warn="verdict_warn", auto_gaps="verdict_gaps_only",
-                      auto_ok="verdict_ok")[key]
+                      auto_ok="verdict_ok", v_red="verdict_red", v_amber="verdict_amber", v_green="verdict_green")[key]
         ui.verdict(t(ui_key, n=n_err or n_warn or len(s.get("unrecognised", []))), {"OK": "RESOLVED"}.get(color, color))
     with b:
         ui.label(t1("so_human"))
@@ -58,9 +58,13 @@ def signoff(s, cid, c):
         else:
             ui.verdict(t1("so_none"), "MUTED")
 
+    vstate = {"v_red": "RED", "v_amber": "AMBER", "v_green": "GREEN"}.get(key)    # None: review saved by LDV <= 2.2
+    not_green = vstate is not None and vstate != "GREEN"
     with st.container(border=True):
         if n_err:
             st.warning(t("so_blocked", n=n_err), icon=":material/block:")
+        elif not_green:
+            st.warning(t("so_needs_green", v=vstate), icon=":material/block:")
         k = f"{cid}_{st.session_state.get('so_round', 0)}"      # new keys after signing = an empty form
         res = st.radio(t1("so_result"), RESULTS, horizontal=True, key=f"so_res_{k}",
                        format_func=lambda k: t1(f"so_{k}"), index=None)
@@ -69,14 +73,14 @@ def signoff(s, cid, c):
         who = state.reviewer()
         if not who:
             who = st.text_input(t1("set_name"), key="so_who", help=t1("set_name_help")).strip()
-        bad = (not res or (res == "approved" and n_err) or (res != "approved" and not note.strip()) or not who)
-        if res == "approved" and n_err:
+        bad = (not res or (res == "approved" and (n_err or not_green)) or (res != "approved" and not note.strip()) or not who)
+        if res == "approved" and (n_err or not_green):
             st.caption(t("so_use_exception"))
         if st.button(t1("so_sign"), type="primary", icon=":material/verified:", disabled=bad, key=f"so_btn_{cid}"):
             if who != state.reviewer():
                 state.save_ui_settings(reviewer=who)
             try:
-                state.HIST.sign(cid, res, note, who=who)
+                state.HIST.sign(cid, res, note, who=who, verdict=vstate)
             except ValueError as e:                     # same rule enforced in the database layer
                 st.error(str(e))
             else:

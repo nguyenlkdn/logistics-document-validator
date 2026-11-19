@@ -1112,5 +1112,551 @@
       "SC": "items",
       "CO": "items"
     }
+  },
+  "checks": {
+    "LINE_MATH.ci": {
+      "en": "Invoice lines: quantity × unit price = amount",
+      "vi": "Dòng hóa đơn: số lượng × đơn giá = thành tiền"
+    },
+    "LINE_MATH.sc": {
+      "en": "Contract lines: quantity × unit price = amount",
+      "vi": "Dòng hợp đồng: số lượng × đơn giá = thành tiền"
+    },
+    "TOTAL_AMOUNT.ci": {
+      "en": "Invoice total amount = sum of the lines",
+      "vi": "Tổng tiền hóa đơn = tổng các dòng"
+    },
+    "TOTAL_AMOUNT.sc": {
+      "en": "Contract total amount = sum of the lines",
+      "vi": "Tổng tiền hợp đồng = tổng các dòng"
+    },
+    "TOTAL_QTY.ci": {
+      "en": "Invoice total quantity = sum of the lines",
+      "vi": "Tổng số lượng hóa đơn = tổng các dòng"
+    },
+    "TOTAL_QTY.sc": {
+      "en": "Contract total quantity = sum of the lines",
+      "vi": "Tổng số lượng hợp đồng = tổng các dòng"
+    },
+    "PL_TOTAL.qty": {
+      "en": "Packing list total quantity = sum of the lines",
+      "vi": "Tổng số lượng phiếu đóng gói = tổng các dòng"
+    },
+    "PL_TOTAL.nw": {
+      "en": "Packing list total N.W. = sum of the lines",
+      "vi": "Tổng N.W. phiếu đóng gói = tổng các dòng"
+    },
+    "PL_TOTAL.gw": {
+      "en": "Packing list total G.W. = sum of the lines",
+      "vi": "Tổng G.W. phiếu đóng gói = tổng các dòng"
+    },
+    "PL_TOTAL.cbm": {
+      "en": "Packing list total CBM = sum of the lines",
+      "vi": "Tổng CBM phiếu đóng gói = tổng các dòng"
+    },
+    "PL_TOTAL.ctn": {
+      "en": "Packing list total cartons = sum of the lines",
+      "vi": "Tổng số kiện phiếu đóng gói = tổng các dòng"
+    },
+    "CI_PL_QTY": {
+      "en": "Invoice quantity = packing list quantity",
+      "vi": "Số lượng hóa đơn = số lượng phiếu đóng gói"
+    },
+    "BL_VS_PL.gw": {
+      "en": "B/L gross weight = packing list(s)",
+      "vi": "G.W. trên B/L = phiếu đóng gói"
+    },
+    "BL_VS_PL.cbm": {
+      "en": "B/L measurement (CBM) = packing list(s)",
+      "vi": "CBM trên B/L = phiếu đóng gói"
+    },
+    "BL_VS_PL.ctn": {
+      "en": "B/L total cartons = packing list(s)",
+      "vi": "Tổng số kiện trên B/L = phiếu đóng gói"
+    },
+    "CONTAINERS": {
+      "en": "Number of containers: B/L = invoice",
+      "vi": "Số container: B/L = hóa đơn"
+    },
+    "INVOICE_REF": {
+      "en": "Invoice no. on the B/L = the invoice",
+      "vi": "Số hóa đơn trên B/L = hóa đơn"
+    },
+    "INCOTERM_PORT": {
+      "en": "FOB place = port of loading",
+      "vi": "Địa điểm FOB = cảng xếp hàng"
+    },
+    "SC_PO_COVERAGE": {
+      "en": "Every invoice P/O is in the sales contract",
+      "vi": "Mọi P/O của hóa đơn có trong hợp đồng"
+    },
+    "SC_VS_CI": {
+      "en": "Contract goods (model, quantity, price) = invoice",
+      "vi": "Hàng trong hợp đồng (model, số lượng, giá) = hóa đơn"
+    },
+    "SC_NUMBERING": {
+      "en": "Contract lines numbered 1, 2, 3 …",
+      "vi": "Dòng hợp đồng đánh số 1, 2, 3 …"
+    },
+    "DEPARTURE_DATE": {
+      "en": "Form D departure date = sailing date",
+      "vi": "Ngày khởi hành trên Form D = ngày tàu chạy"
+    },
+    "CO_INVOICE_DATE": {
+      "en": "Form D invoice date (box 10) = invoice date",
+      "vi": "Ngày hóa đơn trên Form D (ô 10) = ngày hóa đơn"
+    },
+    "SHIPMENT_DATE": {
+      "en": "Sailing within the contract shipment date",
+      "vi": "Ngày tàu chạy trong hạn giao hàng của hợp đồng"
+    },
+    "SC_DATE": {
+      "en": "Contract date not after the invoice date",
+      "vi": "Ngày hợp đồng không sau ngày hóa đơn"
+    },
+    "VESSEL.ci": {
+      "en": "Vessel / voyage: invoice = B/L",
+      "vi": "Tàu / chuyến: hóa đơn = B/L"
+    },
+    "VESSEL.co": {
+      "en": "Vessel / voyage: Form D = B/L",
+      "vi": "Tàu / chuyến: Form D = B/L"
+    },
+    "CO_QTY": {
+      "en": "Form D quantity per item = invoice",
+      "vi": "Số lượng từng mục Form D = hóa đơn"
+    },
+    "CO_INVOICE_NO": {
+      "en": "Form D invoice no. (box 10) = invoice",
+      "vi": "Số hóa đơn trên Form D (ô 10) = hóa đơn"
+    },
+    "CO_ITEMS": {
+      "en": "Form D number of items = invoice lines",
+      "vi": "Số mục Form D = số dòng hóa đơn"
+    },
+    "CO_TOTAL.value": {
+      "en": "Form D total value = invoice amount",
+      "vi": "Tổng trị giá Form D = tổng tiền hóa đơn"
+    },
+    "CO_TOTAL.qty": {
+      "en": "Form D total quantity = invoice",
+      "vi": "Tổng số lượng Form D = hóa đơn"
+    },
+    "HS_MASTER": {
+      "en": "Invoice models are in the HS master list",
+      "vi": "Model trên hóa đơn có trong danh mục HS"
+    },
+    "CO_HS": {
+      "en": "Form D HS codes = HS master list / B/L heading",
+      "vi": "Mã HS trên Form D = danh mục HS / nhóm HS trên B/L"
+    },
+    "BL_HS": {
+      "en": "B/L HS heading = HS master list",
+      "vi": "Nhóm HS trên B/L = danh mục HS"
+    },
+    "CNTR_WORDS": {
+      "en": "B/L container count in words = figures",
+      "vi": "Số container bằng chữ trên B/L = bằng số"
+    },
+    "CNTR_COUNT": {
+      "en": "B/L container count = containers listed",
+      "vi": "Số container trên B/L = số container liệt kê"
+    },
+    "CNTR_TYPE": {
+      "en": "Container types = invoice / B/L summary",
+      "vi": "Loại container = hóa đơn / tổng hợp trên B/L"
+    },
+    "CNTR_SUMMARY": {
+      "en": "B/L container summary = invoice",
+      "vi": "Tổng hợp container trên B/L = hóa đơn"
+    },
+    "CNTR_CAPACITY": {
+      "en": "Each container can hold its load (CBM)",
+      "vi": "Mỗi container chứa được khối lượng (CBM) khai báo"
+    },
+    "CNTR_ATTACH_SUM": {
+      "en": "B/L attach sheet rows = B/L totals",
+      "vi": "Các dòng phụ lục B/L = tổng trên B/L"
+    },
+    "BL_MARKS_MODEL": {
+      "en": "B/L shipping-mark models are invoice models",
+      "vi": "Model trong ký mã hiệu B/L là model của hóa đơn"
+    },
+    "BL_CARGO_QTY": {
+      "en": "B/L cargo quantity = invoice(s)",
+      "vi": "Số lượng hàng trên B/L = hóa đơn"
+    },
+    "BL_CARGO_CTN": {
+      "en": "B/L cargo cartons = packing list(s)",
+      "vi": "Số kiện hàng trên B/L = phiếu đóng gói"
+    },
+    "BL_UNIT": {
+      "en": "B/L quantity unit = invoice unit",
+      "vi": "Đơn vị số lượng trên B/L = hóa đơn"
+    },
+    "BL_GOODS_DESC": {
+      "en": "B/L goods description = invoice",
+      "vi": "Mô tả hàng trên B/L = hóa đơn"
+    },
+    "BL_DESTINATION": {
+      "en": "B/L final destination = place of delivery / port",
+      "vi": "Nơi đến cuối trên B/L = nơi giao hàng / cảng"
+    },
+    "CO_MARKS_MODEL": {
+      "en": "Form D shipping-mark models are invoice models",
+      "vi": "Model trong ký mã hiệu Form D là model của hóa đơn"
+    },
+    "PL_RANGES": {
+      "en": "Packing list carton ranges run on (1-n, n+1-…)",
+      "vi": "Dãy số kiện trên phiếu đóng gói liên tục"
+    },
+    "PL_RANGE_TOTAL": {
+      "en": "Last carton number = total cartons",
+      "vi": "Số kiện cuối = tổng số kiện"
+    },
+    "CO_PKG": {
+      "en": "Form D cartons per item (figures, words, sets per carton)",
+      "vi": "Số kiện từng mục Form D (số, chữ, số bộ/kiện)"
+    },
+    "CO_GOODS_DESC": {
+      "en": "Form D goods name = packing list",
+      "vi": "Tên hàng trên Form D = phiếu đóng gói"
+    },
+    "CO_TOTAL.ctn": {
+      "en": "Form D total cartons = packing list",
+      "vi": "Tổng số kiện Form D = phiếu đóng gói"
+    },
+    "PORT_NAME": {
+      "en": "Port names in the standard spelling",
+      "vi": "Tên cảng viết theo chuẩn"
+    },
+    "WORDS_VS_FIGURES": {
+      "en": "Amounts in words = figures",
+      "vi": "Số tiền / số lượng bằng chữ = bằng số"
+    },
+    "TEXT_FIXES": {
+      "en": "Known wrong spellings (config text_fixes)",
+      "vi": "Lỗi chính tả đã biết (text_fixes)"
+    },
+    "WORD_WRAP": {
+      "en": "Words split across two lines in a B/L box",
+      "vi": "Từ bị ngắt sang dòng khác trong ô B/L"
+    },
+    "SC_DOCS": {
+      "en": "Documents required by the contract",
+      "vi": "Chứng từ hợp đồng yêu cầu"
+    },
+    "DRAFT_STATUS": {
+      "en": "Draft or issued document",
+      "vi": "Chứng từ nháp hay bản phát hành"
+    },
+    "DOC_PAIRING": {
+      "en": "Each contract / Form D belongs to one invoice",
+      "vi": "Mỗi hợp đồng / Form D thuộc về một hóa đơn"
+    },
+    "BL_INVOICE_REFS": {
+      "en": "Invoices named on the B/L = invoices in the package",
+      "vi": "Các hóa đơn ghi trên B/L = các hóa đơn trong bộ"
+    },
+    "CI_COVER_TOTAL": {
+      "en": "Invoice cover totals = the lines",
+      "vi": "Tổng trên trang bìa hóa đơn = các dòng"
+    },
+    "PL_COVER_TOTAL": {
+      "en": "Packing list cover totals = the lines",
+      "vi": "Tổng trên trang bìa phiếu đóng gói = các dòng"
+    },
+    "PL_GW_NW": {
+      "en": "Gross weight ≥ net weight",
+      "vi": "Trọng lượng cả bì ≥ trọng lượng tịnh"
+    },
+    "ETA_DATE": {
+      "en": "ETA not before the sailing date",
+      "vi": "ETA không trước ngày tàu chạy"
+    },
+    "DOC_HEADER": {
+      "en": "Invoice no. and date the same on every page",
+      "vi": "Số và ngày hóa đơn giống nhau trên mọi trang"
+    },
+    "CI_PO_LIST": {
+      "en": "P/O list on the cover = P/O on the lines",
+      "vi": "Danh sách P/O trang bìa = P/O trên các dòng"
+    },
+    "CO_SUM": {
+      "en": "Form D items add up to its totals",
+      "vi": "Các mục Form D cộng lại bằng tổng"
+    },
+    "CO_NUMBERING": {
+      "en": "Form D items numbered 1, 2, 3 …",
+      "vi": "Mục Form D đánh số 1, 2, 3 …"
+    },
+    "CO_PAGES": {
+      "en": "Form D 'Page n of m' right",
+      "vi": "Form D 'Page n of m' đúng"
+    },
+    "CI_PL_CTN": {
+      "en": "Invoice cartons = packing list cartons",
+      "vi": "Số kiện hóa đơn = phiếu đóng gói"
+    },
+    "LINES": {
+      "en": "Invoice lines = packing list lines (count, model, qty, P/O, description)",
+      "vi": "Dòng hóa đơn = dòng phiếu đóng gói (số dòng, model, số lượng, P/O, mô tả)"
+    },
+    "CO_MODEL": {
+      "en": "Form D model per item = invoice",
+      "vi": "Model từng mục Form D = hóa đơn"
+    },
+    "MARKS": {
+      "en": "Shipping marks list every invoice model, and only those",
+      "vi": "Ký mã hiệu liệt kê đủ và đúng model của hóa đơn"
+    },
+    "ORIGIN": {
+      "en": "Country of origin the same on every document",
+      "vi": "Xuất xứ giống nhau trên mọi chứng từ"
+    },
+    "CO_IMPORT_COUNTRY": {
+      "en": "Form D importing country = B/L destination country",
+      "vi": "Nước nhập khẩu trên Form D = nước đến trên B/L"
+    },
+    "PARTY.consignee": {
+      "en": "Consignee / buyer name the same on every document",
+      "vi": "Tên người nhận / người mua giống nhau trên mọi chứng từ"
+    },
+    "PARTY.shipper": {
+      "en": "Shipper / seller name the same on every document",
+      "vi": "Tên người gửi / người bán giống nhau trên mọi chứng từ"
+    },
+    "CURRENCY": {
+      "en": "Same currency on every document",
+      "vi": "Cùng loại tiền trên mọi chứng từ"
+    },
+    "PAYMENT_TERMS": {
+      "en": "Payment terms: invoice = contract",
+      "vi": "Điều kiện thanh toán: hóa đơn = hợp đồng"
+    },
+    "SC_GOODS_DESC": {
+      "en": "Goods named on the contract = invoice",
+      "vi": "Tên hàng trên hợp đồng = hóa đơn"
+    },
+    "FREIGHT_TERM": {
+      "en": "Freight COLLECT / PREPAID agrees with the Incoterm",
+      "vi": "Cước COLLECT / PREPAID khớp với Incoterm"
+    },
+    "PL_HEADER.consignee": {
+      "en": "Packing list header = invoice: consignee",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: người nhận"
+    },
+    "PL_HEADER.shipper": {
+      "en": "Packing list header = invoice: shipper",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: người gửi"
+    },
+    "PL_HEADER.vessel": {
+      "en": "Packing list header = invoice: vessel",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: tàu"
+    },
+    "PL_HEADER.pol": {
+      "en": "Packing list header = invoice: port of loading",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: cảng xếp"
+    },
+    "PL_HEADER.pod": {
+      "en": "Packing list header = invoice: port of discharge",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: cảng dỡ"
+    },
+    "PL_HEADER.sailing": {
+      "en": "Packing list header = invoice: sailing date",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: ngày tàu chạy"
+    },
+    "PL_HEADER.payment": {
+      "en": "Packing list header = invoice: payment terms",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: điều kiện thanh toán"
+    },
+    "PL_HEADER.origin": {
+      "en": "Packing list header = invoice: origin",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: xuất xứ"
+    },
+    "PL_HEADER.goods_full": {
+      "en": "Packing list header = invoice: goods",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: tên hàng"
+    },
+    "PL_HEADER.pos": {
+      "en": "Packing list header = invoice: P/O numbers",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: số P/O"
+    },
+    "PL_HEADER.containers": {
+      "en": "Packing list header = invoice: containers",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: container"
+    },
+    "PL_HEADER.incoterm": {
+      "en": "Packing list header = invoice: Incoterm",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: Incoterm"
+    },
+    "PL_HEADER.freight": {
+      "en": "Packing list header = invoice: freight term",
+      "vi": "Đầu phiếu đóng gói = hóa đơn: điều kiện cước"
+    },
+    "DATE_FAR": {
+      "en": "Dates within 300 days of the invoice date",
+      "vi": "Ngày tháng trong vòng 300 ngày so với ngày hóa đơn"
+    },
+    "TEXT_TYPO": {
+      "en": "Words that look mistyped",
+      "vi": "Từ có vẻ gõ sai"
+    },
+    "VALUE_UNREADABLE": {
+      "en": "Values found but not understood",
+      "vi": "Giá trị tìm thấy nhưng không hiểu được"
+    }
+  },
+  "core_checks": [
+    "TOTAL_AMOUNT.ci",
+    "TOTAL_QTY.ci",
+    "PL_TOTAL.qty",
+    "PL_TOTAL.nw",
+    "PL_TOTAL.gw",
+    "PL_TOTAL.cbm",
+    "PL_TOTAL.ctn",
+    "CI_PL_QTY",
+    "LINES",
+    "CI_COVER_TOTAL",
+    "PL_COVER_TOTAL",
+    "PL_GW_NW",
+    "CI_PL_CTN",
+    "PL_RANGES",
+    "PL_RANGE_TOTAL",
+    "BL_VS_PL.gw",
+    "BL_VS_PL.cbm",
+    "BL_VS_PL.ctn",
+    "INVOICE_REF",
+    "BL_INVOICE_REFS",
+    "BL_CARGO_QTY",
+    "BL_CARGO_CTN",
+    "SC_VS_CI",
+    "SC_PO_COVERAGE",
+    "TOTAL_AMOUNT.sc",
+    "TOTAL_QTY.sc",
+    "INCOTERM_PORT",
+    "SHIPMENT_DATE",
+    "PAYMENT_TERMS",
+    "CURRENCY",
+    "SC_GOODS_DESC",
+    "DEPARTURE_DATE",
+    "CO_INVOICE_DATE",
+    "VESSEL.co",
+    "CO_QTY",
+    "CO_INVOICE_NO",
+    "CO_ITEMS",
+    "CO_TOTAL.value",
+    "CO_TOTAL.qty",
+    "CO_TOTAL.ctn",
+    "CO_PKG",
+    "CO_SUM",
+    "CO_MODEL",
+    "CO_IMPORT_COUNTRY",
+    "DOC_PAIRING",
+    "HS_MASTER",
+    "CO_HS",
+    "BL_HS",
+    "PARTY.consignee",
+    "PARTY.shipper",
+    "PL_HEADER.consignee",
+    "PL_HEADER.shipper"
+  ],
+  "check_reasons": {
+    "document_missing": {
+      "en": "The {kind} needed for this check is not in the package.",
+      "vi": "Bộ chứng từ không có {kind} cần cho bước kiểm tra này."
+    },
+    "requirement_unknown": {
+      "en": "No document in the package says whether a {kind} is required for invoice {inv}.",
+      "vi": "Không chứng từ nào trong bộ cho biết hóa đơn {inv} có cần {kind} hay không."
+    },
+    "field_not_found": {
+      "en": "Not found: {field}.",
+      "vi": "Không tìm thấy: {field}."
+    },
+    "field_unreadable": {
+      "en": "Found but not understood: {field}.",
+      "vi": "Tìm thấy nhưng không hiểu được: {field}."
+    },
+    "field_absent_required": {
+      "en": "Not printed, but this check needs it: {field}.",
+      "vi": "Không có trên chứng từ nhưng bước kiểm tra cần: {field}."
+    },
+    "items_not_read": {
+      "en": "The goods lines were not read: {field}.",
+      "vi": "Không đọc được các dòng hàng: {field}."
+    },
+    "items_not_comparable": {
+      "en": "The lines cannot be paired one to one, so they were not compared.",
+      "vi": "Không ghép được từng dòng với nhau nên không so sánh được."
+    },
+    "too_few_values": {
+      "en": "Fewer than two documents gave a value; not read: {field}.",
+      "vi": "Ít hơn hai chứng từ có giá trị; không đọc được: {field}."
+    },
+    "master_data_missing": {
+      "en": "Master data missing (HS master list / city list): add it, then check again.",
+      "vi": "Thiếu dữ liệu gốc (danh mục HS / danh sách thành phố): bổ sung rồi kiểm tra lại."
+    },
+    "blocked_by": {
+      "en": "Not meaningful on its own: {by} already reports this difference.",
+      "vi": "Không xét riêng: {by} đã báo sự khác biệt này."
+    },
+    "scope_unsupported": {
+      "en": "Not done by LDV for packages with several invoices ({invoices}) under one B/L.",
+      "vi": "LDV chưa kiểm tra mục này khi một B/L có nhiều hóa đơn ({invoices})."
+    },
+    "internal_error": {
+      "en": "LDV error in rule {rule} ({error}). The check did not run; please report it.",
+      "vi": "Lỗi LDV trong quy tắc {rule} ({error}). Bước kiểm tra không chạy; vui lòng báo lại."
+    },
+    "not_reported": {
+      "en": "The check left no result (LDV fault, rule {rule}). Please report it.",
+      "vi": "Bước kiểm tra không có kết quả (lỗi LDV, quy tắc {rule}). Vui lòng báo lại."
+    },
+    "incomplete": {
+      "en": "Some inputs were not read; the result covers only what was read.",
+      "vi": "Một số dữ liệu không đọc được; kết quả chỉ dựa trên phần đọc được."
+    },
+    "na": {
+      "en": "Not applicable to this package.",
+      "vi": "Không áp dụng cho bộ chứng từ này."
+    },
+    "na_not_printed": {
+      "en": "Not applicable: {doc} does not print {field}.",
+      "vi": "Không áp dụng: {doc} không có {field}."
+    },
+    "na_several_invoices": {
+      "en": "Not applicable: {invoices} invoices; {by} checks the invoice list of the B/L.",
+      "vi": "Không áp dụng: có {invoices} hóa đơn; {by} kiểm tra danh sách hóa đơn trên B/L."
+    },
+    "na_sc_docs_without_formd": {
+      "en": "Not applicable: the contract lists its required documents and no Form D.",
+      "vi": "Không áp dụng: hợp đồng liệt kê chứng từ yêu cầu, không có Form D."
+    },
+    "na_carton_ranges": {
+      "en": "Not applicable: cartons are given as ranges; {by} checks them.",
+      "vi": "Không áp dụng: số kiện ghi theo dãy; {by} kiểm tra."
+    },
+    "na_one_invoice": {
+      "en": "Not applicable: one invoice in the package.",
+      "vi": "Không áp dụng: bộ chứng từ có một hóa đơn."
+    },
+    "na_nothing_to_pair": {
+      "en": "Not applicable: no contract or Form D to pair.",
+      "vi": "Không áp dụng: không có hợp đồng hay Form D để ghép."
+    },
+    "na_fewer_than_two_sources": {
+      "en": "Not applicable: fewer than two documents print this value.",
+      "vi": "Không áp dụng: ít hơn hai chứng từ có giá trị này."
+    },
+    "na_marks_not_models": {
+      "en": "Not applicable: the shipping marks are not written as a list of models.",
+      "vi": "Không áp dụng: ký mã hiệu không ghi theo danh sách model."
+    },
+    "na_no_packing_list": {
+      "en": "Not applicable: this file has no packing-list part.",
+      "vi": "Không áp dụng: tệp này không có phần phiếu đóng gói."
+    }
   }
 }

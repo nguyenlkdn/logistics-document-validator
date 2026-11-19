@@ -23,26 +23,38 @@ def render():
 
     gaps = [u for u in s.get("unrecognised", [])]
     small = t("verdict_gaps", n=len(gaps)) if gaps else ""
-    if c["open_error"]:
-        ui.verdict(t("verdict_errors", n=c["open_error"]), "ERROR", small)
-    elif c["open_warning"]:
-        ui.verdict(t("verdict_warn", n=c["open_warning"]), "WARNING", small)
-    elif gaps:                                       # nothing open, but not everything could be checked
-        ui.verdict(t("verdict_gaps_only", n=len(gaps)), "WARNING")
-    else:
-        ui.verdict(t("verdict_ok"), "RESOLVED", small)
+    from . import checks as checks_view
+    if checks_view.dashboard_verdict(s):             # LDV >= 2.3: RED / AMBER / GREEN from the check records
+        pass
+    else:                                            # a review saved by LDV <= 2.2: the legacy verdict, labelled
+        st.caption(t("verdict_legacy", v=s.get("version") or "≤ 2.2"))
+        if c["open_error"]:
+            ui.verdict(t("verdict_errors", n=c["open_error"]), "ERROR", small)
+        elif c["open_warning"]:
+            ui.verdict(t("verdict_warn", n=c["open_warning"]), "WARNING", small)
+        elif gaps:                                   # nothing open, but not everything could be checked
+            ui.verdict(t("verdict_gaps_only", n=len(gaps)), "WARNING")
+        else:
+            ui.verdict(t("verdict_ok"), "RESOLVED", small)
 
     # ---- numbers
     n_skipped = len(s.get("skipped", []))
-    left, mid, right = st.columns([3, 5, 4], gap="medium")
+    left, mid, right = st.columns([4, 5, 4], gap="medium")
     with left:
         ui.label(t1("k_package"))
-        a, b = st.columns(2)
+        a, b, cc = st.columns(3)
         with a:
             if ui.tile("docs", len(s["docs"]) + n_skipped, t1("k_docs")):
                 state.show_findings()
         with b:
             unrec_clicked = ui.tile("unrec", len(gaps), t1("k_unrec"), "WARNING" if gaps else "MUTED", disabled=not gaps)
+        with cc:
+            nr = sum(r["status"] == "NOT_RUN" for r in s.get("checks", []))
+            core_nr = sum(r["status"] == "NOT_RUN" and r["core"] for r in s.get("checks", []))
+            if ui.tile("checks_nr", nr, t1("k_checks_nr"), "WARNING" if core_nr else "MUTED",
+                       disabled=not s.get("checks")):
+                st.session_state["ck_preset"] = ["NOT_RUN"]
+                state.go("checks")
     with mid:
         ui.label(t1("k_findings"))
         cols = st.columns(5)
@@ -105,7 +117,27 @@ def render():
     if gaps:
         with st.expander(f"{t('unrec_title')} ({len(gaps)})", expanded=unrec_clicked):
             for u in gaps:
-                st.markdown(f"- **{ui.esc(u['doc'])}** — {ui.esc(unrec_text(u))}")
+                blocked = _blocked_by(s, u)
+                st.markdown(f"- **{ui.esc(u['doc'])}** — {ui.esc(unrec_text(u))}"
+                            + (f"  \n  <small>{ui.esc(t('ck_blocks', checks=', '.join(blocked)))}</small>" if blocked else ""),
+                            unsafe_allow_html=True)
+
+
+def _blocked_by(s: dict, u: dict) -> list[str]:
+    """Checks that could not run because of this unread item ("Field not found: X" on document D)."""
+    import re
+    m = re.match(r"Field not found: (\w+)", u.get("what", ""))
+    lines = u.get("what", "").startswith(("Goods line not read", "Model not found", "No line items"))
+    out = []
+    for r in s.get("checks", []):
+        if r["status"] != "NOT_RUN":
+            continue
+        for x in (r.get("detail") or {}).get("missing", []):
+            if x.get("doc") == u["doc"] and ((m and x["name"] in (m[1], f"Σ{m[1]}")) or
+                                             (lines and x["name"].startswith(("items", "pl_items")))):
+                out.append(r["id"])
+                break
+    return sorted(set(out))
 
 
 def empty():

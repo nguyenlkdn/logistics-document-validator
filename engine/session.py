@@ -4,7 +4,8 @@ check() writes review.json into the report folder next to report.xlsx, documents
 Opening an old review reads this file (load) instead of analysing the PDFs again. Folders written by
 LDV <= 1.3 have no review.json; from_history() rebuilds what it can from the history database.
 
-The file only holds results (findings, document inventory, extracted values, highlight boxes).
+The file only holds results (findings, check records, verdict, document inventory, extracted values, highlight
+boxes). Schema 2 only adds keys, so LDV <= 2.2 still opens it (it ignores what it does not know).
 The reviewer's decisions (status, note) stay in history.db, so automated results and human decisions
 are never mixed and the analysis result is never overwritten.
 """
@@ -12,7 +13,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-SCHEMA = 1
+SCHEMA = 2          # 2 (LDV 2.3): + "checks" (one record per check and group) + "verdict"; findings + "check"
 FILE = "review.json"
 
 
@@ -65,11 +66,12 @@ def build(res) -> dict:
             doc=f.doc_names[0] if f.docs else "", doc_kind=f.docs[0].kind if f.docs else "",
             related=f.doc_names[1:], page=f.page, current=f.current, suggested=f.suggested,
             msg_en=f.text("en"), msg_vi=f.text("vi"), note_en=f.note("en"), note_vi=f.note("vi"),
-            evidence=[rel(p) for p in f.evidence], locs=locs[i - 1]))
+            evidence=[rel(p) for p in f.evidence], locs=locs[i - 1], check=getattr(f, "check", "")))
     return dict(schema=SCHEMA, name=res.name, shipment=History.shipment_of(res),
                 created=datetime.now().isoformat(timespec="seconds"), version=app_version(),
                 fingerprint=res.fingerprint, docs=docs, findings=findings,
                 skipped=[Path(p).name for p in res.skipped], unrecognised=res.unrecognised,
+                checks=[c.to_dict() for c in res.checks], verdict=res.verdict,
                 marks={k: [list(m) for m in v] for k, v in res.marks.items()},
                 excel=rel(res.excel) if res.excel else None)
 

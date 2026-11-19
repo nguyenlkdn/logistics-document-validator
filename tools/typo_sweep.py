@@ -39,7 +39,7 @@ from engine import _dllpath  # noqa: E402,F401
 import pymupdf  # noqa: E402
 from engine import master  # noqa: E402
 from engine.extract import Field, load  # noqa: E402
-from engine.rules import unrecognised, validate  # noqa: E402
+from engine.rules import unrecognised, validate_checks  # noqa: E402
 
 SWAP = {"0": "O", "O": "0", "1": "I", "I": "1", "5": "S", "S": "5", "8": "B", "B": "8"}
 
@@ -138,9 +138,15 @@ def write_typo(src: Path, dst: Path, f: Field, new: str) -> bool:
 
 
 def sig(docs):
-    fs = validate(docs)
+    """(findings, unread entries, checks not run). A rule that fails is isolated by the check runner (LDV 2.3);
+    here it still counts as a CRASH, so the sweep keeps seeing it."""
+    fs, checks = validate_checks(docs)
+    err = [c for c in checks if c.reason == "internal_error"]
+    if err:
+        raise RuntimeError(f"rule error in {err[0].detail.get('rule')} ({err[0].detail.get('error')})")
     return ({f"{f.severity}|{f.key}|{f.doc_names[0]}|{f.current}->{f.suggested}" for f in fs},
-            {f"{u['doc']}: {u['what']}" for u in unrecognised(docs, [])})
+            {f"{u['doc']}: {u['what']}" for u in unrecognised(docs, [])},
+            {f"{c.check_id}|{c.group_id}|{c.doc}" for c in checks if c.status == "NOT_RUN"})
 
 
 def plain(v):
@@ -183,10 +189,10 @@ def _one(job):
         nd.path = d.path                                  # same name as before, so findings compare
         new_docs = docs[:di] + [nd] + docs[di + 1:]
         try:
-            fs, un = sig(new_docs)
+            fs, un, nr = sig(new_docs)
         except Exception as e:                            # the check itself fails on this typo: worst case
             return out | dict(result="CRASH", value="-", how=f"{type(e).__name__}: {e}")
-        base_fs, base_un = _STATE["base"]
+        base_fs, base_un, base_nr = _STATE["base"]
         added = sorted(fs - base_fs) + sorted(un - base_un)
         nf = get(nd, path)
         if nf is None or not isinstance(nf, Field):
@@ -197,7 +203,10 @@ def _one(job):
             what = "typo"
         if added:
             return out | dict(result="CAUGHT", how=added[0], value=what)
-        return out | dict(result="SILENT", value=what, read=plain(nf) if isinstance(nf, Field) else None)
+        # not CAUGHT by the old measure (no new finding); a check that stopped running is still visible (AMBER)
+        new_nr = sorted(nr - base_nr)
+        return out | dict(result="SILENT", value=what, read=plain(nf) if isinstance(nf, Field) else None,
+                          not_run=new_nr)
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -232,14 +241,17 @@ def main():
             r["set"] = Path(a).name
         allres += res
         n = {k: sum(r["result"] == k for r in res) for k in ("CAUGHT", "SILENT", "SKIPPED", "CRASH")}
-        print(f"== {Path(a).name}: {len(res)} typos  caught {n['CAUGHT']}  silent {n['SILENT']}  skipped {n['SKIPPED']}  crash {n['CRASH']}")
+        vis = sum(r["result"] == "SILENT" and bool(r.get("not_run")) for r in res)
+        print(f"== {Path(a).name}: {len(res)} typos  caught {n['CAUGHT']}  silent {n['SILENT']}  skipped {n['SKIPPED']}  "
+              f"crash {n['CRASH']}  (silent but a check shows NOT_RUN: {vis})")
         for r in sorted(res, key=lambda r: (r["result"], r["value"] if "value" in r else "", r["field"])):
             if r["result"] == "CRASH":
                 print(f"  CRASH            {r['typo']:5} {r['kind_doc']:2} p{r['page']} {r['field']:40} "
                       f"{r['before']!r} -> {r['after']!r}  {r['how']}")
             if r["result"] == "SILENT":
                 print(f"  SILENT [{r['value']:7}] {r['typo']:5} {r['kind_doc']:2} p{r['page']} {r['field']:40} "
-                      f"{r['before']!r} -> {r['after']!r}" + (f"  read {r['read']!r}" if r['value'] == 'typo' else ""))
+                      f"{r['before']!r} -> {r['after']!r}" + (f"  read {r['read']!r}" if r['value'] == 'typo' else "")
+                      + (f"  NOT_RUN: {', '.join(r['not_run'][:3])}" if r.get("not_run") else ""))
     if "--json" in opt:
         Path(opt["--json"]).write_text(json.dumps(allres, indent=1, ensure_ascii=False), encoding="utf-8")
 
