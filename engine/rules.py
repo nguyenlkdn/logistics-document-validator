@@ -560,6 +560,9 @@ def r_hs(ci, co, bl, out):
     Models not in the master fall back to Form D vs B/L."""
     sval = lambda x: x.value if isinstance(x, Field) else x
     hs_bl_f = bl.f.get("hs") if bl else None
+    blk = _bl_block(bl, ci)                       # several invoices on the B/L: the HS heading of this invoice's block
+    if blk is not None and blk.hs:
+        hs_bl_f = blk.hs
     hs_bl = master.digits(_v(hs_bl_f))
     have = master.load() is not None
     known = {}                                            # invoice model -> master HS
@@ -761,6 +764,57 @@ def r_containers(ci, bl, out):
 _MODEL_TRACE = r"^\s*[A-Z][A-Za-z0-9]*-[A-Za-z0-9\-]+\([A-Za-z0-9]+\)"
 
 
+def _bl_block(bl, ci):
+    """The cargo block of invoice ci on a B/L that prints one block per invoice (2 or more blocks); else None."""
+    if not (bl and ci) or len(bl.cargo_blocks) < 2:
+        return None
+    no = re.sub(r"[^A-Z0-9]", "", str(_v(ci.f.get("invoice_no")) or "").upper())
+    return next((b for b in bl.cargo_blocks if b.invoice and no
+                 and re.sub(r"[^A-Z0-9]", "", str(b.invoice.value).upper()) == no), None)
+
+
+def _block_goods(f: Field | None) -> Field | None:
+    """'"ACME" BRAND RICE COOKER' -> RICE COOKER; '"SPARE PARTS OF RICE COOKER"' -> SPARE PARTS OF RICE COOKER."""
+    if not f:
+        return None
+    t = str(f.value)
+    m = re.search(r"\bBRAND\s+(.+)$", t)
+    return Field((m[1] if m else t).strip(' "'), f.raw, f.line, f.start, f.end)
+
+
+def r_bl_blocks(cis, bl, out):
+    """A B/L that carries several invoices prints one cargo block each: each block's cartons and quantity against
+    its own invoice (the B/L totals against the sum are BL_VS_PL / BL_CARGO_*)."""
+    ck = begin("BL_CARGO_BLOCK", out)
+    blocks = bl.cargo_blocks if bl else []
+    if len(blocks) < 2:
+        ck.na(evidence="one_cargo_block", by="BL_CARGO_QTY")
+        ck.end()
+        return
+    ck._input(bl, "cargo_blocks", "READ")
+    by_no = {re.sub(r"[^A-Z0-9]", "", str(_v(c.f.get("invoice_no")) or "").upper()): c for c in cis}
+    for b in blocks:
+        if not b.invoice:
+            ck.not_run("items_not_comparable", what="cargo_block_without_invoice")
+            continue
+        c = by_no.get(re.sub(r"[^A-Z0-9]", "", str(b.invoice.value).upper()))
+        if c is None:
+            continue                              # an invoice that is not in the package: BL_INVOICE_EXTRA
+        for k, f in (("qty", b.qty), ("ctn", b.ctn)):
+            ref = true_total(c, k)
+            ck.need_total_val(c, k, ref)
+            if f is None:
+                ck._input(bl, f"cargo_blocks[{k}]", "NOT_FOUND")
+                continue
+            if ref is None:
+                continue
+            ck.compared()
+            if not _close(f.value, ref.value):
+                ck.add(Finding("BL_BLOCK", "ERROR", [bl, c], dict(label=f"@{k}", inv=b.invoice.value), f.raw,
+                               fmt_like(ref.value, f.raw), at(bl, f) + at(c, ref, "ref")))
+    ck.end()
+
+
 def r_bl_cargo(ci, co, bl, out):
     """B/L shipping marks, goods description and final destination against the invoice."""
     if not (ci and bl):
@@ -797,8 +851,14 @@ def r_bl_cargo(ci, co, bl, out):
                        at(bl, u)))
     ck.end()
     g, cg = bl.f.get("goods"), ci.f.get("goods")
+    blk = _bl_block(bl, ci)                       # several invoices on the B/L: the description of this invoice's block
+    if blk is not None:
+        g = _block_goods(blk.goods)
     ck = begin("BL_GOODS_DESC", out)
-    ck.need(bl, "goods")
+    if blk is not None:
+        ck._input(bl, "cargo_blocks[goods]", "READ" if g else "NOT_FOUND")
+    else:
+        ck.need(bl, "goods")
     ck.need(ci, "goods")
     if g and cg:
         ck.compared()
@@ -1170,6 +1230,7 @@ def validate_checks(docs: list[Doc]) -> tuple[list[Finding], list]:
             ck.na(evidence="one_invoice")
             ck.end()
             run.call(_bl_invoices, docs, cis, out)
+            run.call(r_bl_blocks, cis, next((d for d in docs if d.kind == "BL"), None), out)
             run.close_group()
         else:
             out = _validate_multi(docs, cis)
@@ -1248,6 +1309,7 @@ def _validate_multi(docs: list[Doc], cis: list[Doc]) -> list[Finding]:
         run.set_group(ship)
     _call(_bl_invoices, docs, cis, out)
     _call(_multi_bl_totals, shared, cis, out)
+    _call(r_bl_blocks, cis, next((d for d in shared if d.kind == "BL"), None), out)
     if run is not None:
         run.close_group()
     return out

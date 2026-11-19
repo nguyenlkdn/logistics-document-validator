@@ -192,7 +192,7 @@ REGISTRY_ROWS = [
     _d("BL_CARGO_QTY", "r_bl_cargo", "invoice*", "BL CI", "BL.bl_qty CI.Σqty", "BL_QTY BL_DESC_QTY"),
     _d("BL_CARGO_CTN", "r_bl_cargo", "invoice*", "BL CI", "BL.bl_qty_ctn CI.Σctn", "BL_DESC_CTN BL_DESC_QTY"),
     _d("BL_UNIT", "r_bl_cargo", "invoice", "BL CI", "BL.bl_unit CI.unit", "BL_UNIT"),
-    _d("BL_GOODS_DESC", "r_bl_cargo", "invoice", "BL CI", "BL.goods CI.goods", "BL_GOODS_DESC"),
+    _d("BL_GOODS_DESC", "r_bl_cargo", "invoice", "BL CI", "BL.goods BL.cargo_blocks[goods] CI.goods", "BL_GOODS_DESC"),
     _d("BL_DESTINATION", "r_bl_cargo", "document", "BL CI", "BL.final_dest BL.delivery BL.pod CI.pod", "BL_DESTINATION"),
     _d("CO_MARKS_MODEL", "r_co_marks", "invoice", "CO CI", "CO.lists.marks_models CI.items[model]", "CO_MARKS_MODEL"),
     _d("PL_RANGES", "r_pl_ranges", "document", "CI", "CI.pl_items CI.pl_items[rng]", "PL_RANGE_ORDER PL_RANGE_START PL_RANGE_GAP "
@@ -208,6 +208,8 @@ REGISTRY_ROWS = [
     _d("SC_DOCS", "r_documents", "document", "SC", "SC.docs_required", "SC_DOCS_INSURANCE SC_DOCS_FORMD"),
     _d("DRAFT_STATUS", "r_draft_status", "document", "*", "", "ISSUED_DOC", kind="scan"),
     _d("DOC_PAIRING", "_validate_multi", "shipment", "", "", "DOC_UNPAIRED"),
+    _d("BL_CARGO_BLOCK", "r_bl_blocks", "shipment", "BL CI", "BL.cargo_blocks BL.cargo_blocks[qty] BL.cargo_blocks[ctn] "
+                                                              "CI.Σqty CI.Σctn", "BL_BLOCK"),
     _d("BL_INVOICE_REFS", "_bl_invoices", "shipment", "BL CI", "BL.lists.invoice_nos CI.invoice_no",
        "BL_INVOICE_EXTRA BL_INVOICE_MISSING"),
     # --- rules_net.py

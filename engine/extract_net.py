@@ -5,7 +5,7 @@ Every field keeps its place in the PDF (Field), so findings can be boxed on the 
 """
 import re
 
-from .extract import MARK_HEAD, MODEL_RE, PO_RE, Doc, F, Field, _after, _first, _search, column_models
+from .extract import MARK_HEAD, MODEL_RE, PO_RE, CargoBlock, Doc, F, Field, _after, _first, _search, column_models
 from .grammar import CTN_UNIT, DATE_DMY, DEC, DEC2, DOC_ID, NUM, QTY_UNIT
 from .util import num, parse_date
 
@@ -14,9 +14,9 @@ _CUR_RX = re.compile(r"\b(" + "|".join(CURRENCIES) + r")\b|U\.?\s?S\.?\s+DOLLARS
 _LABELS = re.compile(r"^\s*(\[|\d+\.\s|Reference No|ACCOUNTEE|CONSIGNEE|SHIP TO|Attn|Address|TEL\b)", re.I)
 
 
-def _name_after(L, label_rx, skip_rx=None, max_ahead=3):
+def _name_after(L, label_rx, skip_rx=None, max_ahead=3, flags=re.I):
     """Party name on the first line after a label line (or after the label on the same line)."""
-    for i, l, m in _search(L, label_rx):
+    for i, l, m in _search(L, label_rx, flags):
         rest = l.text[m.end():].strip(" :\t")
         rest = re.split(r"\s{2,}", rest)[0].strip() if rest else ""
         if rest and not re.fullmatch(r"(DRAFT?|FORM D)", rest, re.I) and not rest.startswith("("):   # "(Consignee's name…)"
@@ -148,7 +148,8 @@ def extra_ci(d: Doc, header_only: bool = False):
     d.f["origin"] = _first(L, r"COUNTRY OF ORIGIN\s*:?\s*([A-Za-z][A-Za-z ]*?)(?:\s{2,}|$)")
     d.f["payment"] = (_first(L, r"TERMS OF PAYMENT\s*:\s*(.+?)(?:\s{2,}|$)")
                       or _first(L, r"Payment Terms\s*:\s*(.+?)(?:\s{2,}|Sailing|$)"))
-    d.f["consignee"] = _name_after(inv or L, r"\bCONSIGNEE\s*:")
+    # 'CONSIGNEE : NAME', 'CONSIGNEE NAME', 'CONSIGNEENAME' (no space or colon) and the name on the next line
+    d.f["consignee"] = _name_after(inv or L, r"\b(?i:CONSIGNEE)\s*:|\bCONSIGNEE(?=\s*[A-Z][A-Z])", flags=0)
     d.lists["currency"] = _money_cur(inv)
     _cur_field(d)
     # P/O list on the cover ("P/O NO.A, B, C" without a line number)
@@ -170,7 +171,12 @@ def extra_ci(d: Doc, header_only: bool = False):
     buyer = re.sub(r"[^A-Z]", "", (d.f["consignee"].value if d.f.get("consignee") else "").upper())[:12]
     sig = [(l, m) for _, l, m in _search(inv, r"^\s*([A-Z][A-Za-z0-9&().,'\- ]*?" + _LEGAL + r")\s*$")
            if not buyer or not re.sub(r"[^A-Z]", "", m[1].upper()).startswith(buyer)]
-    if sig:
+    # a labelled shipper block ('SHIPPER : NAME' or the name on the next line) is the shipper; only without a
+    # label the company signing the invoice is taken (a signature may share its lines with the shipping marks)
+    lab = _name_after(inv or L, r"\bSHIPPER\s*:")
+    if lab and re.search(_LEGAL + r"\s*$", lab.value):
+        d.f["shipper"] = lab
+    elif sig:
         l, m = sig[-1]
         d.f["shipper"] = F(l, m, 1)
     d.f["goods_full"] = _goods_full(inv or L, d.f.get("goods"))
@@ -220,6 +226,71 @@ def extra_sc(d: Doc):
     _cur_field(d)
 
 
+_CARGO = re.compile(rf"\s*({NUM})\s*{CTN_UNIT}\s*\(?\s*(?:({NUM})\s*(PCS|PIECES?|SETS?|UNITS?)\b)?\s*\)?\s*$")
+_BL_INV = re.compile(rf"INVOICE NO\.?\s*:?\s*({DOC_ID})")
+_BL_HS = re.compile(r"HS\s*CODE\s*:?\s*([\d.]+)", re.I)
+_BL_GOODS = re.compile(r'^\s*("[^"]{6,}"(?:\s+BRAND\s+[A-Z][A-Z /&\-]*[A-Z])?|"?[A-Z][A-Z0-9&.\-]*"?\s+BRAND\s+[A-Z][A-Z /&\-]*[A-Z])\s*$')
+_NOT_GOODS = re.compile(r"SHIPPER|SAID TO CONTAIN|LOAD|COUNT|SEAL|FREIGHT", re.I)
+
+
+def _tails(line):
+    """The line and every part of it that starts at a cell (a column) boundary: 'MARKS   500 CARTON(S) 500 PCS'
+    -> the whole line, then '500 CARTON(S) 500 PCS' as a line of its own spans."""
+    from .pdftext import Line
+    cells = line.cells()
+    for i in range(len(cells)):
+        yield Line(line.page, line.y, [sp for c in cells[i:] for sp in c.spans])
+
+
+def cargo_blocks(L) -> list:
+    """B/L description column, read cell by cell so the shipping-mark column next to it does not matter:
+    goods description, HS heading, 'n CARTON(S) m PCS', 'INVOICE NO. x' -> one CargoBlock per invoice."""
+    blocks, cur, seen = [], {}, {}
+
+    def close():
+        if cur.get("ctn"):
+            blocks.append(CargoBlock(**cur))
+        cur.clear()
+    for l in L:
+        for t in _tails(l):
+            m = _CARGO.match(t.text)
+            if m:
+                if cur.get("ctn"):
+                    close()
+                cur["ctn"] = F(t, m, 1, float(m[1].replace(",", "")))
+                if m[2]:
+                    cur["qty"], cur["unit"] = F(t, m, 2, float(m[2].replace(",", ""))), F(t, m, 3)
+                break
+            m = _BL_INV.search(t.text)
+            if m and t.text.lstrip().upper().startswith("INVOICE"):
+                cur["invoice"] = F(t, m, 1)
+                seen.setdefault("invoice", cur["invoice"])
+                if cur.get("ctn"):
+                    close()
+                break
+            m = _BL_HS.search(t.text)
+            if m and re.match(r"\s*#?\s*HS", t.text, re.I):
+                if cur.get("ctn"):
+                    close()
+                cur["hs"] = F(t, m, 1)
+                seen.setdefault("hs", cur["hs"])
+                break
+            m = _BL_GOODS.match(t.text)
+            if m and not _NOT_GOODS.search(m[1]):
+                if cur.get("ctn"):
+                    close()
+                cur.clear()
+                cur["goods"] = F(t, m, 1)
+                seen.setdefault("goods", cur["goods"])
+                break
+    close()
+    if len(blocks) == 1:                         # one block: everything in the description column is its own
+        for k, v in seen.items():
+            if getattr(blocks[0], k) is None:
+                setattr(blocks[0], k, v)
+    return blocks
+
+
 def extra_bl(d: Doc):
     L = d.lines
     d.f["shipper"] = _name_after(L, r"\[ Shipper \]")
@@ -242,26 +313,29 @@ def extra_bl(d: Doc):
               if not d.f.get(k) and not re.search(rx, whole, re.I)]
     if absent:                                     # not printed on this B/L: "not on this document", not "not read"
         d.f["absent"] = Field(", ".join(absent), "", L[0], 0, 0)
-    if not d.f.get("bl_qty"):                      # quantity per invoice, one line each: add them up
-        rows = list(_search(L, rf"^\s*({NUM})\s*{CTN_UNIT}\s+({NUM})\s*(PCS|PIECES?|SETS?|UNITS?)\s*$", 0))
+    d.cargo_blocks = cargo_blocks(L)
+    if not d.f.get("bl_qty"):                      # quantity per invoice, one block each: add them up
+        rows = [b for b in d.cargo_blocks if b.qty]
         if rows:
-            d.lists["bl_qty_rows"] = [F(l, m, 2, num(m[2])) for _, l, m in rows]
-            ctns = [F(l, m, 1, num(m[1])) for _, l, m in rows]
+            d.lists["bl_qty_rows"] = [b.qty for b in rows]
+            ctns = [b.ctn for b in rows]
             total, total_ctn = sum(f.value for f in d.lists["bl_qty_rows"]), sum(f.value for f in ctns)
-            _, l, m = rows[0]
+            b0 = rows[0]
             if len(rows) == 1:
-                d.f["bl_qty"] = F(l, m, 2, total)
-                d.f["bl_qty_ctn"] = F(l, m, 1, total_ctn)
-                d.f["bl_qty_phrase"] = Field(l.text[m.start(1):m.end(3)], l.text[m.start(1):m.end(3)], l, m.start(1), m.end(3))
+                d.f["bl_qty"] = Field(total, b0.qty.raw, b0.qty.line, b0.qty.start, b0.qty.end)
+                d.f["bl_qty_ctn"] = Field(total_ctn, b0.ctn.raw, b0.ctn.line, b0.ctn.start, b0.ctn.end)
+                ph = b0.ctn.line
+                d.f["bl_qty_phrase"] = Field(ph.text[b0.ctn.start:b0.unit.end], ph.text[b0.ctn.start:b0.unit.end], ph,
+                                             b0.ctn.start, b0.unit.end)
             else:                                  # one field over all the quantities: the evidence box covers them
                 from .pdftext import Line
                 def over(fs):
-                    spans = [sp for f in fs if f.page == l.page for sp in f.line.spans_for(f.start, f.end)]
-                    return Line(l.page, l.y, spans)
+                    spans = [sp for f in fs if f.page == b0.qty.page for sp in f.line.spans_for(f.start, f.end)]
+                    return Line(b0.qty.page, b0.qty.line.y, spans)
                 both, both_c = over(d.lists["bl_qty_rows"]), over(ctns)
                 d.f["bl_qty"] = Field(total, f"{total:,.0f}", both, 0, len(both.text))
                 d.f["bl_qty_ctn"] = Field(total_ctn, f"{total_ctn:,.0f}", both_c, 0, len(both_c.text))
-            d.f["bl_unit"] = F(l, m, 3)
+            d.f["bl_unit"] = b0.unit
     # every invoice the B/L covers: one B/L can carry several invoices, one 'INVOICE NO.' line each
     d.lists["invoice_nos"] = [F(l, m, 1) for _, l, m in _search(L, rf"INVOICE NO\.?\s*:?\s*({DOC_ID})")]
     if len(d.lists["invoice_nos"]) > 1:            # cross-check shows them all

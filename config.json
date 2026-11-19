@@ -729,6 +729,10 @@
     "CI_LINE_DESC": {
       "en": "Invoice line {no}: the description does not match model {model} (the packing list does)",
       "vi": "Hóa đơn dòng {no}: mô tả hàng không khớp model {model} (Packing List thì khớp)"
+    },
+    "BL_BLOCK": {
+      "en": "B/L cargo block of invoice {inv}: {label} ≠ that invoice",
+      "vi": "Khối hàng của hóa đơn {inv} trên B/L: {label} ≠ hóa đơn đó"
     }
   },
   "cities": {
@@ -835,9 +839,9 @@
       },
       {
         "id": "invoice_no",
-      "subset": [
-        "CO"
-      ],
+        "subset": [
+          "CO"
+        ],
         "en": "Invoice no.",
         "vi": "Số hóa đơn",
         "type": "docref",
@@ -1508,6 +1512,10 @@
     "VALUE_UNREADABLE": {
       "en": "Values found but not understood",
       "vi": "Giá trị tìm thấy nhưng không hiểu được"
+    },
+    "BL_CARGO_BLOCK": {
+      "en": "Each B/L cargo block = its own invoice (cartons, quantity)",
+      "vi": "Mỗi khối hàng trên B/L = hóa đơn của khối đó (số kiện, số lượng)"
     }
   },
   "core_checks": [
@@ -1562,7 +1570,8 @@
     "PARTY.consignee",
     "PARTY.shipper",
     "PL_HEADER.consignee",
-    "PL_HEADER.shipper"
+    "PL_HEADER.shipper",
+    "BL_CARGO_BLOCK"
   ],
   "check_reasons": {
     "document_missing": {
@@ -1660,6 +1669,10 @@
     "na_no_packing_list": {
       "en": "Not applicable: this file has no packing-list part.",
       "vi": "Không áp dụng: tệp này không có phần phiếu đóng gói."
+    },
+    "na_one_cargo_block": {
+      "en": "Not applicable: the B/L prints one cargo block; {by} compares it.",
+      "vi": "Không áp dụng: B/L chỉ có một khối hàng; {by} đã so sánh."
     }
   }
 }

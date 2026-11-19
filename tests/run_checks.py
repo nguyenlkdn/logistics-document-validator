@@ -199,7 +199,7 @@ def _():
     assert not closure_errors(BASE_RES, package()), closure_errors(BASE_RES, package())
     ids = {r.check_id for r in BASE_RES}
     assert ids == set(REGISTRY) - {"DOC_PAIRING"} | {"DOC_PAIRING"}, set(REGISTRY) - ids   # every check id has a record
-    assert len(REGISTRY) == 98, len(REGISTRY)
+    assert len(REGISTRY) == 99, len(REGISTRY)
 
 
 @test("T4 declared vs used inputs: every input a check read is declared in CheckDef.needs")
@@ -240,7 +240,7 @@ def removed(docs, inp):
     if d is None:
         yield False
         return
-    if name in ("items", "pl_items"):
+    if name in ("items", "pl_items", "cargo_blocks", "packages"):
         saved.append(("attr", name, getattr(d, name)))
         setattr(d, name, [])
     elif name.startswith("lists."):
@@ -261,9 +261,16 @@ def removed(docs, inp):
     elif "[" in name:
         attr, key = name.split("[")[0], name.split("[")[1].rstrip("]")
         rows = getattr(d, attr)
-        saved.append(("rows", attr, [dict(r) for r in rows]))
-        for r in rows:
-            r[key] = None
+        saved.append(("rows", attr, [dict(r) if isinstance(r, dict) else copy.copy(r) for r in rows]))
+        new = []
+        for r in rows:                                          # dict rows (items) or dataclasses (CargoBlock, Package)
+            r = dict(r) if isinstance(r, dict) else copy.copy(r)
+            if isinstance(r, dict):
+                r[key] = None
+            else:
+                setattr(r, key, None)
+            new.append(r)
+        setattr(d, attr, new)
     elif name in d.f:
         saved.append(("f", name, d.f.get(name)))
         d.f.pop(name)

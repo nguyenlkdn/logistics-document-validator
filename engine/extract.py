@@ -45,6 +45,39 @@ def F(line: Line, m: re.Match, group=1, value=_RAW) -> Field:
 
 
 @dataclass
+class CargoBlock:
+    """One cargo block of a B/L description column: goods / HS heading / cartons + quantity / invoice no.
+    A B/L that carries several invoices prints one block per invoice (LDV 2.5, P3). Canonical: rules use this."""
+    ctn: Field
+    qty: Field | None = None
+    unit: Field | None = None
+    goods: Field | None = None
+    hs: Field | None = None
+    invoice: Field | None = None
+
+
+@dataclass
+class Package:
+    """A carton (or carton range) of a packing list and the lines packed in it (LDV 2.5, P4). G.W. and CBM belong to
+    the package when it holds several lines that print them once; a line without them inherits nothing (not zero)."""
+    rng: tuple | None
+    ctn: int | None
+    gw: Field | None
+    cbm: Field | None
+    lines: list                   # indexes into Doc.pl_items
+
+
+@dataclass
+class ItemId:
+    """What identifies a goods line (LDV 2.5, P4): a finished-goods model or a part number, plus the goods type
+    from the description (config "goods_categories")."""
+    value: str | None
+    kind: str                     # model | part_no | none
+    category: str                 # finished | part | label | packaging | other
+    field: Field | None = None
+
+
+@dataclass
 class Doc:
     path: Path
     kind: str                       # CI (invoice+PL), SC, BL, CO
@@ -55,6 +88,8 @@ class Doc:
     items: list = field(default_factory=list)    # invoice / SC / CO lines
     pl_items: list = field(default_factory=list)
     lists: dict = field(default_factory=dict)    # multi-occurrence fields -> [Field]
+    cargo_blocks: list = field(default_factory=list)   # B/L: [CargoBlock]
+    packages: list = field(default_factory=list)       # packing list: [Package] when lines share a carton
 
     @property
     def name(self):

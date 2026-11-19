@@ -116,11 +116,36 @@ def render():
 
     if gaps:
         with st.expander(f"{t('unrec_title')} ({len(gaps)})", expanded=unrec_clicked):
-            for u in gaps:
-                blocked = _blocked_by(s, u)
-                st.markdown(f"- **{ui.esc(u['doc'])}** — {ui.esc(unrec_text(u))}"
+            for doc, text, n, blocked in _grouped(s, gaps):
+                st.markdown(f"- **{ui.esc(doc)}** — {ui.esc(text)}"
                             + (f"  \n  <small>{ui.esc(t('ck_blocks', checks=', '.join(blocked)))}</small>" if blocked else ""),
                             unsafe_allow_html=True)
+
+
+def _grouped(s: dict, gaps: list) -> list:
+    """Unread items of the same kind in one document as one row ('16 goods lines not read (pages 4-6)'), each with
+    the checks they block. Other items stay one row each."""
+    import re
+    rows, groups = [], {}
+    for u in gaps:
+        m = (re.match(r"Goods line not read \(page (\d+)\)", u.get("what", ""))
+             or re.match(r"Model not found for goods line \d+ \(page (\d+)\)", u.get("what", "")))
+        if not m:
+            rows.append((u["doc"], unrec_text(u), 1, _blocked_by(s, u)))
+            continue
+        kind = "lines" if u["what"].startswith("Goods") else "models"
+        g = groups.get((u["doc"], kind))
+        if g is None:
+            g = groups[(u["doc"], kind)] = dict(doc=u["doc"], kind=kind, pages=set(), n=0, u=u, pos=len(rows))
+            rows.append(None)
+        g["n"] += 1
+        g["pages"].add(int(m[1]))
+    for g in groups.values():
+        pg = sorted(g["pages"])
+        pages = f"{pg[0]}" if len(pg) == 1 else f"{pg[0]}-{pg[-1]}"
+        text = t("unrec_lines" if g["kind"] == "lines" else "unrec_models", n=g["n"], pages=pages)
+        rows[g["pos"]] = (g["doc"], text, g["n"], _blocked_by(s, g["u"]))
+    return rows
 
 
 def _blocked_by(s: dict, u: dict) -> list[str]:

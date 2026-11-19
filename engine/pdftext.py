@@ -75,6 +75,20 @@ class Line:
                 return s.bbox[0]
         return page_width - 15
 
+    def cells(self) -> list:
+        """The line split into cells at wide gaps (the same gaps that put three spaces into .text): one cell per
+        column the line crosses. Each cell is a Line of its own spans, so Fields read from it keep their place."""
+        out, cur, last_x = [], [], None
+        for s in self.spans:
+            if cur and last_x is not None and s.bbox[0] - last_x > s.size * 0.8:
+                out.append(Line(self.page, self.y, cur))
+                cur = []
+            cur.append(s)
+            last_x = s.bbox[2]
+        if cur:
+            out.append(Line(self.page, self.y, cur))
+        return out
+
     @property
     def bbox(self):
         return (min(s.bbox[0] for s in self.spans), min(s.bbox[1] for s in self.spans),

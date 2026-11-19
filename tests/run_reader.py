@@ -285,6 +285,40 @@ def _():
     assert got == ["PORT A", "PORT B", "PORT C"], got
 
 
+
+# ---- P3 columns / cargo blocks / parties (2026-11-19). Invented values.
+@test("B/L: two cargo blocks next to the shipping-mark column, one per invoice")
+def _():
+    d = pdf("p3_bl", [
+        "[ Shipper ]", "ACME CO., LTD.",
+        [(40, "ACME/BUYER"), (200, '"ACME" BRAND RICE COOKER')],
+        [(40, "MADE IN THAILAND"), (200, "#HS CODE 8516")],
+        [(40, "BUYER"), (200, "500 CARTON(S) 500 PCS")],
+        [(40, "VIETNAM"), (200, "INVOICE NO. ACME26110001")],
+        [(40, "CARTON BOX"), (200, '"SPARE PARTS OF RICE COOKER"')],
+        [(40, "C/NO. 1/1"), (200, "#HS CODE 3926")],
+        [(200, "1 CARTON(S)  120 PCS")],
+        [(200, "INVOICE NO. ABC26-XYZ021")]], "BL")
+    got = [(b.goods.value if b.goods else None, b.hs.value if b.hs else None, b.ctn.value, b.qty.value, b.unit.value,
+            b.invoice.value) for b in d.cargo_blocks]
+    assert got == [('"ACME" BRAND RICE COOKER', "8516", 500.0, 500.0, "PCS", "ACME26110001"),
+                   ('"SPARE PARTS OF RICE COOKER"', "3926", 1.0, 120.0, "PCS", "ABC26-XYZ021")], got
+    assert (d.f["bl_qty"].value, d.f["bl_qty_ctn"].value, d.f["bl_unit"].value) == (620.0, 501.0, "PCS")
+
+
+@test("invoice: consignee label without colon or space; shipper from its label, not from a signature beside the marks")
+def _():
+    d = pdf("p3_ci", [
+        "<   INVOICE   >",
+        "SHIPPER : ACME TRADING (THAILAND) CO., LTD.",
+        "CONSIGNEEBUYER VIETNAM CO., LTD.",
+        "INVOICE NO. ACME26110001",
+        [(40, "SHIPPING MARK & NO."), (300, "ACME TRADING")],
+        [(40, "VIETNAM"), (300, "(THAILAND) CO., LTD.")]], "CI")
+    assert d.f["consignee"].value == "BUYER VIETNAM CO., LTD.", d.f["consignee"]
+    assert d.f["shipper"].value == "ACME TRADING (THAILAND) CO., LTD.", d.f["shipper"]
+
+
 if __name__ == "__main__":
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     sys.exit(1 if FAILS else 0)
