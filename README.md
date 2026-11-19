@@ -40,6 +40,9 @@ ui/
   views/               dashboard · new_review · review (workspace) · compare · checks · findings · report · history ·
                        reference · settings
 docs/REDESIGN.md       UI modernisation: assessment and phased plan
+docs/ARCHITECTURE.md   pipeline, data model, check lifecycle, testing (2.5); decisions in docs/adr/
+docs/CHECKS.md         check / field status, reasons, verdict, how to add a rule
+docs/P5_DESIGN.md      plausibility gate design (awaiting owner review)
 docs/READING.md        how documents are read: accepted layouts, and what to do when a value is read wrongly
 tests/baseline/        test sets + expected.json (confidential, local only, not in git)
 tests/run_baseline.py  regression test
