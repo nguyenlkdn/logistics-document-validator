@@ -979,6 +979,25 @@ def r_bl_blocks(cis, bl, out):
     ck.end()
 
 
+_MARKS_KEYS = {"BL": ("BL_MARKS_MODEL", "BL_MARKS_MODEL"), "CO": ("CO_MARKS_MODEL", "CO_MARKS_MODEL"),
+               "CI": ("CI_MARKS_MODEL", None)}
+
+
+def _marks_none_gate(out: list):
+    """MARKS_NONE: a document's shipping marks list none of the invoice models. The whole block is one ERROR; the
+    per-model findings on the same document (each 'model not on the invoice') are withdrawn."""
+    hit = {id(f.docs[0]): f.docs[0].kind for f in out if f.key == "MARKS_NONE"}
+    if not hit:
+        return
+    drop = {(d, _MARKS_KEYS[k][0]) for d, k in hit.items() if k in _MARKS_KEYS}
+    out[:] = [f for f in out if (id(f.docs[0]), f.key) not in drop and not (
+        f.key == "PL_MARKS_MODEL" and hit.get(id(f.docs[0])) == "CI")]
+    checks = {_MARKS_KEYS[k][1] for k in hit.values() if k in _MARKS_KEYS and _MARKS_KEYS[k][1]}
+    run = current_run()
+    if checks and run is not None and run.group is not None:
+        run.override(checks, CheckStatus.NOT_RUN, "blocked_by", dict(by="MARKS"), group_id=run.group.id)
+
+
 def _block_explains(out: list):
     """Owner decision 2026-11-19: when a B/L block finding (BL_BLOCK) names the invoice whose block is wrong, the
     B/L total of the same figure (BL_QTY / BL_DESC_CTN / BL_DESC_QTY) is the same error: report it once."""
@@ -1629,6 +1648,7 @@ def _validate_group(docs: list[Doc]) -> list[Finding]:
     from .rules_net import validate_net                # cross-document + self-consistency rules (2.1)
     validate_net(docs, ci, bl, co, scs, out)
     _co_items_gate(out, docs)                           # Form D item table wrong as a whole: no item-by-item findings
+    _marks_none_gate(out)                               # marks list none of the invoice models: one ERROR per document
     return out
 
 

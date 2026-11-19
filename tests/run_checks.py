@@ -772,6 +772,34 @@ def _():
     assert f2 is not None and l2.text[f2.start:f2.end] == "AB-X10 (W1)VN", f2
 
 
+@test("B/L shipping marks listing none of the invoice models: one ERROR over the block, per-model warnings withdrawn")
+def _():
+    docs = package()
+    bl = docs[2]
+    l = _line("ZZ-900(Q1)VN", 7)
+    l2 = _line("YY-120(Q2)VN", 8)
+    bl.lists["marks_models"] = [Field("ZZ-900(Q1)VN", "ZZ-900(Q1)VN", l, 0, 12), Field("YY-120(Q2)VN", "YY-120(Q2)VN", l2, 0, 12)]
+    fs, res = run(docs)
+    none = [f for f in fs if f.key == "MARKS_NONE"]
+    assert len(none) == 1 and none[0].severity == "ERROR", [(f.key, f.severity) for f in fs]
+    assert len([x for x in none[0].locs if x.role == "wrong"]) == 1        # one box around the block
+    assert not [f for f in fs if f.key in ("BL_MARKS_MODEL", "MARKS_MISSING") and f.docs[0] is bl]
+    assert any((r.status, r.reason) == ("NOT_RUN", "blocked_by") for r in by_id(res, "BL_MARKS_MODEL", "inv1")), by_id(res, "BL_MARKS_MODEL", "inv1")
+
+
+@test("B/L marks with the invoice model plus an extra one stay a WARNING (not MARKS_NONE)")
+def _():
+    docs = package()
+    bl = docs[2]
+    ci = docs[0]
+    m = ci.items[0]["model"]
+    l = _line(m, 7); l2 = _line("ZZ-900(Q1)VN", 8)
+    bl.lists["marks_models"] = [Field(m, m, l, 0, len(m)), Field("ZZ-900(Q1)VN", "ZZ-900(Q1)VN", l2, 0, 12)]
+    fs, _res = run(docs)
+    assert not [f for f in fs if f.key == "MARKS_NONE"]
+    assert [f.severity for f in fs if f.key == "BL_MARKS_MODEL"] == ["WARNING"], [(f.key, f.severity) for f in fs]
+
+
 # ----------------------------------------------------------------------------------------------- P5 plausibility gate
 def gated(docs):
     from engine.plausibility import mark

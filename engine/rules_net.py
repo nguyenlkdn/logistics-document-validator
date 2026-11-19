@@ -406,6 +406,26 @@ def _model_at(co, it):
     return at(co, f) if f else at(co, it.get("hs_f"))
 
 
+def _block_box(locs: list) -> list:
+    """One box around consecutive lines (per page) instead of one box per line: tight lines would overlap."""
+    from .rules import Loc
+    out, pages = [], {}
+    for x in locs:
+        if x.clip is None or x.page is None:
+            out.append(x)
+        else:
+            pages.setdefault(x.page, []).append(x)
+    for pg, xs in pages.items():
+        c = (min(x.clip[0] for x in xs), min(x.clip[1] for x in xs), max(x.clip[2] for x in xs), max(x.clip[3] for x in xs))
+        out.append(Loc(xs[0].doc, pg, c, None, xs[0].role))
+    return out
+
+
+def typos_near(typos: list, models: list) -> bool:
+    """Some mark model looks like a typo of an invoice model (reported as such, so the marks are not 'all wrong')."""
+    return any(difflib.get_close_matches(t, models, n=1, cutoff=0.75) for t in typos)
+
+
 def r_marks(ci, bl, co, out):
     if not ci:
         return
@@ -447,7 +467,13 @@ def r_marks(ci, bl, co, out):
         typos = [f.value for f in lst if f.value not in models]          # reported as *_MARKS_MODEL already
         missing = [m for m in models if master.key(m) not in have
                    and not difflib.get_close_matches(m, typos, n=1, cutoff=0.75)]
-        if missing:
+        if missing and len(missing) == len(models) and not typos_near(typos, models):
+            # none of the invoice's models in these marks (copied from another shipment?): one ERROR over the block;
+            # its per-model findings are withdrawn (_marks_none_gate)
+            want = ", ".join(dict.fromkeys(it["model"] for it in ci.items if it.get("model")))   # invoice order
+            ck.add(Finding("MARKS_NONE", "ERROR", [d, ci], dict(models=want),
+                           ", ".join(f.value for f in lst), want, _block_box([x for f in lst for x in at(d, f)])))
+        elif missing:
             ck.add(Finding("MARKS_MISSING", "WARNING", [d, ci], dict(models=", ".join(missing)),
                            ", ".join(f.value for f in lst), ", ".join(models), at(d, lst[-1])))
     ck.end()

@@ -694,6 +694,12 @@
       "note_en": "Every model shipped should appear in the shipping marks",
       "note_vi": "Mọi model trong lô hàng phải có trong ký mã hiệu"
     },
+    "MARKS_NONE": {
+      "en": "Shipping marks list none of the invoice models (should be: {models})",
+      "vi": "Ký mã hiệu không có model nào của hóa đơn (phải là: {models})",
+      "note_en": "The marks name other models: probably copied from another shipment. They must list the invoice's models",
+      "note_vi": "Ký mã hiệu ghi model khác: có thể chép từ lô hàng khác. Phải ghi đúng model của hóa đơn"
+    },
     "CI_MARKS_MODEL": {
       "en": "Invoice shipping mark: model {model} is not on the invoice",
       "vi": "Ký mã hiệu trên hóa đơn: model {model} không có trên hóa đơn"
