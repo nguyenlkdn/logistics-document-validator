@@ -35,9 +35,22 @@ def render():
     # ---- import with preview
     st.write("")
     with st.container(border=True):
-        path = st.text_input(t("hs_path"), value=hs.get("source", ""), key="hs_path").strip().strip('"')
-        if st.button(t1("hs_preview_btn"), icon=":material/preview:", disabled=not path):
-            st.session_state["hs_preview_path"] = path
+        st.session_state.setdefault("hs_path", hs.get("source", ""))
+        path = st.text_input(t("hs_path"), key="hs_path").strip().strip('"')
+        with st.container(horizontal=True):
+            st.button(t1("hs_browse_btn"), icon=":material/folder_open:", on_click=_browse, args=(path,),
+                      help=t1("hs_browse_help"))
+            if st.button(t1("hs_preview_btn"), icon=":material/preview:", disabled=not path):
+                st.session_state["hs_preview_path"] = path
+        if st.session_state.get("hs_pick_failed"):           # no file dialog on this PC: upload a copy instead
+            st.caption(t("hs_upload_note"))
+            up = st.file_uploader(t1("hs_upload"), type=["xlsx", "xlsm"], key="hs_upload")
+            if up is not None:
+                dest = master.data_dir() / "uploaded" / up.name
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                dest.write_bytes(up.getvalue())
+                st.session_state["hs_preview_path"] = str(dest)
+                path = str(dest)
         pv = st.session_state.get("hs_preview_path")
         if pv and pv == path:
             preview_import(Path(pv), hs)
@@ -54,6 +67,18 @@ def render():
         if hs["skipped"]:
             with st.expander(f"{t1('hs_skipped_n')} ({len(hs['skipped'])})"):
                 skipped_table(hs["skipped"])
+
+
+def _browse(current: str):
+    """Open the PC's own file dialog; the chosen Excel goes into the path box and its preview opens."""
+    from ..filepick import pick_excel
+    chosen = pick_excel(current)
+    if chosen is None:
+        st.session_state["hs_pick_failed"] = True
+    elif chosen:
+        st.session_state["hs_path"] = chosen
+        st.session_state["hs_preview_path"] = chosen
+        st.session_state.pop("hs_pick_failed", None)
 
 
 def skipped_table(rows):

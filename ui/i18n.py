@@ -426,6 +426,13 @@ T = {
                 "Có thể sửa file Excel bất cứ lúc nào: LDV tự nhập lại trước lần kiểm tra sau. File Excel không bao giờ bị sửa."),
     "hs_path": ("Excel file path", "Đường dẫn file Excel"),
     "hs_preview_btn": ("Preview", "Xem trước"),
+    "hs_browse_btn": ("Browse…", "Chọn file…"),
+    "hs_browse_help": ("Choose the HS master Excel on this computer", "Chọn file Excel danh mục HS trên máy này"),
+    "hs_upload": ("Upload the HS master Excel", "Tải lên file Excel danh mục HS"),
+    "hs_upload_note": ("No file dialog is available here: upload the Excel instead. LDV then keeps a copy, so later edits "
+                       "to your own file are not picked up automatically — upload it again after a change.",
+                       "Máy này không mở được hộp chọn file: hãy tải file Excel lên. LDV giữ một bản sao, nên khi bạn sửa "
+                       "file gốc LDV không tự cập nhật — hãy tải lại sau mỗi lần sửa."),
     "hs_preview": ("Preview of {name}", "Xem trước {name}"),
     "hs_valid": ("{n} models will be imported, {s} row(s) ignored.", "Sẽ nhập {n} model, bỏ qua {s} dòng."),
     "hs_diff": ("Compared with the current list: {a} added, {r} removed, {c} changed.",
