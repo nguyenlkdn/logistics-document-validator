@@ -121,6 +121,9 @@ CSS = """
   .ldv-box.ldv-focus {border-width: 3px; z-index: 3;}
   .ldv-tag {position: absolute; bottom: 100%; left: -2px; color: #fff; font: 600 11px/15px sans-serif; padding: 0 4px;
             border-radius: 2px 2px 0 0; white-space: nowrap;}
+  .ldv-tag.r {bottom: auto; top: -2px; left: 100%; border-radius: 0 2px 2px 0;}
+  .ldv-tag.l {bottom: auto; top: -2px; left: auto; right: 100%; border-radius: 2px 0 0 2px;}
+  .ldv-tag.b {bottom: auto; top: 100%; border-radius: 0 0 2px 2px;}
   .ldv-hit {position: absolute; background: rgba(251,188,4,.42); pointer-events: none; z-index: 1;}
   .ldv-text {position: absolute; inset: 0; z-index: 2; overflow: hidden; font-size: 1px; line-height: 0;}
   .ldv-text span {position: absolute; color: transparent; white-space: pre; line-height: 1; cursor: text;

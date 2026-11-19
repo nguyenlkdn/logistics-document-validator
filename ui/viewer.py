@@ -94,13 +94,17 @@ def render(path: str, pno: int, zoom, boxes: list[dict], hits: list[tuple], toke
     parts = [f'<img src="data:image/png;base64,{img}" alt="page {pno + 1}">']
     for b in hits:
         parts.append(f'<div class="ldv-hit" style="{_pct(b, w, h)}"></div>')
+    from engine.evidence import tag_places                          # tags never cover another finding's box
+    tagged = [b for b in boxes if b.get("no")]
+    where = dict(zip(map(id, tagged), tag_places([tuple(b["bbox"]) + (b["no"],) for b in tagged], page_w=w)))
     for b in sorted(boxes, key=lambda b: b.get("focus", False)):     # the selected finding on top
         col = COLOR["RESOLVED"] if b["role"] == "ref" else COLOR.get(b["sev"], COLOR["ERROR"])
         cls = "ldv-box" + (" ldv-ref" if b["role"] == "ref" else "") + (" ldv-focus" if b.get("focus") else "")
         style = f"{_pct(b['bbox'], w, h, 2.5)};border-color:{col};background:{_rgba(col, .10 if b.get('focus') else .04)}"
         if b.get("focus"):
             style += f";box-shadow:0 0 0 4px {_rgba(col, .25)}"
-        tag = f'<span class="ldv-tag" style="background:{col}">#{b["no"]}</span>' if b.get("no") else ""
+        pos = {"above": "", "right": " r", "left": " l", "below": " b"}[where.get(id(b), "above")]
+        tag = f'<span class="ldv-tag{pos}" style="background:{col}">#{b["no"]}</span>' if b.get("no") else ""
         parts.append(f'<div class="{cls}" style="{style}" data-f="{b.get("fno", "")}" '
                      f'title="{html.escape(b.get("title", ""))}">{tag}</div>')
     text = []
