@@ -739,6 +739,14 @@ def _reported(out, d, page, text):
                                                  for l in f.locs) for f in out)
 
 
+def _tech_terms() -> frozenset:
+    from .rules import CONFIG
+    return frozenset(t.upper() for t in CONFIG.get("technical_terms", []))
+
+
+_TECH_TERMS = _tech_terms()
+
+
 def r_text_typo(docs, out):
     """A mistyped word anywhere in a document: this does not depend on LDV reading that field, so a typo in a value
     LDV does not compare (or cannot read because of the typo) is still shown."""
@@ -753,7 +761,9 @@ def r_text_typo(docs, out):
                 if any(x < b and a < y for x, y in found.get(id(l), [])) or _reported(out, d, l.page, w):
                     continue                        # the same place found by a word rule and a context rule: once
                 found.setdefault(id(l), []).append((a, b))
-                ck.add(Finding("TEXT_TYPO", "WARNING", [d], dict(word=w, kind=f"@typo_{kind}"), w, fix,
+                # a technical term written as it should be (RoHS): information only (config "technical_terms")
+                sev = "INFO" if w.upper() in _TECH_TERMS else "WARNING"
+                ck.add(Finding("TEXT_TYPO", sev, [d], dict(word=w, kind=f"@typo_{kind}"), w, fix,
                                at(d, Field(w, w, l, a, b))))
         ck.end()
 

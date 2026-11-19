@@ -1153,7 +1153,8 @@ def r_pod(docs, out):
         for f in d.lists.get("pod", []):
             canon = _canon_port(f.value)
             if canon and f.value.upper().strip() != canon:
-                ck.add(Finding("PORT_NAME", "WARNING", [d], {}, f.value, canon, at(d, f)))
+                # spelling of a known port (HOCHIMINH for HO CHI MINH CITY): information, not a document error (owner, 2026-11-19)
+                ck.add(Finding("PORT_NAME", "INFO", [d], {}, f.value, canon, at(d, f)))
         ck.end()
 
 
