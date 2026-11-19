@@ -447,11 +447,18 @@ def current_run() -> Run | None:
     return _RUN.get()
 
 
+_FOC = r"\bF\.?\s?O\.?\s?C\b\.?|NO COMMERCIAL VALUE|FREE OF CHARGE"
+
+
 def requirement(kind: str, g: Group, docs: list):
     """Is a document of `kind` required for group g? -> (Applicability, NOT_RUN reason, detail). Only documents in
     the package decide; FOC or the goods type exempt nothing in P1."""
     if kind in ("CI", "BL"):
         return Applicability.APPLICABLE, "document_missing", dict(kind=kind)
+    # owner rule 2026-11-19: an invoice marked F.O.C / NO COMMERCIAL VALUE needs no contract and no Form D
+    ci = next((d for d in g.docs if d.kind == "CI"), None)
+    if kind in ("SC", "CO") and ci is not None and has_text(ci, _FOC, re.I):
+        return Applicability.NOT_APPLICABLE, None, dict(kind=kind, evidence="foc_invoice", doc=ci.name)
     if kind == "SC":                                 # no document of the package says when a contract is required
         return Applicability.UNKNOWN, "requirement_unknown", dict(kind=kind, inv=g.label)
     if kind == "CO":

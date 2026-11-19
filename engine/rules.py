@@ -860,6 +860,22 @@ def r_bl_blocks(cis, bl, out):
     ck.end()
 
 
+def _block_explains(out: list):
+    """Owner decision 2026-11-19: when a B/L block finding (BL_BLOCK) names the invoice whose block is wrong, the
+    B/L total of the same figure (BL_QTY / BL_DESC_CTN / BL_DESC_QTY) is the same error: report it once."""
+    blk = {f.params.get("label") for f in out if f.key == "BL_BLOCK"}
+    if not blk:
+        return
+    drop = {k for k, lab in (("BL_QTY", "@qty"), ("BL_DESC_CTN", "@ctn")) if lab in blk}
+    if "@qty" in blk or "@ctn" in blk:
+        drop.add("BL_DESC_QTY")
+    out[:] = [f for f in out if f.key not in drop]
+    run = current_run()
+    if run is not None:
+        ids = ({"BL_CARGO_QTY"} if "@qty" in blk else set()) | ({"BL_CARGO_CTN"} if "@ctn" in blk else set())
+        run.override(ids, CheckStatus.NOT_RUN, "blocked_by", dict(by="BL_CARGO_BLOCK"))
+
+
 def r_bl_cargo(ci, co, bl, out):
     """B/L shipping marks, goods description and final destination against the invoice."""
     if not (ci and bl):
@@ -1277,6 +1293,7 @@ def validate_checks(docs: list[Doc]) -> tuple[list[Finding], list]:
             ck.end()
             run.call(_bl_invoices, docs, cis, out)
             run.call(r_bl_blocks, cis, next((d for d in docs if d.kind == "BL"), None), out)
+            _block_explains(out)
             run.close_group()
         else:
             out = _validate_multi(docs, cis)
@@ -1356,6 +1373,7 @@ def _validate_multi(docs: list[Doc], cis: list[Doc]) -> list[Finding]:
     _call(_bl_invoices, docs, cis, out)
     _call(_multi_bl_totals, shared, cis, out)
     _call(r_bl_blocks, cis, next((d for d in shared if d.kind == "BL"), None), out)
+    _block_explains(out)
     if run is not None:
         run.close_group()
     return out

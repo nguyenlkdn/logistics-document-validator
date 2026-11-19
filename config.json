@@ -1677,6 +1677,10 @@
     "na_items_are_parts": {
       "en": "Not applicable: every goods line is a part identified by its part number, not a finished-goods model.",
       "vi": "Không áp dụng: mọi dòng hàng là linh kiện có mã linh kiện, không phải model thành phẩm."
+    },
+    "na_foc_invoice": {
+      "en": "Not applicable: {doc} is marked F.O.C / no commercial value; no {kind} is required (owner rule).",
+      "vi": "Không áp dụng: {doc} ghi F.O.C / không có giá trị thương mại; không cần {kind} (quy định của chủ sở hữu)."
     }
   },
   "goods_categories": {

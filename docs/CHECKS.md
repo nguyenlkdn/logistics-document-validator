@@ -41,7 +41,7 @@ never become zero. In 2.3 the status is derived from the readers' existing conve
 | Code | Category | Meaning |
 |---|---|---|
 | `document_missing` | package | the document this check needs is not in the package (it is required: B/L, invoice; a Form D when the contract asks for one or a Form D names the invoice) |
-| `requirement_unknown` | package | no document says whether a contract / Form D is required for this invoice (FOC exempts nothing in 2.3) |
+| `requirement_unknown` | package | no document says whether a contract / Form D is required for this invoice |
 | `field_not_found` / `field_unreadable` / `field_absent_required` | reading | an input was not found / not understood / not printed |
 | `items_not_read` / `items_not_comparable` | reading | goods lines not read / lines cannot be paired one to one |
 | `too_few_values` | reading | fewer than two documents gave a value although another prints it |
@@ -93,7 +93,10 @@ with a reason (who / when / reason stored in `signoff`).
 
 ## 6. Known limits (2.3)
 
-- Applicability of a contract / Form D comes only from the documents in the package; there is no rule yet for
-  invoices that never need them (e.g. FOC parts): they show `requirement_unknown` (AMBER) until P4.
+- Applicability of a contract / Form D comes from the documents in the package. Owner rule (2026-11-19, LDV 2.5):
+  an invoice marked `F.O.C`, `NO COMMERCIAL VALUE` or `FREE OF CHARGE` needs no contract and no Form D (their checks
+  are NOT_APPLICABLE, evidence `foc_invoice`). Any other invoice without them: `requirement_unknown` (AMBER).
+- A wrong cargo block on a B/L with several invoices is reported once, by `BL_BLOCK` (owner decision 2026-11-19); the
+  B/L total check (`BL_CARGO_QTY` / `_CTN`) is then `blocked_by BL_CARGO_BLOCK`.
 - `CONTAINERS` (B/L container count vs invoice) is not made for packages with several invoices: `scope_unsupported`.
 - Field status is derived; readers set it directly from P2 on. `SUSPECT` arrives with P5 after its own design review.

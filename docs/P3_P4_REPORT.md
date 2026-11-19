@@ -50,3 +50,8 @@ Date 2026-11-19 · branch `p3-p4-structure` (from P2) · not merged, not release
    block finding explains it? (Owner choice; both kept now.)
 4. Approve the new check statuses / the one new finding into `expected_checks.json` / `expected.json`; add the two new
    sets to `expected.json`.
+
+**Owner decisions (2026-11-19):** 1A: an invoice marked F.O.C / NO COMMERCIAL VALUE / FREE OF CHARGE needs no contract
+and no Form D (NOT_APPLICABLE, evidence `foc_invoice`). 2A: a wrong B/L block is reported once (`BL_BLOCK`); the
+total check is `blocked_by BL_CARGO_BLOCK`. 3: baselines approved (`expected.json` incl. the two new sets,
+`expected_checks.json`; previous copy `expected.before_2.5.json`). 4A: P1–P4 released together as 2.5.0.

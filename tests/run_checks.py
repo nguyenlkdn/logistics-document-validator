@@ -425,15 +425,38 @@ def _():
         assert (r.status, r.reason) == ("NOT_RUN", "requirement_unknown"), (cid, r.status, r.reason)
 
 
-@test("T15 unknown requirement is NOT_RUN(requirement_unknown), never NOT_APPLICABLE (also for an FOC invoice)")
+@test("T15 unknown requirement is NOT_RUN(requirement_unknown), never NOT_APPLICABLE; an F.O.C invoice needs none (owner rule)")
 def _():
     ci, sc, bl, co = package()
-    ci.lines.append(_line("F.O.C   NO COMMERCIAL VALUE", 999))
-    _, res = run([ci, bl])
+    _, res = run([ci, bl])                                      # nothing says whether a contract / Form D is needed
     sc_co = [r for r in res if set(REGISTRY[r.check_id].kinds) & {"SC", "CO"}]
     assert sc_co and all(r.status == "NOT_RUN" and r.reason == "requirement_unknown" for r in sc_co), \
         {(r.check_id, r.status, r.reason) for r in sc_co if r.reason != "requirement_unknown"}
     assert pv(res)["state"] == "AMBER"
+    ci.lines.append(_line("F.O.C   NO COMMERCIAL VALUE", 999))   # owner rule 2026-11-19
+    _, res = run([ci, bl])
+    sc_co = [r for r in res if set(REGISTRY[r.check_id].kinds) & {"SC", "CO"}]
+    assert sc_co and all(r.status == "NOT_APPLICABLE" and r.detail.get("evidence") == "foc_invoice" for r in sc_co), \
+        {(r.check_id, r.status, r.reason) for r in sc_co}
+
+
+@test("2A one wrong B/L cargo block is reported once (the block), the B/L total check follows it")
+def _():
+    a, b = package(inv="ACME0001", name="a"), package(inv="ACME0002", name="b", model="CD-Y20(W1)VN")
+    bl = a[2]
+    bl.lists["invoice_nos"] = [F("ACME0001"), F("ACME0002")]
+    for k, v in (("gw", 2000.0), ("cbm", 10.0), ("ctn", 200.0)):
+        bl.f[k] = F(v)
+    from engine.extract import CargoBlock
+    bl.cargo_blocks = [CargoBlock(F(100.0), F(103.0), F("PCS"), None, None, F("ACME0001")),
+                       CargoBlock(F(100.0), F(100.0), F("PCS"), None, None, F("ACME0002"))]
+    bl.f["bl_qty"], bl.f["bl_qty_ctn"] = F(203.0), F(200.0)
+    fs, res = run([a[0], a[1], b[0], b[1], bl, a[3], b[3]])
+    keys = [f.key for f in fs]
+    assert keys.count("BL_BLOCK") == 1 and "BL_QTY" not in keys and "BL_DESC_QTY" not in keys, keys
+    r = by_id(res, "BL_CARGO_QTY", "shipment")[0]
+    assert (r.status, r.reason) == ("NOT_RUN", "blocked_by") and r.detail.get("by") == "BL_CARGO_BLOCK", (r.status, r.detail)
+    assert status(res, "BL_CARGO_BLOCK", "shipment") == {"FAIL"}
 
 
 @test("T6b Form D naming an invoice of another group: that group needs it (document_missing)")
