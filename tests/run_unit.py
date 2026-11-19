@@ -123,7 +123,7 @@ def main():
                     assert cell["state"] in ("value", "missing", "na", "nodoc")
             for line in c["lines"]:
                 if line["result"] == "mismatch":
-                    assert keys & {"CO_QTY", "SC_VS_CI", "CI_PL_QTY", "LINE_AMOUNT", "PL_LINE", "LINE_COUNT", "CO_MODEL"}, \
+                    assert keys & {"CO_QTY", "CO_ITEMS", "SC_VS_CI", "CI_PL_QTY", "LINE_AMOUNT", "PL_LINE", "LINE_COUNT", "CO_MODEL"}, \
                         f"{name}: line {line['model']}"
 
     @test("reviewer marks: decisions are logged with who/when, unchanged decisions are not logged twice")

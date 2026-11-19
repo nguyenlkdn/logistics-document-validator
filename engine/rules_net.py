@@ -367,21 +367,8 @@ def r_co_model(ci, co, out):
     ck = begin("CO_MODEL", out)
     ck.need_items(co)
     ck.need_items(ci)
-    if len(co.items) != len(ci.items):            # lines cannot be paired (CO_ITEMS reports it), but each Form D
-        models = {master.key(a.get("model")): a.get("model") for a in ci.items if a.get("model")}   # model must exist
-        for it in co.items:
-            m = it.get("model")
-            ck.need_item(co, it, "model")
-            if not m or not models:
-                continue
-            ck.compared()
-            if master.key(m) not in models:
-                near = difflib.get_close_matches(master.key(m), list(models), n=1, cutoff=0.75)
-                ref = models[near[0]] if near else ", ".join(models.values())
-                ck.add(Finding("CO_MODEL", "ERROR", [co, ci], dict(no=it["no"], model=m, ref=ref), m, ref,
-                               at(co, it.get("hs_f"))))
-        if not ck.n_compared:
-            ck.blocked("CO_ITEMS")
+    if len(co.items) != len(ci.items):
+        ck.blocked("CO_ITEMS")                     # the item table is wrong as a whole: CO_ITEMS reports it
         ck.end()
         return
     for it, a in ZIP(co.items, ci.items):

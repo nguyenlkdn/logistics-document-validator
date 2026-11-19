@@ -532,8 +532,8 @@ def r_co(ci, co, bl, out):
     ck.need_items(co)
     ck.need_items(ci)
     ck.compared()
-    if len(co.items) != len(ci.items):            # box every Form D item (wrong) and every invoice line (reference)
-        locs = [x for it in co.items for x in (at(co, it.get("hs_f")) or at_line(co, it["qty"].line))]
+    if len(co.items) != len(ci.items):            # the whole item table is wrong (owner, 2026-11-19): box it at once
+        locs = _co_table(co) or [x for it in co.items for x in (at(co, it.get("hs_f")) or at_line(co, it["qty"].line))]
         locs += [x for it in ci.items for x in at_line(ci, it["qty"].line, "ref")]
         ck.add(Finding("CO_ITEMS", "ERROR", [co, ci], {}, str(len(co.items)), str(len(ci.items)), locs))
     ck.end()
@@ -555,6 +555,43 @@ def r_co(ci, co, bl, out):
 
 
 _BL_QTY_TRACE = r"(?i)\b\d[\d,]*\s*(?:PCS|SETS?|PIECES?|UNITS?)\b"     # a quantity printed anywhere on the B/L
+
+
+def _co_table(co) -> list:
+    """The Form D item table (boxes 5-10) on each page with items: from the first item line down to the TOTAL lines."""
+    out = []
+    for pg in sorted({it["qty"].line.page for it in co.items}):
+        first = min((it["qty"].line for it in co.items if it["qty"].line.page == pg), key=lambda l: l.y)
+        lines = [l for l in co.lines if l.page == pg and l.y >= first.y - 1]
+        stop = next((l for l in lines if re.match(r"\s*TOTAL\s*:", l.text)), None)
+        rows = [l for l in lines if stop is None or l.y < stop.y - 1] or [first]
+        x0, y0 = min(l.bbox[0] for l in rows), min(l.bbox[1] for l in rows)
+        x1, y1 = max(l.bbox[2] for l in rows), max(l.bbox[3] for l in rows)
+        y1 = min(y1 + 1, stop.bbox[1] - 0.5) if stop is not None else y1 + 1   # never into the TOTAL lines
+        out.append(Loc(co, pg, (x0 - 2, y0 - 1, x1 + 2, y1), None, "wrong"))
+    return out
+
+
+# Form D item details: not checked one by one when the item table itself is wrong (CO_ITEMS FAIL, owner 2026-11-19)
+CO_DETAIL = ("CO_QTY", "CO_INVOICE_NO", "CO_INVOICE_DATE", "CO_MODEL", "CO_HS", "CO_PKG", "CO_GOODS_DESC",
+             "CO_MARKS_MODEL", "CO_SUM", "CO_NUMBERING")
+CO_DETAIL_KEYS = ("CO_QTY", "CO_INVOICE_NO", "CO_INVOICE_DATE", "CO_MODEL", "CO_HS_MASTER", "HS_CODE", "BL_HS_CODE",
+                  "CO_PKG_COUNT", "CO_SET_PER_CTN", "PL_SET_PER_CTN", "CO_GOODS_DESC", "CO_MARKS_MODEL", "CO_SUM",
+                  "CO_NUMBERING")
+
+
+def _co_items_gate(out: list, docs: list):
+    """CO_ITEMS failed: the Form D item table does not match the invoice lines, so its item-by-item findings would
+    suggest nothing useful. They are withdrawn and their checks become NOT_RUN blocked_by CO_ITEMS; the Form D header
+    and TOTAL lines are still checked."""
+    cos = {id(f.docs[0]) for f in out if f.key == "CO_ITEMS"}
+    if not cos:
+        return
+    out[:] = [f for f in out if not (id(f.docs[0]) in cos and f.key in CO_DETAIL_KEYS)
+              and not (f.key == "MARKS_MISSING" and id(f.docs[0]) in cos)]
+    run = current_run()
+    if run is not None and run.group is not None:
+        run.override(set(CO_DETAIL), CheckStatus.NOT_RUN, "blocked_by", dict(by="CO_ITEMS"), group_id=run.group.id)
 
 
 def _bl_qty(bl, refs, qty, qty_locs, ctn, ctn_locs, out, ck_q=None, ck_c=None, qty_src=(), ctn_src=()):
@@ -1471,6 +1508,7 @@ def _validate_group(docs: list[Doc]) -> list[Finding]:
     _call(r_dates, scs, ci, co, out)
     _call(r_vessel, ci, bl, co, out)
     _call(r_co, ci, co, bl, out)
+    _co_items_gate(out, docs)                           # early too: later scans (far dates …) report what it withdraws
     _call(r_hs, ci, co, bl, out)
     _call(r_containers, ci, bl, out)
     _call(r_bl_cargo, ci, co, bl, out)
@@ -1485,6 +1523,7 @@ def _validate_group(docs: list[Doc]) -> list[Finding]:
     _call(r_draft_status, docs, out)
     from .rules_net import validate_net                # cross-document + self-consistency rules (2.1)
     validate_net(docs, ci, bl, co, scs, out)
+    _co_items_gate(out, docs)                           # Form D item table wrong as a whole: no item-by-item findings
     return out
 
 

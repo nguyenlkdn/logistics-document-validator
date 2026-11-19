@@ -690,15 +690,21 @@ def _():
     assert len(s223["findings"]) == len(s["findings"])
 
 
-@test("Form D item model not on the invoice is reported even when the item counts differ")
+@test("Form D item table wrong as a whole (CO_ITEMS): item details not reported, header and totals still checked")
 def _():
     docs = package()
     co = docs[3]
-    co.items = [dict(co.items[0], model="AB-X10(W1)VN-XX")]          # one item, model with a wrong suffix
-    docs[0].items.append(dict(docs[0].items[0], model="CD-Y20(W1)VN"))  # the invoice has two lines
+    co.items = [dict(co.items[0], model="AB-X10(W1)VN-XX", qty=F(90.0, "90"))]     # one item, wrong model and quantity
+    docs[0].items.append(dict(docs[0].items[0], model="CD-Y20(W1)VN"))            # the invoice has two lines
+    co.f["departure"] = F(date(2026, 11, 5), "05/11/2026")                         # a header error stays reported
     fs, res = run(docs)
-    f = next((x for x in fs if x.key == "CO_MODEL"), None)
-    assert f and f.current == "AB-X10(W1)VN-XX", [x.key for x in fs]
+    keys = {f.key for f in fs}
+    assert "CO_ITEMS" in keys and "DEPARTURE_DATE" in keys, keys
+    assert not keys & {"CO_QTY", "CO_MODEL", "CO_INVOICE_NO", "CO_INVOICE_DATE", "CO_PKG_COUNT", "CO_MARKS_MODEL"}, keys
+    for cid in ("CO_QTY", "CO_MODEL", "CO_PKG", "CO_HS"):
+        r = by_id(res, cid)[0]
+        assert (r.status, r.reason, r.detail.get("by")) == ("NOT_RUN", "blocked_by", "CO_ITEMS"), (cid, r.status, r.detail)
+    assert status(res, "CO_ITEMS") == {"FAIL"}
 
 
 # ----------------------------------------------------------------------------------------------- P5 plausibility gate
