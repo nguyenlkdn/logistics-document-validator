@@ -393,8 +393,8 @@
       "vi": "C/O mục {no}: số hóa đơn ≠ hóa đơn"
     },
     "CO_ITEMS": {
-      "en": "Form D item count ≠ invoice line count",
-      "vi": "Số mục trên C/O ≠ số dòng trên hóa đơn"
+      "en": "Form D item count ≠ invoice line count{diff_en}",
+      "vi": "Số mục trên C/O ≠ số dòng trên hóa đơn{diff_vi}"
     },
     "CO_TOTAL": {
       "en": "Form D {label} ≠ {src}",

@@ -705,6 +705,10 @@ def _():
         r = by_id(res, cid)[0]
         assert (r.status, r.reason, r.detail.get("by")) == ("NOT_RUN", "blocked_by", "CO_ITEMS"), (cid, r.status, r.detail)
     assert status(res, "CO_ITEMS") == {"FAIL"}
+    f = next(x for x in fs if x.key == "CO_ITEMS")
+    assert "missing on Form D: AB-X10(W1)VN, CD-Y20(W1)VN" in f.text("en"), f.text("en")
+    assert "not on the invoice: AB-X10(W1)VN-XX" in f.text("en"), f.text("en")
+    assert f.current == "1: AB-X10(W1)VN-XX 90" and f.suggested.startswith("2: AB-X10(W1)VN 100, CD-Y20(W1)VN"), (f.current, f.suggested)
 
 
 @test("Form D TOTAL lines: words and figure both wrong -> one finding over the phrase; one part wrong -> that part")

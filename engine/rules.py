@@ -535,7 +535,7 @@ def r_co(ci, co, bl, out):
     if len(co.items) != len(ci.items):            # the whole item table is wrong (owner, 2026-11-19): box it at once
         locs = _co_table(co) or [x for it in co.items for x in (at(co, it.get("hs_f")) or at_line(co, it["qty"].line))]
         locs += [x for it in ci.items for x in at_line(ci, it["qty"].line, "ref")]
-        ck.add(Finding("CO_ITEMS", "ERROR", [co, ci], {}, str(len(co.items)), str(len(ci.items)), locs))
+        ck.add(Finding("CO_ITEMS", "ERROR", [co, ci], _items_diff(co, ci), _item_list(co), _item_list(ci), locs))
     ck.end()
     for k, ci_k in (("total_value", "amount"), ("total_qty", "qty")):
         ck = begin("CO_TOTAL.value" if k == "total_value" else "CO_TOTAL.qty", out)
@@ -578,6 +578,35 @@ def _phrase(words: Field, fig: Field) -> Field | None:
     t = words.line.text
     end = fig.end + (1 if t[fig.end:fig.end + 1] == ")" else 0)
     return Field(t[words.start:end], t[words.start:end], words.line, words.start, end)
+
+
+def _model_of(it) -> str:
+    m = it.get("model")
+    return (m.value if isinstance(m, Field) else m) or "?"
+
+
+def _item_list(d) -> str:
+    """'2 items: AB-X10(W1)VN 100, CD-Y20(W1)VN 200' (model and quantity of each line)."""
+    rows = [f"{_model_of(it)} {fmt_like(it['qty'].value, it['qty'].raw)}" for it in d.items]
+    return f"{len(rows)}: " + ", ".join(rows)
+
+
+def _items_diff(co, ci) -> dict:
+    """Models on the invoice that the Form D does not list, and models on the Form D that the invoice does not have."""
+    fd = [master.key(_model_of(it)) for it in co.items]
+    inv = [master.key(_model_of(it)) for it in ci.items]
+    show = {master.key(_model_of(it)): _model_of(it) for it in list(ci.items) + list(co.items)}
+    missing = [show[k] for k in dict.fromkeys(inv) if k not in fd]
+    extra = [show[k] for k in dict.fromkeys(fd) if k not in inv]
+    parts = dict(en=[], vi=[])
+    if missing:
+        parts["en"].append("missing on Form D: " + ", ".join(missing))
+        parts["vi"].append("C/O thiếu: " + ", ".join(missing))
+    if extra:
+        parts["en"].append("not on the invoice: " + ", ".join(extra))
+        parts["vi"].append("không có trên hóa đơn: " + ", ".join(extra))
+    return dict(diff_en=(" — " + "; ".join(parts["en"])) if parts["en"] else "",
+                diff_vi=(" — " + "; ".join(parts["vi"])) if parts["vi"] else "")
 
 
 def _co_table(co) -> list:
