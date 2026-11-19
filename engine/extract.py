@@ -9,10 +9,13 @@ from .grammar import CTN_UNIT, DATE_DMY, DEC, DEC2, DOC_ID, NUM, QTY_UNIT, SAILI
 from .pdftext import Line, doc_lines
 from .util import num, parse_date
 
-MODEL_RE = r"\b[A-Z][A-Z0-9]*-[A-Z0-9\-]+\([A-Z0-9]+\)[A-Z]*"   # e.g. AB-X10(W1)VN, CD-Y20PE(BM)VN
+# a hyphenated suffix after the colour code belongs to the model: EF-Z30-PQ(06)-MG (not EF-Z30-PQ(06))
+MODEL_TAIL = r"(?:-[A-Z0-9]+)*"
+MARK_TAIL = r"(?:-[A-Za-z0-9]+)*"
+MODEL_RE = r"\b[A-Z][A-Z0-9]*-[A-Z0-9\-]+\([A-Z0-9]+\)[A-Z]*" + MODEL_TAIL   # AB-X10(W1)VN, CD-Y20PE(BM)VN, EF-Z30(06)-MG
 # A model in the shipping marks: lowercase letters accepted after the first letter, so a typo such as
 # "AB-xX10(W1)VN" is read and reported as a wrong model instead of being skipped (no model read = nothing checked).
-MARK_RE = r"\b[A-Z][A-Za-z0-9]*-[A-Za-z0-9\-]+\([A-Za-z0-9]+\)[A-Za-z]*"
+MARK_RE = r"\b[A-Z][A-Za-z0-9]*-[A-Za-z0-9\-]+\([A-Za-z0-9]+\)[A-Za-z]*" + MARK_TAIL
 MARK_HEAD = r"[A-Z][A-Za-z0-9]*-[A-Za-z0-9\-]+"               # the part before the colour code
 PO_RE = r"PR\d{12}"
 
@@ -155,7 +158,7 @@ def column_models(lines: list) -> list:
             skip = bool(tail)
             continue
         m = re.match(r"\s*(" + MARK_HEAD + r")\s*$", t)
-        tail = re.fullmatch(r"\s*(\([A-Za-z0-9]+\)[A-Za-z]*)\s*", nxt)
+        tail = re.fullmatch(r"\s*(\([A-Za-z0-9]+\)[A-Za-z]*" + MARK_TAIL + r")\s*", nxt)
         if m and tail:
             out.append(Field(m[1] + tail[1], m[1], l, m.start(1), m.end(1)))
             skip = True
@@ -503,7 +506,9 @@ def _co_item_details(block: list) -> dict:
     m = re.search(r"1\s*CARTON\s*=\s*(\d+)\s*(?:SET|PCS|PIECE)", col, re.I)
     out["per_ctn"] = int(m[1]) if m else None
     # 'AB-X10(W1)VN', also when the pieces were joined with a space ('AB-X10 (W1)VN') or a letter is mistyped
-    m = re.search(r"MODEL\s*:\s*(" + MARK_HEAD + r")\s*(\([A-Za-z0-9]+\)[A-Za-z]*)", col)
+    # a model wrapped after a hyphen ('MODEL: EF-Z30-' / 'PQ(06)-MG') is one model
+    mcol = re.sub(r"(MODEL\s*:\s*\S*-)\s+(?=[A-Za-z0-9(])", r"\1", col)
+    m = re.search(r"MODEL\s*:\s*(" + MARK_HEAD + r")\s*(\([A-Za-z0-9]+\)[A-Za-z]*" + MARK_TAIL + r")", mcol)
     out["model"] = m[1] + m[2] if m else None
     m = re.search(r"\bBRAND\s+(.+?)\s*(?:\(\s*1\s*CARTON|MODEL\s*:|$)", col)
     if m:
@@ -544,7 +549,7 @@ def load(path: Path, kind: str | None = None) -> Doc | None:
     EXTRACTORS[kind](d)
     if kind == "CO":                                # box 6 marks: model on one line, colour code "(BK)" on the next
         d.lists["marks_models"] = [Field(a + b, a, Line(pno, 0.0), 0, 0) for pno, pg in enumerate(pdf)
-                                   for a, b in re.findall(r"(?m)^(" + MARK_HEAD + r")\s*\n\s*(\([A-Za-z0-9]+\)[A-Za-z]*)\s*$",
+                                   for a, b in re.findall(r"(?m)^(" + MARK_HEAD + r")\s*\n\s*(\([A-Za-z0-9]+\)[A-Za-z]*" + MARK_TAIL + r")\s*$",
                                                           pg.get_text())]
     d.lists["unparsed"] = _unparsed_rows(d)
     from .extract_net import EXTRA                   # extra fields for the cross-document / self-check rules

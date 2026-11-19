@@ -358,6 +358,43 @@ def _():
     assert "PL_GW_NW" in {f.key for f in validate([d])}, "a carton lighter than its lines must be reported"
 
 
+
+@test("model with a hyphenated suffix after the colour code: EF-Z30-PQ(06)-MG is read whole (2026-11-19)")
+def _():
+    import re
+    from engine.extract import MODEL_RE, _co_item_details
+    assert re.search(MODEL_RE, "  EF-Z30-PQ(06)-MG   ")[0] == "EF-Z30-PQ(06)-MG"
+    assert re.search(MODEL_RE, "AB-X10(W1)VN  100 SETS")[0] == "AB-X10(W1)VN"                 # unchanged
+    assert [f.value for f in column_models(lines("EF-Z30-PQ(06)-MG", "AB-X10(W1)VN", "CD-Y20-PQ", "(52)-MG"))] == \
+        ["EF-Z30-PQ(06)-MG", "AB-X10(W1)VN", "CD-Y20-PQ(52)-MG"]
+    d = pdf("model_suffix_ci", [
+        "< COMMERCIAL INVOICE >",
+        [(40, "INVOICE NO. ACME26110001"), (300, "DATE : 01/11/2026")],
+        [(40, "1. P/O NO.PR123456789012"), (200, "EF-Z30-PQ(06)-MG"), (330, "64"), (360, "SET(S)"), (420, "212.50"),
+         (480, "13,600.00")]], "CI")
+    assert [it["model"] for it in d.items] == ["EF-Z30-PQ(06)-MG"], d.items
+
+
+
+@test("Form D: box 6 model split at a hyphen ('EF-Z30-' / 'PQ(06)-MG'); box 7 model wrapped after a hyphen")
+def _():
+    from engine.extract import _co_item_details
+    import pymupdf
+    from engine.extract_net import _hyphen_split
+    doc = pymupdf.open()
+    pg = doc.new_page()
+    pg.insert_text((65, 380), "EF-Z30-", fontsize=8, fontname="helv")
+    pg.insert_text((65, 390), "PQ(06)-MG", fontsize=8, fontname="helv")
+    pg.insert_text((200, 380), "ONE HUNDRED (100) CARTON(S)", fontsize=8, fontname="helv")
+    assert _hyphen_split(pg) == [("EF-Z30-", "PQ(06)-MG")], _hyphen_split(pg)
+    blk = lines("1   HS. CODE. 8418.10.32", "MODEL: EF-Z30-", "PQ(06)-MG ***")
+    blk[0].spans[0].text = "HS. CODE. 8418.10.32"
+    for l in blk[1:]:
+        l.spans[0] = l.spans[0].__class__(l.spans[0].text, (blk[0].spans[0].bbox[0] + 1,) + l.spans[0].bbox[1:],
+                                          "helv", 8, 0, 0, l.spans[0].origin)
+    assert _co_item_details(blk)["model"] == "EF-Z30-PQ(06)-MG", _co_item_details(blk)
+
+
 if __name__ == "__main__":
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     sys.exit(1 if FAILS else 0)

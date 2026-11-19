@@ -5,7 +5,7 @@ Every field keeps its place in the PDF (Field), so findings can be boxed on the 
 """
 import re
 
-from .extract import MARK_HEAD, MODEL_RE, PO_RE, CargoBlock, Doc, F, Field, _after, _first, _search, column_models
+from .extract import MARK_HEAD, MARK_TAIL, MODEL_RE, PO_RE, CargoBlock, Doc, F, Field, _after, _first, _search, column_models
 from .grammar import CTN_UNIT, DATE_DMY, DEC, DEC2, DOC_ID, NUM, QTY_UNIT
 from .util import num, parse_date
 
@@ -381,6 +381,24 @@ def _co_invoices(L) -> list:
     return out
 
 
+_HY_HEAD = re.compile(r"^[A-Z][A-Za-z0-9]*-(?:[A-Za-z0-9]+-)*$")
+_HY_TAIL = re.compile(r"^[A-Za-z0-9\-]*\([A-Za-z0-9]+\)[A-Za-z]*" + MARK_TAIL + r"$")
+
+
+def _hyphen_split(page) -> list:
+    """Form D box 6: a model split at a hyphen over two lines of one column ('EF-Z30-' above 'PQ(06)-MG')."""
+    spans = [(sp["bbox"], sp["text"].strip()) for b in page.get_text("dict")["blocks"] for l in b.get("lines", [])
+             for sp in l["spans"] if sp["text"].strip()]
+    out = []
+    for (b1, t1) in spans:
+        if not _HY_HEAD.match(t1):
+            continue
+        below = [(b2, t2) for b2, t2 in spans if abs(b2[0] - b1[0]) < 5 and 0 < b2[1] - b1[1] < 16 and _HY_TAIL.match(t2)]
+        if below:
+            out.append((t1, min(below, key=lambda x: x[0][1])[1]))
+    return out
+
+
 def extra_co(d: Doc):
     L = d.lines
     d.lists["invoices"] = _co_invoices(L)
@@ -406,7 +424,9 @@ def extra_co(d: Doc):
     for pno, pg in enumerate(pdf):
         t = pg.get_text()
         pairs = re.findall(r"(?m)^(" + MARK_HEAD + r"\([A-Za-z0-9]+\))\s*\n\s*([A-Z]{1,3})\s*$", t)
-        pairs += [(a, "") for a in re.findall(r"(?m)^\s*(" + MARK_HEAD + r"\([A-Za-z0-9]+\)[A-Za-z]{1,3})\s*$", t)]
+        pairs += [(a, "") for a in re.findall(r"(?m)^\s*(" + MARK_HEAD + r"\([A-Za-z0-9]+\)(?=[A-Za-z\-])[A-Za-z]{0,3}"
+                                              + MARK_TAIL + r")\s*$", t)]          # ...(W1)VN, ...(06)-MG
+        pairs += _hyphen_split(pg)                 # 'EF-Z30-' / 'PQ(06)-MG' (split at a hyphen, same column)
         for a, b in pairs:                         # ... or on one line: 'AB-X10(W1)VN'
             if a + b not in have:
                 have.add(a + b)

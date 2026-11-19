@@ -690,6 +690,17 @@ def _():
     assert len(s223["findings"]) == len(s["findings"])
 
 
+@test("Form D item model not on the invoice is reported even when the item counts differ")
+def _():
+    docs = package()
+    co = docs[3]
+    co.items = [dict(co.items[0], model="AB-X10(W1)VN-XX")]          # one item, model with a wrong suffix
+    docs[0].items.append(dict(docs[0].items[0], model="CD-Y20(W1)VN"))  # the invoice has two lines
+    fs, res = run(docs)
+    f = next((x for x in fs if x.key == "CO_MODEL"), None)
+    assert f and f.current == "AB-X10(W1)VN-XX", [x.key for x in fs]
+
+
 # ----------------------------------------------------------------------------------------------- P5 plausibility gate
 def gated(docs):
     from engine.plausibility import mark
