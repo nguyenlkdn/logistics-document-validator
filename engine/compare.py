@@ -71,6 +71,12 @@ def _values(doc: dict, src: str, typ: str) -> tuple[list[str], int | None]:
             if v:
                 return v, p
         return [], None
+    if src.startswith("Σitems."):                 # no printed total: the lines added up (as the rules do: true_total)
+        key = src.split(".", 1)[1]
+        vals = [_num(it.get(key)) for it in doc.get("items", [])]
+        if not vals or any(v is None for v in vals):
+            return [], None
+        return [str(round(sum(vals), 6))], next((it.get("_page") for it in doc.get("items", []) if it.get("_page")), None)
     if src.startswith("items."):
         key = src.split(".", 1)[1]
         vals, page = [], None
@@ -91,7 +97,7 @@ def _values(doc: dict, src: str, typ: str) -> tuple[list[str], int | None]:
 def _absent(d: dict, src: str) -> bool:
     """The document's layout does not print this field at all (extract_net marks it), so it is not 'not read'."""
     a = (d.get("fields", {}).get("absent") or {}).get("value") or ""
-    return any(k.strip() in a.split(", ") for k in src.split("|"))
+    return all(k.strip() in a.split(", ") for k in src.split("|"))   # 'a|b': not printed only if neither is
 
 
 def _cell(docs: list[dict], src: str, typ: str) -> dict:

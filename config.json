@@ -1005,7 +1005,7 @@
         "type": "number",
         "unit": "",
         "src": {
-          "CI": "total_qty",
+          "CI": "total_qty|Σitems.qty",
           "PL": "pl_total_qty",
           "SC": "total_qty",
           "BL": "bl_qty",
