@@ -546,7 +546,8 @@ def r_co(ci, co, bl, out):
         if a and bv is not None:
             ck.compared()
         if a and bv is not None and not _close(a.value, bv):
-            ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label=f"@{k}"), a.raw, f"{bv:,.2f}".rstrip("0").rstrip("."),
+            ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label=f"@{k}", src="@src_invoice"), a.raw,
+                           f"{bv:,.2f}".rstrip("0").rstrip("."),
                            at(co, a) + at(ci, b, "ref")))
         ck.end()
     # Box 9 showing quantity (SET / PCS) instead of a per-item FOB value is normal practice, not a finding:
@@ -1156,11 +1157,11 @@ def r_co_packages(ci, co, out):
     if tot and ref:
         ck.compared()
         if not _close(tot.value, ref.value):
-            ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label="@ctn"), tot.raw, f"{ref.value:,.0f}",
+            ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label="@ctn", src="@src_pl"), tot.raw, f"{ref.value:,.0f}",
                            at(co, tot) + at(ci, ref, "ref")))
         wv = words_to_number(tot_w.value) if tot_w else None
         if wv is not None and not _close(wv, ref.value):
-            ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label="@ctn_words"), tot_w.value,
+            ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label="@ctn_words", src="@src_pl"), tot_w.value,
                            number_to_words(ref.value), at(co, tot_w) + at(ci, ref, "ref")))
     ck.end()
 
@@ -1193,8 +1194,12 @@ def r_words(docs, out):
                     continue                  # carton counts: r_co_packages checks words and figures vs the packing list
                 if d.kind == "BL" and re.match(r"\s*CONTAINER", joined[m.end():]):
                     continue                  # container count in words: r_containers (CNTR_WORDS)
-                checks.append((m[1], float(m[2].replace(",", "")), f"{m[1]} ({m[2]})",
-                               [Loc(d, None, None, f"({m[2]})")]))
+                # box the figure on the line where it follows these words (not the first '(n)' on the page)
+                tail = m[1].split()[-1]
+                ln = next((l for l in d.lines if re.search(re.escape(tail) + r"\s*\(" + re.escape(m[2]) + r"\)", l.text)), None)
+                fm = re.search(r"\(" + re.escape(m[2]) + r"\)", ln.text) if ln else None
+                loc = at(d, Field(m[2], f"({m[2]})", ln, fm.start(), fm.end())) if fm else [Loc(d, None, None, f"({m[2]})")]
+                checks.append((m[1], float(m[2].replace(",", "")), f"{m[1]} ({m[2]})", loc))
         for words, n, what, locs in checks:
             w = words_to_number(words)
             if w is not None and not _close(w, n):

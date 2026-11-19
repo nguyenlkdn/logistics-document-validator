@@ -277,6 +277,14 @@
     "typo_size": {
       "en": "a container size that does not exist (20, 40 or 45 ft)",
       "vi": "cỡ container không tồn tại (20, 40 hoặc 45 ft)"
+    },
+    "src_invoice": {
+      "en": "invoice",
+      "vi": "hóa đơn"
+    },
+    "src_pl": {
+      "en": "packing list",
+      "vi": "phiếu đóng gói"
     }
   },
   "messages": {
@@ -381,8 +389,8 @@
       "vi": "Số mục trên C/O ≠ số dòng trên hóa đơn"
     },
     "CO_TOTAL": {
-      "en": "Form D {label} ≠ invoice",
-      "vi": "{label} trên C/O ≠ hóa đơn"
+      "en": "Form D {label} ≠ {src}",
+      "vi": "{label} trên C/O ≠ {src}"
     },
     "CO_HS_MASTER": {
       "en": "Form D item {no} ({model}): HS code should be {ref} (HS master list)",
