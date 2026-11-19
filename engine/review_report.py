@@ -278,7 +278,8 @@ def build_html(s: dict, marks: dict, trails: dict, cmp: dict | None, signoff: di
                 txt = (f'{cell.get("label", "")}: {L("blank")}' if cell["state"] == "blank" else
                        {"value": cell.get("show", ""), "missing": L("not_read"), "na": "·", "nodoc": L("nodoc")}[cell["state"]])
                 bg = TINT["ERROR"] if cell.get("odd") else TINT["MINOR"] if cell["state"] == "missing" else ""
-                a(f"<td style='{'background:' + bg if bg else ''}'>{_e(txt)}</td>")
+                fg = f"color:{COLOR['WARNING']};font-weight:bold;" if cell["state"] == "blank" else ""   # blank on the document
+                a(f"<td style='{fg}{'background:' + bg if bg else ''}'>{_e(txt)}</td>")
             rc = "#b3261e" if r["result"] == "mismatch" else "#202124"
             a(f"<td style='color:{rc};font-weight:bold'>{_e(L('cmp_' + r['result']))}</td></tr>")
         a("</table>")
@@ -471,6 +472,8 @@ def to_xlsx(s: dict, marks: dict, trails: dict, cmp: dict | None, signoff: dict 
             for i, c in enumerate(cells, 1):
                 if c.get("odd"):
                     row[i].fill = PatternFill("solid", fgColor="FCE8E6")
+                elif c["state"] == "blank":
+                    row[i].font = Font(color=COLOR["WARNING"].lstrip("#"), bold=True)
         for i in range(len(cmp["columns"]) + 2):
             ws.column_dimensions[chr(65 + i)].width = 26
     path.parent.mkdir(parents=True, exist_ok=True)

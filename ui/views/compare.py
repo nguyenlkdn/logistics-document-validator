@@ -35,7 +35,7 @@ TABLE_CSS = """<style>
 .ldv-xc .doc {color: #80868b; font-size: 0.72rem; margin-left: 4px; white-space: nowrap;}
 .ldv-xc .sum {display: block; border-top: 1px dashed #dadce0; margin-top: 2px; padding-top: 1px; font-weight: 600;}
 .ldv-xc td.odd {background: #fce8e6;} .ldv-xc td.odd .v {color: #b3261e !important; font-weight: 600;}
-.ldv-xc td.missing {background: #fef7e0; color: #5f6368;} .ldv-xc td.na, .ldv-xc td.nodoc {color: #9aa0a6;}
+.ldv-xc td.missing {background: #fef7e0; color: #5f6368;} .ldv-xc td.blank {color: #e8710a; font-weight: 600;} .ldv-xc td.na, .ldv-xc td.nodoc {color: #9aa0a6;}
 </style>"""
 
 
