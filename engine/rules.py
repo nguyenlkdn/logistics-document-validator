@@ -545,7 +545,15 @@ def r_co(ci, co, bl, out):
         ck.need_total_val(ci, ci_k, b)
         if a and bv is not None:
             ck.compared()
-        if a and bv is not None and not _close(a.value, bv):
+        words = (co.lists.get("total_qty_words") or [None])[0] if k == "total_qty" else None
+        wv = words_to_number(words.value) if words else None
+        ph = _phrase(words, a) if a else None
+        if a and bv is not None and not _close(a.value, bv) and ph is not None and wv is not None and not _close(wv, bv):
+            # words and figure both wrong: one finding over the whole phrase (owner, 2026-11-19)
+            want = f"{_words_like(bv, words.value)} ({fmt_like(bv, a.raw)})"
+            ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label="@total_qty_phrase", src="@src_invoice"), ph.raw,
+                           want, at(co, ph) + at(ci, b, "ref")))
+        elif a and bv is not None and not _close(a.value, bv):
             ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label=f"@{k}", src="@src_invoice"), a.raw,
                            f"{bv:,.2f}".rstrip("0").rstrip("."),
                            at(co, a) + at(ci, b, "ref")))
@@ -555,6 +563,21 @@ def r_co(ci, co, bl, out):
 
 
 _BL_QTY_TRACE = r"(?i)\b\d[\d,]*\s*(?:PCS|SETS?|PIECES?|UNITS?)\b"     # a quantity printed anywhere on the B/L
+
+
+def _words_like(n, sample: str) -> str:
+    """n in words, written like sample ('NINETY FOUR' without a hyphen gives 'NINETY EIGHT')."""
+    w = number_to_words(n)
+    return w if "-" in (sample or "") else w.replace("-", " ")
+
+
+def _phrase(words: Field, fig: Field) -> Field | None:
+    """'NINETY FIVE (95)' as one Field when the words and the figure are on one line."""
+    if words is None or fig is None or words.line is not fig.line or words.end > fig.start:
+        return None
+    t = words.line.text
+    end = fig.end + (1 if t[fig.end:fig.end + 1] == ")" else 0)
+    return Field(t[words.start:end], t[words.start:end], words.line, words.start, end)
 
 
 def _co_table(co) -> list:
@@ -1193,13 +1216,21 @@ def r_co_packages(ci, co, out):
     ck.need_total_val(ci, "ctn", ref)
     if tot and ref:
         ck.compared()
+        wv = words_to_number(tot_w.value) if tot_w else None
+        ph = _phrase(tot_w, tot)
+        if not _close(tot.value, ref.value) and wv is not None and not _close(wv, ref.value) and ph is not None:
+            # words and figure both wrong: one finding over the whole phrase (owner, 2026-11-19)
+            want = f"{_words_like(ref.value, tot_w.value)} ({fmt_like(ref.value, tot.raw)})"
+            ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label="@ctn_phrase", src="@src_pl"), ph.raw, want,
+                           at(co, ph) + at(ci, ref, "ref")))
+            ck.end()
+            return
         if not _close(tot.value, ref.value):
             ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label="@ctn", src="@src_pl"), tot.raw, f"{ref.value:,.0f}",
                            at(co, tot) + at(ci, ref, "ref")))
-        wv = words_to_number(tot_w.value) if tot_w else None
         if wv is not None and not _close(wv, ref.value):
             ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label="@ctn_words", src="@src_pl"), tot_w.value,
-                           number_to_words(ref.value), at(co, tot_w) + at(ci, ref, "ref")))
+                           _words_like(ref.value, tot_w.value), at(co, tot_w) + at(ci, ref, "ref")))
     ck.end()
 
 
@@ -1237,7 +1268,12 @@ def r_words(docs, out):
                 fm = re.search(r"\(" + re.escape(m[2]) + r"\)", ln.text) if ln else None
                 loc = at(d, Field(m[2], f"({m[2]})", ln, fm.start(), fm.end())) if fm else [Loc(d, None, None, f"({m[2]})")]
                 checks.append((m[1], float(m[2].replace(",", "")), f"{m[1]} ({m[2]})", loc))
+        # a Form D TOTAL line already reported against the invoice / packing list: not again as words vs figures
+        covered = [l for f in out if f.key == "CO_TOTAL" for l in f.locs if l.role == "wrong" and l.doc is d]
         for words, n, what, locs in checks:
+            if any(l.page == c.page and l.clip and c.clip and l.clip[1] < c.clip[3] and c.clip[1] < l.clip[3]
+                   for l in locs for c in covered):
+                continue                      # the whole phrase is already reported against the invoice / packing list
             w = words_to_number(words)
             if w is not None and not _close(w, n):
                 ck.add(Finding("WORDS_VS_FIGURES", "ERROR", [d], dict(what=what), f"{words.strip()} = {w:,}",

@@ -474,6 +474,14 @@ def _extract_co(d: Doc):
         m = re.search(rf"\(({NUM})\)\s*USD", joined)
         d.f["total_value"] = Field(num(m[1]), m[1], L[0], 0, 0) if m else None
     d.f["total_qty"] = _first(L, rf"TOTAL\s*:\s*[A-Z\- ]+\(({NUM})\)\s*(?:SET|PIECE|PCS)", conv=num, flags=0)
+    for _, l, m in _search(L, tot_rx + r"(?:SET|PIECE|PCS)", 0):   # the quantity total in words ('TWO HUNDRED …')
+        tw = m[1].split()
+        while tw and tw[0].split("-")[0] not in NUMBER_WORDS:
+            tw.pop(0)
+        if tw:
+            w = " ".join(tw)
+            d.lists["total_qty_words"] = [Field(w, w, l, m.end(1) - len(w), m.end(1))]
+        break
     if d.f["total_qty"] is None:
         m = re.search(rf"TOTAL : [A-Z\- ]+\(({NUM})\) (?:SET|PIECE|PCS)", joined)
         d.f["total_qty"] = Field(num(m[1]), m[1], L[0], 0, 0) if m else None

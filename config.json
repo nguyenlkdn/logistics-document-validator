@@ -285,6 +285,14 @@
     "src_pl": {
       "en": "packing list",
       "vi": "phiếu đóng gói"
+    },
+    "ctn_phrase": {
+      "en": "number of cartons (words and figures)",
+      "vi": "số thùng (bằng chữ và bằng số)"
+    },
+    "total_qty_phrase": {
+      "en": "total quantity (words and figures)",
+      "vi": "tổng số lượng (bằng chữ và bằng số)"
     }
   },
   "messages": {

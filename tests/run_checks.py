@@ -707,6 +707,28 @@ def _():
     assert status(res, "CO_ITEMS") == {"FAIL"}
 
 
+@test("Form D TOTAL lines: words and figure both wrong -> one finding over the phrase; one part wrong -> that part")
+def _():
+    def total_line(words, fig, unit):
+        ln = _line(f"TOTAL : {words} ({fig}) {unit}***")
+        i = ln.text.index(words)
+        j = ln.text.index(f"({fig})") + 1
+        return Field(words, words, ln, i, i + len(words)), Field(float(fig), fig, ln, j, j + len(fig))
+    docs = package()                                            # invoice / packing list: 100 sets in 100 cartons
+    co = docs[3]
+    co.f["total_ctn_words"], co.f["total_ctn"] = total_line("NINETY FIVE", "95", "CARTON")
+    w, q = total_line("NINETY FIVE", "95", "SET")
+    co.f["total_qty"], co.lists["total_qty_words"] = q, [w]
+    fs, _res = run(docs)
+    tot = sorted((f.params["label"], f.current, f.suggested) for f in fs if f.key == "CO_TOTAL")
+    assert tot == [("@ctn_phrase", "NINETY FIVE (95)", "ONE HUNDRED (100)"),
+                   ("@total_qty_phrase", "NINETY FIVE (95)", "ONE HUNDRED (100)")], tot
+    assert not [f for f in fs if f.key == "WORDS_VS_FIGURES"]
+    co.f["total_ctn_words"], co.f["total_ctn"] = total_line("ONE HUNDRED", "95", "CARTON")      # only the figure
+    fs, _res = run(docs)
+    assert ("@ctn", "95", "100") in {(f.params["label"], f.current, f.suggested) for f in fs if f.key == "CO_TOTAL"}
+
+
 # ----------------------------------------------------------------------------------------------- P5 plausibility gate
 def gated(docs):
     from engine.plausibility import mark
