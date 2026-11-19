@@ -2,6 +2,10 @@
 
   python tests/run_baseline.py            # check (exit code 1 on any difference)
   python tests/run_baseline.py --update   # approve current output as the new baseline (after manual review!)
+  python tests/run_baseline.py --update-checks   # approve the check statuses only (expected_checks.json)
+
+Check statuses (LDV 2.3, engine/checks.py) are kept in their own file, expected_checks.json, so approving them never
+touches the approved findings in expected.json. A set missing from one file is only reported for that file.
 """
 import json
 import os
@@ -19,6 +23,47 @@ from engine.report import plain                # noqa: E402
 
 BASE = Path(__file__).resolve().parent / "baseline"
 EXPECTED = BASE / "expected.json"
+EXPECTED_CHECKS = BASE / "expected_checks.json"
+
+
+def check_snapshot(zip_path: Path) -> list:
+    """One line per check record: id | group | document | status | reason."""
+    from engine import collect
+    from engine.extract import load
+    from engine.rules import validate_checks
+    with tempfile.TemporaryDirectory() as tmp:
+        files = collect([zip_path], Path(tmp))
+        docs = [d for d in (load(p) for p in files if p.suffix.lower() == ".pdf") if d]
+        _, checks = validate_checks(docs)
+    return sorted(f"{c.check_id} | {c.group_id} | {c.doc} | {c.status} | {c.reason or ''}" for c in checks)
+
+
+def compare_checks() -> int:
+    current = {z.name: check_snapshot(z) for z in test_sets()}
+    if "--update-checks" in sys.argv:
+        EXPECTED_CHECKS.write_text(json.dumps(current, indent=1, ensure_ascii=False), encoding="utf-8")
+        print(f"Check statuses approved: {EXPECTED_CHECKS}")
+        return 0
+    if not EXPECTED_CHECKS.exists():
+        print("CHECKS  no expected_checks.json yet (approve with --update-checks after review)")
+        return 0
+    expected = json.loads(EXPECTED_CHECKS.read_text(encoding="utf-8"))
+    failures = 0
+    for name in sorted(set(expected) | set(current)):
+        e, c = expected.get(name), current.get(name)
+        if e == c:
+            print(f"PASS  checks {name}  ({len(c)} records)")
+            continue
+        failures += 1
+        print(f"FAIL  checks {name}")
+        if e is None or c is None:
+            print("   set missing from", "expected_checks.json" if e is None else "the test sets")
+            continue
+        for x in sorted(set(e) - set(c)):
+            print(f"   - {x}")
+        for x in sorted(set(c) - set(e)):
+            print(f"   + {x}")
+    return failures
 
 
 def snapshot(zip_path: Path) -> dict:
@@ -56,6 +101,8 @@ def main():
     if not test_sets():
         print("No test sets in tests/baseline/ (confidential, kept outside git). See tests/baseline/README.md.")
         return 0
+    if "--update-checks" in sys.argv:
+        return compare_checks()
     current = {z.name: snapshot(z) for z in test_sets()}
     if "--update" in sys.argv:
         EXPECTED.write_text(json.dumps(current, indent=1, ensure_ascii=False, default=str), encoding="utf-8")
@@ -83,6 +130,7 @@ def main():
                         print(f"   + new      [{k}] {x}")
                 else:
                     print(f"   ~ changed  [{k}]")
+    failures += compare_checks()
     print("RESULT:", "ALL PASS" if not failures else f"{failures} FAILED")
     return 1 if failures else 0
 

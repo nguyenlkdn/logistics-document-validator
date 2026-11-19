@@ -160,3 +160,6 @@ vs both invoices, B/L invoice list, B/L cargo quantity) plus `requirement_unknow
 visible on purpose (gaps now reported instead of hidden) or belong to P2–P4. Before release 2.3.0: owner approval of
 this report, the HS-master deviation (§B), the table E statuses as `expected_checks.json`, and a check on the office PC.
 P2 has not been started.
+
+**Owner decision (2026-11-19):** accepted. The HS-master handling (§B) is kept, the table E statuses are approved as
+`tests/baseline/expected_checks.json` (local, compared by `tests/run_baseline.py`), and 2.3.0 is released.
