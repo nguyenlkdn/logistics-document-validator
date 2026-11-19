@@ -219,6 +219,10 @@ def _extract_ci(d: Doc):
         d.f["containers"] = F(l, m, 1, value=n)
         d.f["containers"].raw = d.f["containers"].raw.strip(" ,&+")
         break
+    if d.f.get("containers") is None:          # label printed, nothing after it: a blank on the document, not unread
+        for _, l, m in _search(L, r"(TOTAL CONTAINER)\s*:\s*$"):
+            d.f["blank:containers"] = Field(m[1], m[0].strip(), l, m.start(), m.end())
+            break
     d.f["goods"] = _first(L, r'"?TOSHIBA"?\s*BRAND\s+([A-Z][A-Z ]*?[A-Z])\s*(?:\s{2,}|$)')
     pos = set()
     for _, l, m in _search(L, PO_RE, 0):

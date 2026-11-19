@@ -44,6 +44,8 @@ def _name(x: dict) -> str:
 
 
 def _cell_text(c: dict) -> str:
+    if c["state"] == "blank":
+        return f'{c.get("label", "")}: {t1("cmp_blank")}'
     return {"value": c.get("show", ""), "missing": t1("cmp_missing"), "na": "·", "nodoc": t1("cmp_nodoc")}[c["state"]]
 
 
@@ -154,7 +156,7 @@ def source_picker(shown: list, cols: list, s: dict):
         a, b = st.columns(2)
         ri = a.selectbox(t1("cmp_field"), range(len(shown)), format_func=lambda i: _name(shown[i]), key="cmp_src_row")
         r = shown[ri]
-        opts = [i for i, x in enumerate(cols) if r["cells"][x["id"]]["state"] in ("value", "missing")]
+        opts = [i for i, x in enumerate(cols) if r["cells"][x["id"]]["state"] in ("value", "missing", "blank")]
         if not opts:
             st.caption(t("cmp_na_txt"))
             return
@@ -179,6 +181,10 @@ def detail(r: dict, col: dict, s: dict):
         elif cell["state"] == "missing":
             st.write(t("cmp_missing_txt"))
             st.button(t1("cmp_open"), icon=":material/find_in_page:", on_click=_open, args=(cell["doc"], 1),
+                      key=f"cmp_go_{r['id']}_{col['id']}")
+        elif cell["state"] == "blank":
+            st.write(t("cmp_blank_txt", label=cell.get("label", "")))
+            st.button(t1("cmp_open"), icon=":material/find_in_page:", on_click=_open, args=(cell["doc"], cell.get("page") or 1),
                       key=f"cmp_go_{r['id']}_{col['id']}")
         elif cell["state"] == "na":
             st.write(t("cmp_na_txt"))

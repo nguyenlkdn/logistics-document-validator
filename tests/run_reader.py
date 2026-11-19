@@ -426,6 +426,20 @@ def _():
     assert det["pkg_words"] == "SEVENTY" and w is not None and w.line.text[w.start:w.end] == "SEVENTY", det
 
 
+
+@test("invoice 'TOTAL CONTAINER :' printed with nothing after it is a blank, not unread; cross-check shows it")
+def _():
+    from engine.compare import _cell
+    d = pdf("blank_cntr_ci", [
+        "< COMMERCIAL INVOICE >",
+        [(40, "INVOICE NO. ACME26110001"), (300, "DATE : 01/11/2026")],
+        "TOTAL CONTAINER : ",
+        "FREIGHT COLLECT"], "CI")
+    assert d.f.get("containers") is None and d.f.get("blank:containers") is not None, d.f.get("blank:containers")
+    doc = dict(name="ci.pdf", fields={"blank:containers": dict(value="TOTAL CONTAINER", page=1)})
+    c = _cell([doc], "containers", "number")
+    assert c["state"] == "blank" and c["label"] == "TOTAL CONTAINER" and c["page"] == 1, c
+
 if __name__ == "__main__":
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     sys.exit(1 if FAILS else 0)

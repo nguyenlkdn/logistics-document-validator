@@ -101,6 +101,9 @@ def _pl_header(d: Doc, pl: list):
     for k in PL_HEADER:
         if sub.f.get(k) and sub.f[k].value not in (None, "", []):
             d.f["pl_" + k] = sub.f[k]
+    for k in [k for k in sub.f if k.startswith("blank:")]:              # printed blank on the packing list
+        if k[6:] in PL_HEADER:
+            d.f["blank:pl_" + k[6:]] = sub.f[k]
     d.lists["pl_marks_models"] = sub.lists.get("marks_models", [])     # shipping marks printed on the packing list
     if sub.f.get("absent"):
         a = [x for x in sub.f["absent"].value.split(", ") if x in PL_HEADER]

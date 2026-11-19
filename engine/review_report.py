@@ -60,7 +60,7 @@ TXT = {
     "none": ("No findings.", "Không có lỗi."), "field": ("Field", "Thông tin"), "result": ("Result", "Kết quả"),
     "cmp_match": ("Match", "Khớp"), "cmp_mismatch": ("Mismatch", "Không khớp"),
     "cmp_incomplete": ("Not read everywhere", "Thiếu giá trị"), "cmp_single": ("Only one document", "Chỉ một chứng từ"),
-    "cmp_none": ("Not read", "Không đọc được"), "not_read": ("not read", "không đọc được"),
+    "cmp_none": ("Not read", "Không đọc được"), "not_read": ("not read", "không đọc được"), "blank": ("(empty)", "(để trống)"),
     "nodoc": ("no document", "không có chứng từ"), "cmp_not_read": ("Not compared (not read by LDV): {f}",
                                                                     "Chưa đối chiếu (LDV chưa đọc): {f}"),
     "cmp_only_diff": ("Fields that agree on every document are left out ({n}).",
@@ -275,7 +275,8 @@ def build_html(s: dict, marks: dict, trails: dict, cmp: dict | None, signoff: di
             a(f"<tr><td>{_e(L.pick(r['en'], r['vi']))}{' (' + r['unit'] + ')' if r['unit'] else ''}</td>")
             for c in cols:
                 cell = r["cells"][c["id"]]
-                txt = {"value": cell.get("show", ""), "missing": L("not_read"), "na": "·", "nodoc": L("nodoc")}[cell["state"]]
+                txt = (f'{cell.get("label", "")}: {L("blank")}' if cell["state"] == "blank" else
+                       {"value": cell.get("show", ""), "missing": L("not_read"), "na": "·", "nodoc": L("nodoc")}[cell["state"]])
                 bg = TINT["ERROR"] if cell.get("odd") else TINT["MINOR"] if cell["state"] == "missing" else ""
                 a(f"<td style='{'background:' + bg if bg else ''}'>{_e(txt)}</td>")
             rc = "#b3261e" if r["result"] == "mismatch" else "#202124"
@@ -463,7 +464,8 @@ def to_xlsx(s: dict, marks: dict, trails: dict, cmp: dict | None, signoff: dict 
         for r in cmp["rows"]:
             cells = [r["cells"][c["id"]] for c in cmp["columns"]]
             ws.append([L.pick(r["en"], r["vi"])] + [
-                {"value": c.get("show", ""), "missing": L("not_read"), "na": "", "nodoc": L("nodoc")}[c["state"]]
+                (f'{c.get("label", "")}: {L("blank")}' if c["state"] == "blank" else
+                 {"value": c.get("show", ""), "missing": L("not_read"), "na": "", "nodoc": L("nodoc")}[c["state"]])
                 for c in cells] + [L("cmp_" + r["result"])])
             row = ws[ws.max_row]
             for i, c in enumerate(cells, 1):

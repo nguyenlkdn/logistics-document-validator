@@ -120,7 +120,7 @@ def main():
                 if row["result"] == "mismatch":
                     assert keys & FIELD_RULES[row["id"]], f"{name}: {row['id']} mismatch without a rule finding"
                 for cell in row["cells"].values():
-                    assert cell["state"] in ("value", "missing", "na", "nodoc")
+                    assert cell["state"] in ("value", "missing", "blank", "na", "nodoc")
             for line in c["lines"]:
                 if line["result"] == "mismatch":
                     assert keys & {"CO_QTY", "CO_ITEMS", "SC_VS_CI", "CI_PL_QTY", "LINE_AMOUNT", "PL_LINE", "LINE_COUNT", "CO_MODEL"}, \

@@ -111,6 +111,11 @@ def _cell(docs: list[dict], src: str, typ: str) -> dict:
             pages.append(p)
             names.append(d["name"])
     if not vals:
+        for d in docs:                            # the label is printed with nothing after it: say so, not 'not read'
+            b = next((d.get("fields", {}).get("blank:" + k.strip()) for k in src.split("|")
+                      if d.get("fields", {}).get("blank:" + k.strip())), None)
+            if b:
+                return dict(state="blank", label=b.get("value") or "", doc=d["name"], page=b.get("page"))
         return dict(state="missing", doc=docs[0]["name"], page=None)
     # every document's own values, for the table (one line each, coloured per value)
     parts = [dict(doc=n, page=p, show=[fmt(a, typ) for a in v], norm=[_norm(a, typ) for a in v])

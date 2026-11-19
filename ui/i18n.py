@@ -306,6 +306,9 @@ T = {
     "cmp_single": ("Only one document", "Chỉ một chứng từ"),
     "cmp_none": ("Not read", "Không đọc được"),
     "cmp_missing": ("not read", "không đọc được"),
+    "cmp_blank": ("(empty)", "(để trống)"),
+    "cmp_blank_txt": ("The document prints '{label}:' with nothing after it: the value is blank on the document.",
+                      "Chứng từ ghi '{label}:' nhưng không có giá trị phía sau: ô này để trống trên chứng từ."),
     "cmp_nodoc": ("no document", "không có chứng từ"),
     "cmp_legend": ("Red: differs from the other documents. Yellow: should be on this document but was not read. "
                    "“·”: not printed on this document (this kind of document or this layout). “Where does a value come from?” below opens its page.",
