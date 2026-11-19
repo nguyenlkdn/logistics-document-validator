@@ -749,6 +749,16 @@ def _():
     assert len([l for l in f.locs if l.role == "wrong"]) == 2
 
 
+@test("a '#n' tag does not sit on printed text when a free place exists")
+def _():
+    from engine.evidence import tag_places
+    box = (100, 100, 180, 112, 1)
+    above = (98, 88, 160, 99)                      # the line above the box, under the default 'above' place
+    right = (182, 100, 260, 112)                   # text right after the box
+    assert tag_places([box], words=[above, right]) not in (["above"], ["right"]), tag_places([box], words=[above, right])
+    assert tag_places([box]) == ["above"]          # no text around: the usual place
+
+
 # ----------------------------------------------------------------------------------------------- P5 plausibility gate
 def gated(docs):
     from engine.plausibility import mark

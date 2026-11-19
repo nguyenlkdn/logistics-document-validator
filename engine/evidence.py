@@ -71,23 +71,30 @@ def locations(findings) -> list[list[dict]]:
     return out
 
 
-def tag_places(boxes: list, tag_h: float = 10.0, page_w: float | None = None) -> list[str]:
-    """Where to put each box's "#n" tag so it does not cover another finding's box: 'above' (default), else 'right',
-    'left', 'below'. boxes: [(x0, y0, x1, y1, no)] in PDF points on one page. Same rule for the PNGs and the viewer."""
+def tag_places(boxes: list, tag_h: float = 10.0, page_w: float | None = None, words: list | None = None) -> list[str]:
+    """Where to put each box's "#n" tag: never over another finding's box, and over as little printed text as possible
+    (words: [(x0, y0, x1, y1)] of the page), so a tag is not read as marking the line it covers.
+    'above' (default), 'above_end' (above, at the box's right end), 'right', 'left', 'below', 'below_end'.
+    boxes: [(x0, y0, x1, y1, no)] in PDF points on one page. Same rule for the PNGs and the viewer."""
     rects = [(b[0], b[1], b[2], b[3]) for b in boxes]
+    words = words or []
 
-    def cost(r, own):                     # area of other findings' boxes the tag would cover; off the page: never
+    def area(r, o):
+        return max(0, min(r[2], o[2]) - max(r[0], o[0])) * max(0, min(r[3], o[3]) - max(r[1], o[1]))
+
+    def cost(r, own):                     # other findings' boxes first, then text covered; off the page: never
         if r[1] < 0 or r[0] < 0 or (page_w is not None and r[2] > page_w):
             return float("inf")
-        return sum(max(0, min(r[2], o[2]) - max(r[0], o[0])) * max(0, min(r[3], o[3]) - max(r[1], o[1]))
-                   for i, o in enumerate(rects) if i != own)
+        return (sum(area(r, o) for i, o in enumerate(rects) if i != own), sum(area(r, o) for o in words))
     out = []
     for i, (x0, y0, x1, y1, no) in enumerate(boxes):
         w = 7 + 4.6 * len(str(no))
-        cands = [("above", (x0, y0 - tag_h, x0 + w, y0)), ("right", (x1, y0, x1 + w, y0 + tag_h)),
-                 ("left", (x0 - w, y0, x0, y0 + tag_h)), ("below", (x0, y1, x0 + w, y1 + tag_h))]
-        best = min(cands, key=lambda c: (cost(c[1], i), [n for n, _ in cands].index(c[0])))   # least covered, then order
-        out.append(best[0] if cost(best[1], i) < float("inf") else "below")
+        cands = [("above", (x0, y0 - tag_h, x0 + w, y0)), ("above_end", (x1 - w, y0 - tag_h, x1, y0)),
+                 ("right", (x1, y0, x1 + w, y0 + tag_h)), ("left", (x0 - w, y0, x0, y0 + tag_h)),
+                 ("below", (x0, y1, x0 + w, y1 + tag_h)), ("below_end", (x1 - w, y1, x1, y1 + tag_h))]
+        ok = [c for c in cands if cost(c[1], i) != float("inf")]
+        best = min(ok, key=lambda c: (cost(c[1], i), [n for n, _ in cands].index(c[0]))) if ok else ("below", None)
+        out.append(best[0])
     return out
 
 
@@ -99,7 +106,8 @@ def annotated_pages(path, page_marks, dpi: int = 110) -> list[bytes]:
         for pno in {m[0] for m in marks}:
             on = [m for m in marks if m[0] == pno]
             rs = [tuple(pymupdf.Rect(m[1], m[2], m[3], m[4]) + (-3, -2, 3, 2)) + (m[6],) for m in on]
-            for m, where in zip(on, tag_places(rs, page_w=doc[pno].rect.width)):
+            words = [tuple(wd[:4]) for wd in doc[pno].get_text("words")]
+            for m, where in zip(on, tag_places(rs, page_w=doc[pno].rect.width, words=words)):
                 place[id(m)] = where
         tagged = set()
         for m in marks:
@@ -109,6 +117,8 @@ def annotated_pages(path, page_marks, dpi: int = 110) -> list[bytes]:
             page.draw_rect(r, color=c, width=1.8)
             w = 7 + 4.6 * len(str(no))
             tag = dict(above=pymupdf.Rect(r.x0, r.y0 - 10, r.x0 + w, r.y0), right=pymupdf.Rect(r.x1, r.y0, r.x1 + w, r.y0 + 10),
+                       above_end=pymupdf.Rect(r.x1 - w, r.y0 - 10, r.x1, r.y0),
+                       below_end=pymupdf.Rect(r.x1 - w, r.y1, r.x1, r.y1 + 10),
                        left=pymupdf.Rect(r.x0 - w, r.y0, r.x0, r.y0 + 10),
                        below=pymupdf.Rect(r.x0, r.y1, r.x0 + w, r.y1 + 10))[place.get(id(m), "above")]
             if (pno, no) in tagged:                    # one finding over several boxes (a phrase on 2 lines): one tag

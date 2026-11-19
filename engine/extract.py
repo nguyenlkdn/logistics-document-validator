@@ -459,6 +459,7 @@ def _extract_co(d: Doc):
         stop = next((k for k, x in enumerate(block) if k and re.match(r"\s*TOTAL\s*:", x.text)), len(block))
         det = _co_item_details(block[:stop])
         d.lists.setdefault("pkg_words_f", []).append(det.pop("_words_f", None))   # positions, parallel to items
+        d.lists.setdefault("model_f", []).append(det.pop("_model_f", None))
         d.items.append(dict(no=int(m[1]), hs=m[2], hs_f=F(l, m, 2, m[2]), qty=F(l, m, 3, num(m[3])), inv_ref=m[5], inv_date=date_f,
                             **det))
     tot_rx = rf"TOTAL\s*:\s*((?:[A-Z]+[\- ])*[A-Z]+)\s*\(({NUM})\)\s*"
@@ -549,6 +550,13 @@ def _co_item_details(block: list) -> dict:
     mcol = re.sub(r"(MODEL\s*:\s*\S*-)\s+(?=[A-Za-z0-9(])", r"\1", col)
     m = re.search(r"MODEL\s*:\s*(" + MARK_HEAD + r")\s*(\([A-Za-z0-9]+\)[A-Za-z]*" + MARK_TAIL + r")", mcol)
     out["model"] = m[1] + m[2] if m else None
+    if m:                                     # where the model is printed: its 'MODEL:' line (and a wrapped tail)
+        for x in block:
+            k = re.search(r"MODEL\s*:\s*", x.text)
+            if k:
+                e = re.match(r"\S*", x.text[k.end():]).end() + k.end()
+                out["_model_f"] = Field(out["model"], x.text[k.end():e], x, k.end(), e)
+                break
     m = re.search(r"\bBRAND\s+(.+?)\s*(?:\(\s*1\s*CARTON|MODEL\s*:|$)", col)
     if m:
         goods = m[1].strip()

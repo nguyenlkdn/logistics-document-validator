@@ -96,7 +96,8 @@ def render(path: str, pno: int, zoom, boxes: list[dict], hits: list[tuple], toke
         parts.append(f'<div class="ldv-hit" style="{_pct(b, w, h)}"></div>')
     from engine.evidence import tag_places                          # tags never cover another finding's box
     tagged = [b for b in boxes if b.get("no")]
-    where = dict(zip(map(id, tagged), tag_places([tuple(b["bbox"]) + (b["no"],) for b in tagged], page_w=w)))
+    words = [tuple(x[:4]) for x in page_lines(path, mtime, pno)]
+    where = dict(zip(map(id, tagged), tag_places([tuple(b["bbox"]) + (b["no"],) for b in tagged], page_w=w, words=words)))
     seen_tags = set()
     for b in sorted(boxes, key=lambda b: b.get("focus", False)):     # the selected finding on top
         col = COLOR["RESOLVED"] if b["role"] == "ref" else COLOR.get(b["sev"], COLOR["ERROR"])
@@ -104,7 +105,8 @@ def render(path: str, pno: int, zoom, boxes: list[dict], hits: list[tuple], toke
         style = f"{_pct(b['bbox'], w, h, 2.5)};border-color:{col};background:{_rgba(col, .10 if b.get('focus') else .04)}"
         if b.get("focus"):
             style += f";box-shadow:0 0 0 4px {_rgba(col, .25)}"
-        pos = {"above": "", "right": " r", "left": " l", "below": " b"}[where.get(id(b), "above")]
+        pos = {"above": "", "right": " r", "left": " l", "below": " b", "above_end": " e",
+               "below_end": " b e"}[where.get(id(b), "above")]
         first = b.get("no") and (b["no"], b["role"]) not in seen_tags   # one tag per finding (and role) on the page
         if first:
             seen_tags.add((b["no"], b["role"]))

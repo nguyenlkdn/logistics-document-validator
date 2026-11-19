@@ -379,8 +379,15 @@ def r_co_model(ci, co, out):
             ck.compared()
         if m and ref and master.key(m) != master.key(ref):
             ck.add(Finding("CO_MODEL", "ERROR", [co, ci], dict(no=it["no"], model=m, ref=ref), m, ref,
-                           at(co, it.get("hs_f")) + at(ci, a["qty"], "ref")))
+                           _model_at(co, it) + at(ci, a.get("model_f") or a["qty"], "ref")))
     ck.end()
+
+
+def _model_at(co, it):
+    """Box of a Form D item's model ('MODEL: …' line); the item's first line only if the model was not located."""
+    from .rules import _item_list_at
+    f = _item_list_at(co, "model_f", it)
+    return at(co, f) if f else at(co, it.get("hs_f"))
 
 
 def r_marks(ci, bl, co, out):
