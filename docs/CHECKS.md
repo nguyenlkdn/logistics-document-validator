@@ -31,7 +31,7 @@ headers of one invoice file) has one record per document.
 | `UNREADABLE` | printed at its label but not understood (e.g. a date `21-NOV-2O26`) |
 | `ABSENT` | not printed on this layout at all (the reader's `absent` list) |
 | `NOT_FOUND` | expected, not found |
-| `SUSPECT` | reserved for P5 (plausibility gate); never set in 2.3 |
+| `SUSPECT` | read, but the reading shows a defect (P5, `engine/plausibility.py`): S1 a number cut from a larger one, S2 a value worked out from the lines while some goods lines were not read, S3 a party name that starts with another party's label. A check using it is REVIEW_REQUIRED (finding kept with its severity and marked "LDV may have read this wrongly") or NOT_RUN `suspect_reading`; the package is AMBER, not RED |
 
 `field_state(doc, name)` returns the Field or a `Missing(name, status)` that has no value, so a missing field can
 never become zero. In 2.3 the status is derived from the readers' existing conventions; no reader was changed.

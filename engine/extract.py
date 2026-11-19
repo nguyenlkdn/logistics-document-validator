@@ -24,7 +24,8 @@ class Field:
     line: Line
     start: int
     end: int
-    status: str = "READ"          # engine.checks.FieldStatus, set by the reader: READ | UNREADABLE (SUSPECT: P5)
+    status: str = "READ"          # engine.checks.FieldStatus: READ | UNREADABLE (reader) | SUSPECT (engine/plausibility.py)
+    why: str = ""                 # SUSPECT: the plausibility rule (S1 / S3)
 
     @property
     def page(self):
@@ -90,6 +91,7 @@ class Doc:
     lists: dict = field(default_factory=dict)    # multi-occurrence fields -> [Field]
     cargo_blocks: list = field(default_factory=list)   # B/L: [CargoBlock]
     packages: list = field(default_factory=list)       # packing list: [Package] when lines share a carton
+    suspect_lines: int = 0                             # P5 S2: goods rows not read -> line sums are SUSPECT
     item_ids: list = field(default_factory=list)       # [ItemId] parallel to items
     pl_item_ids: list = field(default_factory=list)    # [ItemId] parallel to pl_items
 
@@ -547,6 +549,8 @@ def load(path: Path, kind: str | None = None) -> Doc | None:
     d.lists["unparsed"] = _unparsed_rows(d)
     from .extract_net import EXTRA                   # extra fields for the cross-document / self-check rules
     EXTRA[kind](d)
+    from .plausibility import mark                   # P5: readings with a detectable defect are SUSPECT
+    mark(d)
     return d
 
 

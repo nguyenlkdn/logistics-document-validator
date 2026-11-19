@@ -46,6 +46,7 @@ class Finding:
     locs: list = field(default_factory=list)
     evidence: list = field(default_factory=list)   # filled by evidence.py
     check: str = field(default="", compare=False, repr=False)   # id of the check that produced it (engine/checks.py)
+    suspect: str = field(default="", compare=False, repr=False)  # P5: built on a possibly misread value (S1 / S2 / S3)
 
     def text(self, lang: str) -> str:
         p = {k: _label_refs(v, lang) for k, v in self.params.items()}

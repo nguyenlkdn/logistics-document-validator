@@ -89,7 +89,8 @@ def check(inputs: list[Path], name: str | None = None, out_root: Path | None = N
                  kinds={k: v for k, v in kinds.items() if any(d.name == k for d in docs)}, checks=checks)
     res.diagnostics = list(getattr(checks, "diagnostics", []))
     res.verdict = verdict([c.to_dict() for c in checks],
-                          [dict(no=i, severity=f.severity) for i, f in enumerate(findings, 1)])
+                          [dict(no=i, severity=f.severity, suspect=getattr(f, "suspect", ""))
+                           for i, f in enumerate(findings, 1)])
 
     out = (out_root or report_root()) / f"{name}_{datetime.now():%Y%m%d-%H%M%S}"
     (out / "evidence").mkdir(parents=True, exist_ok=True)

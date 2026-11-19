@@ -1681,6 +1681,10 @@
     "na_foc_invoice": {
       "en": "Not applicable: {doc} is marked F.O.C / no commercial value; no {kind} is required (owner rule).",
       "vi": "Không áp dụng: {doc} ghi F.O.C / không có giá trị thương mại; không cần {kind} (quy định của chủ sở hữu)."
+    },
+    "suspect_reading": {
+      "en": "LDV may have read an input wrongly (S1: a number cut from a larger one · S2: some goods lines were not read · S3: a role label inside a company name). Check it on the document.",
+      "vi": "LDV có thể đã đọc sai dữ liệu (S1: số bị cắt từ một số lớn hơn · S2: một số dòng hàng không đọc được · S3: nhãn vai trò nằm trong tên công ty). Hãy kiểm tra trên chứng từ."
     }
   },
   "goods_categories": {

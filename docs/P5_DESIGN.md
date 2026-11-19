@@ -1,6 +1,6 @@
 # P5 design: plausibility gate ("LDV may have read this wrongly")
 
-Status: **design for owner review. No code written.** (Owner rule: P5 needs its own design review before implementation.)
+Status: **approved 2026-11-19 ("approve P5, keep ERROR") and implemented in `engine/plausibility.py`.** S3 was narrowed during implementation (see the table) after a test showed a false alarm on a company named with a role word.
 All examples are invented; the measurements below were made on the local test sets and are only counted.
 
 ## 1. Purpose
@@ -18,7 +18,7 @@ Each rule is a yes/no test on how the value was read. None uses a ratio or a tol
 |---|---|---|
 | **S1 partial number** | the characters right next to a number's text in its line continue the number (a digit, or `.`/`,` followed by a digit) | the number was cut out of a larger number (`357.00` read as `00`). A document cannot print a number that is part of another number |
 | **S2 incomplete lines** | the document has goods rows that no reader consumed (the existing "Goods line not read" list) → **every value computed from its lines** (line sums, line counts, `true_total` from lines) | a sum over the lines that were read is not the sum over the lines that are printed |
-| **S3 party label inside a name** | a party name (shipper, consignee, exporter, seller, buyer, and their packing-list copies) contains a role label (`CONSIGNEE`, `SHIPPER`, `ACCOUNTEE`, `NOTIFY`, `SHIP TO`, `EXPORTER`, `SELLER`, `BUYER`) | a company name never contains another role's label; the reader took the wrong line |
+| **S3 party label before a name** | a party name (shipper, consignee, exporter, seller, buyer, and their packing-list copies) **starts** with a role label (`CONSIGNEE`, `SHIPPER`, `ACCOUNTEE`, `NOTIFY`, `SHIP TO`, `EXPORTER`, `SELLER`, `BUYER`) **followed by a company name** (not only a legal form: a company called `BUYER CO., LTD.` is not suspect) | the reader took the label line of another party |
 
 Not proposed (rejected after review): "line count differs by more than ×N", "a total of 0", "value far from the
 other documents". These need thresholds without evidence, or they would also hide real document errors.

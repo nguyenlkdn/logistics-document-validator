@@ -13,6 +13,7 @@ files (zip / folder / PDF)
 engine/pdftext.py                  spans → visual lines (Line.text) and their columns (Line.cells())
   ▼
 engine/extract.py (+ extract_net)  classify (title) → readers per kind → Doc
+engine/plausibility.py             P5: readings with a detectable defect → Field.status SUSPECT
         uses engine/grammar.py     whole-token numbers, units, document numbers, dates, labels
   ▼
 Doc: f (Field), items / pl_items, lists, cargo_blocks (B/L), packages (packing list), item_ids / pl_item_ids
@@ -32,7 +33,7 @@ ui/ (Streamlit): dashboard, review workspace, cross-check (engine/compare.py), c
 
 | Structure | Where | Holds |
 |---|---|---|
-| `Field` | extract.py | value, raw text, line, character span (→ page and box), `status` (READ / UNREADABLE; SUSPECT reserved for P5) |
+| `Field` | extract.py | value, raw text, line, character span (→ page and box), `status` (READ / UNREADABLE / SUSPECT) and `why` |
 | `Doc` | extract.py | kind, lines, `f` (scalar fields), `items` / `pl_items` (line dicts), `lists`, `cargo_blocks`, `packages`, `item_ids`, `pl_item_ids` |
 | `CargoBlock` | extract.py | one B/L cargo block: goods, HS heading, cartons, quantity, unit, invoice no. |
 | `Package` | extract.py | a packing-list carton (range) holding several lines: G.W., CBM, cartons once |
@@ -97,4 +98,4 @@ Test documents are confidential and stay out of git; tests in git use invented v
 - `CONTAINERS` (B/L vs invoice container count) is not made for packages with several invoices (`scope_unsupported`).
 - Money is compared as floats with fixed tolerances (no `Decimal`).
 - Estimated (sailing on or about) and actual departure dates are not told apart.
-- The plausibility gate (P5) is designed (`docs/P5_DESIGN.md`) but not built.
+- Plausibility gate (P5, `engine/plausibility.py`): three rules only (S1 cut number, S2 unread goods lines, S3 label before a name); other misreadings are not detected.

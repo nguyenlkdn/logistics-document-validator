@@ -66,7 +66,8 @@ def build(res) -> dict:
             doc=f.doc_names[0] if f.docs else "", doc_kind=f.docs[0].kind if f.docs else "",
             related=f.doc_names[1:], page=f.page, current=f.current, suggested=f.suggested,
             msg_en=f.text("en"), msg_vi=f.text("vi"), note_en=f.note("en"), note_vi=f.note("vi"),
-            evidence=[rel(p) for p in f.evidence], locs=locs[i - 1], check=getattr(f, "check", "")))
+            evidence=[rel(p) for p in f.evidence], locs=locs[i - 1], check=getattr(f, "check", ""),
+            suspect=getattr(f, "suspect", "")))
     return dict(schema=SCHEMA, name=res.name, shipment=History.shipment_of(res),
                 created=datetime.now().isoformat(timespec="seconds"), version=app_version(),
                 fingerprint=res.fingerprint, docs=docs, findings=findings,

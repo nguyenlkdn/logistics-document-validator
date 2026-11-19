@@ -21,7 +21,7 @@ from engine.rules import SEVERITY
 
 from .. import components as ui
 from .. import state, viewer
-from ..i18n import kind_label, msg, note, sev_short, status_label, t, t1, unrec_text
+from ..i18n import T, kind_label, msg, note, sev_short, status_label, t, t1, unrec_text
 
 
 def open_folder(path: str):
@@ -304,6 +304,9 @@ def detail(s, f, mk, cid, order):
                 st.button(t1("close_panel"), icon=":material/close:", on_click=_close, help=t1("close_panel"), width="stretch")
         st.markdown(f'<div style="font-weight:620;font-size:1rem;line-height:1.35;margin:.1rem 0 .4rem 0">'
                     f'{ui.esc(msg(f))}</div>', unsafe_allow_html=True)
+        if f.get("suspect"):                     # P5: built on a possibly misread value
+            why = " ".join(t(f"suspect_{w.strip()}") for w in f["suspect"].split(",") if f"suspect_{w.strip()}" in T)
+            st.warning(t("suspect") + (f" {why}" if why else ""), icon=":material/help:")
 
         rows = [(t1("doc"), ui.esc(f["doc"]) + (f" · {t1('page')} {f['page']}" if f.get("page") else ""))]
         if f.get("current") or f.get("suggested"):

@@ -690,6 +690,87 @@ def _():
     assert len(s223["findings"]) == len(s["findings"])
 
 
+# ----------------------------------------------------------------------------------------------- P5 plausibility gate
+def gated(docs):
+    from engine.plausibility import mark
+    for d in docs:
+        mark(d)
+    fs, res = run(docs)
+    return fs, res, verdict([r.to_dict() for r in res],
+                            [dict(no=i, severity=f.severity, suspect=f.suspect, sig=f"s{i}") for i, f in enumerate(fs, 1)])
+
+
+@test("T19 S1: a total cut out of a larger number is SUSPECT: its ERROR is kept, marked, the package AMBER (not RED)")
+def _():
+    docs = package()
+    ci = docs[0]
+    ln = _line("TTL:   100 CARTON(S)   357.00 SET(S)")
+    k = ln.text.index("00 SET")                                  # the reader took '00' from '357.00'
+    ci.f["total_qty"] = Field(0.0, "00", ln, k, k + 2)
+    fs, res, v = gated(docs)
+    f = next(x for x in fs if x.key == "TOTAL_QTY")
+    assert f.severity == "ERROR" and f.suspect == "S1", (f.severity, f.suspect)
+    r = by_id(res, "TOTAL_QTY.ci")[0]
+    assert (r.status, r.reason) == ("REVIEW_REQUIRED", "suspect_reading"), (r.status, r.reason)
+    assert v["state"] == "AMBER" and v["open_errors"] == 0, v
+
+
+@test("T20 S2: goods lines not read -> line sums SUSPECT: no confirmed ERROR from them")
+def _():
+    docs = package()
+    ci = docs[0]
+    ci.lists["unparsed"] = [_line("SPARE PART   7 PCS   0.70")]
+    ci.pl_items[0]["qty"] = F(93.0, "93")                         # the lines that were read add up to less
+    fs, res, v = gated(docs)
+    lined = [x for x in fs if x.key in ("CI_PL_QTY", "LINES", "PL_LINE", "PL_TOTAL")]
+    assert lined and all(x.suspect == "S2" for x in lined), [(x.key, x.suspect) for x in lined]
+    assert v["state"] == "AMBER", v
+
+
+@test("T21 S3: a role label inside a company name is SUSPECT")
+def _():
+    docs = package()
+    docs[0].f["shipper"] = F("CONSIGNEE BUYER CO., LTD.")
+    fs, res, v = gated(docs)
+    r = by_id(res, "PL_HEADER.shipper")[0]
+    # the other documents agree with the packing list, so no PL_HEADER finding: NOT_RUN, still 'may be misread'
+    assert r.status in ("REVIEW_REQUIRED", "NOT_RUN") and r.reason == "suspect_reading", (r.status, r.reason)
+    assert v["state"] == "AMBER", v
+    assert docs[1].f["buyer"].status == "READ"                   # 'BUYER CO., LTD.' is a name, not a label
+
+
+@test("T22 an error with no SUSPECT input stays a confirmed ERROR next to a SUSPECT one: RED")
+def _():
+    docs = package()
+    docs[0].f["shipper"] = F("CONSIGNEE BUYER CO., LTD.")       # SUSPECT
+    docs[3].f["departure"] = F(date(2026, 11, 5), "05/11/2026")   # real: Form D date differs, nothing misread
+    fs, res, v = gated(docs)
+    dep = next(x for x in fs if x.key == "DEPARTURE_DATE")
+    assert not dep.suspect and status(res, "DEPARTURE_DATE") == {"FAIL"}
+    assert v["state"] == "RED" and v["open_errors"] == 1, v
+
+
+@test("T23 closing a SUSPECT finding does not make the check PASS (it did not run on a sound value)")
+def _():
+    docs = package()
+    docs[0].f["shipper"] = F("CONSIGNEE BUYER CO., LTD.")
+    fs, res, _v = gated(docs)
+    stored = [r.to_dict() for r in res]
+    findings = [dict(no=i, severity=f.severity, suspect=f.suspect, sig=f"s{i}") for i, f in enumerate(fs, 1)]
+    v = verdict(stored, findings, is_open=lambda f: False)          # the reviewer closed everything
+    assert v["state"] == "AMBER" and v["core_not_run"] >= 1, v
+
+
+@test("T24 no SUSPECT on the invented package (no false alarm), and GREEN stays GREEN")
+def _():
+    docs = package()
+    fs, res, v = gated(docs)
+    from engine.extract import Field as _F
+    from engine.plausibility import _fields
+    assert not [f for d in docs for f in _fields([d.f, d.lists, d.items, d.pl_items]) if f.status == "SUSPECT"]
+    assert v["state"] == "GREEN", v
+
+
 # ----------------------------------------------------------------------------------------------- local sets (not committed)
 def local_sets():
     sys.path.insert(0, str(ROOT / "tests"))
@@ -714,6 +795,13 @@ if "--local" in sys.argv:
                 _, res = run(docs)
                 assert not closure_errors(res, docs), closure_errors(res, docs)
                 assert not undeclared(res), undeclared(res)
+
+            @test(f"T24 no SUSPECT on local set {z.name[:40]}")
+            def _():
+                from engine.plausibility import _fields
+                sus = [(d.name, f.why, f.raw) for d in docs for f in _fields([d.f, d.lists, d.items, d.pl_items])
+                       if f.status == "SUSPECT"] + [(d.name, "S2", d.suspect_lines) for d in docs if d.suspect_lines]
+                assert not sus, sus[:5]
 
             @test(f"T2 blank-out local set {z.name[:40]}")
             def _():

@@ -44,7 +44,7 @@ class FieldStatus:
     UNREADABLE = "UNREADABLE"        # printed at its label, not understood ("21-NOV-2O26")
     ABSENT = "ABSENT"                # not printed on this layout at all (no label anywhere)
     NOT_FOUND = "NOT_FOUND"          # expected, not found
-    SUSPECT = "SUSPECT"              # reserved for P5 (plausibility gate); never set in P1
+    SUSPECT = "SUSPECT"              # read, but the reading shows a defect (engine/plausibility.py, P5)
 
 
 class CheckStatus:
@@ -67,7 +67,7 @@ REASONS = {
     "document_missing": "package", "requirement_unknown": "package",
     "field_not_found": "reading", "field_unreadable": "reading", "field_absent_required": "reading",
     "items_not_read": "reading", "items_not_comparable": "reading", "too_few_values": "reading",
-    "master_data_missing": "master_data", "blocked_by": "dependency",
+    "master_data_missing": "master_data", "blocked_by": "dependency", "suspect_reading": "reading",
     "scope_unsupported": "system", "internal_error": "system", "not_reported": "system",
 }
 _FIELD_REASON = {FieldStatus.UNREADABLE: "field_unreadable", FieldStatus.ABSENT: "field_absent_required",
@@ -97,8 +97,8 @@ def field_state(doc, name: str):
     Field (LDV 2.4); ABSENT comes from the reader's 'absent' list; a missing key or an empty value is NOT_FOUND.
     (Fields made without F() and value None + printed text are still UNREADABLE.)"""
     f = doc.f.get(name) if doc is not None else None
-    if f is not None and getattr(f, "status", "READ") not in (None, FieldStatus.READ):
-        return Missing(name, f.status, doc.name)            # set by the reader (UNREADABLE; SUSPECT from P5)
+    if f is not None and getattr(f, "status", "READ") not in (None, FieldStatus.READ, FieldStatus.SUSPECT):
+        return Missing(name, f.status, doc.name)            # set by the reader (UNREADABLE); SUSPECT stays a value
     if f is not None and hasattr(f, "value"):
         v = f.value
         if v is not None and v != "" and v != []:
@@ -488,6 +488,7 @@ class Ck:
         self.run = current_run()
         self.inputs: list = []
         self.missing: list = []
+        self.suspect: list = []                # inputs read with a detectable defect (P5)
         self.fids: list = []
         self.sevs: list = []
         self.n_compared = 0
@@ -506,10 +507,20 @@ class Ck:
                 self.run.open.append(self)
 
     # -- inputs
-    def _input(self, doc, name, status):
+    def _input(self, doc, name, status, why=""):
+        if status == FieldStatus.READ and doc is not None:      # P5: a value read with a detectable defect
+            f = doc.f.get(name) if hasattr(doc, "f") else None
+            if getattr(f, "status", None) == FieldStatus.SUSPECT:
+                status, why = FieldStatus.SUSPECT, getattr(f, "why", "") or why
+            elif getattr(doc, "suspect_lines", 0) and (name in ("items", "pl_items") or name.startswith("Σ")):
+                status, why = FieldStatus.SUSPECT, "S2"          # worked out from lines while some lines were not read
         e = dict(doc=doc.name if doc is not None else "", kind=doc.kind if doc is not None else "", name=name, status=status)
+        if why:
+            e["why"] = why
         self.inputs.append(e)
-        if status != FieldStatus.READ:
+        if status == FieldStatus.SUSPECT:
+            self.suspect.append(e)
+        elif status != FieldStatus.READ:
             self.missing.append(e)
 
     def need(self, doc, name: str, absent_ok: bool = False, trace: str | None = None):
@@ -521,7 +532,7 @@ class Ck:
         f = field_state(doc, name)
         st = f.status if isinstance(f, Missing) else FieldStatus.READ
         if st == FieldStatus.READ:
-            self._input(doc, name, st)
+            self._input(doc, name, st)                      # SUSPECT values are detected there
             return f
         self._missing_or_na(doc, name, st, absent_ok, trace)
         return None
@@ -645,6 +656,15 @@ class Ck:
         worst = next((_SEV_STATUS[s] for s in ("ERROR", "WARNING") if s in self.sevs), None)
         if self.state == CheckStatus.NOT_RUN and self.reason == "internal_error":
             status, reason = CheckStatus.NOT_RUN, "internal_error"
+        elif self.suspect:                                  # P5: a possibly misread input: review, never confirmed
+            detail["suspect"] = [dict(m) for m in self.suspect]
+            if worst:
+                status, reason = CheckStatus.REVIEW_REQUIRED, "suspect_reading"
+                why = sorted({m.get("why", "") for m in self.suspect} - {""})
+                for f in self.fids:
+                    f.suspect = ", ".join(why) or "S"
+            else:
+                status, reason = CheckStatus.NOT_RUN, "suspect_reading"
         elif self.state == CheckStatus.NOT_RUN and self.reason == "master_data_missing" and "ERROR" not in self.sevs:
             status, reason = CheckStatus.NOT_RUN, "master_data_missing"    # the WARNING says what to add to the list
         elif worst:                                         # a confirmed finding stands, even with inputs missing
@@ -691,6 +711,10 @@ def effective_status(r: dict, open_of) -> str:
     """The status after the reviewer's decisions: a check whose findings are all closed no longer counts as FAIL /
     REVIEW_REQUIRED (the stored result is not changed). open_of(finding no.) -> (severity, is_open)."""
     st = r["status"]
+    if r.get("reason") == "suspect_reading":                 # P5: review while a finding is open, else still not run
+        if any(o for _s, o in (open_of(i) for i in r.get("findings", []))):
+            return CheckStatus.REVIEW_REQUIRED
+        return CheckStatus.NOT_RUN
     if st not in (CheckStatus.FAIL, CheckStatus.REVIEW_REQUIRED):
         return st
     sev = [open_of(i) for i in r.get("findings", [])]
@@ -723,7 +747,8 @@ def verdict(checks: list[dict], findings: list[dict], is_open=lambda f: True) ->
     by_key = {id(r): (r, s) for r, s in eff}
     eff = [(r, CheckStatus.PASS if s == CheckStatus.NOT_RUN and r.get("reason") == "blocked_by"
             and _blocked_resolved(r, by_key) else s) for r, s in eff]
-    open_err = sum(f["severity"] == "ERROR" and is_open(f) for f in findings)
+    # an ERROR built on a possibly misread value (P5) is not a confirmed document error: it makes the package AMBER
+    open_err = sum(f["severity"] == "ERROR" and is_open(f) and not f.get("suspect") for f in findings)
     core = [(r, s) for r, s in eff if r.get("core")]
     core_failed = sum(s == CheckStatus.FAIL for _, s in core)
     core_not_run = [r for r, s in core if s == CheckStatus.NOT_RUN]
