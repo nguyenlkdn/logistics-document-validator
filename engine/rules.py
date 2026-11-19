@@ -96,6 +96,34 @@ def at(doc: Doc, f, role="wrong") -> list:
     return _at_field(doc, f, role)
 
 
+def _units(ci: Doc) -> list[dict]:
+    """The packing list's packed units: a carton (range) holding several lines (Package) counts once, with its own
+    G.W. / CBM / cartons; every other line is its own unit (old layouts: one line = one unit, nothing changes)."""
+    out, seen = [], set()
+    for it in ci.pl_items:
+        k = it.get("package")
+        if k is None:
+            out.append(dict(rng=it.get("rng"), ctn=it.get("ctn"), ctn_f=it.get("ctn_f"), gw=it.get("gw"), cbm=it.get("cbm"),
+                            nw=it.get("nw"), label=it.get("model") or ""))
+        elif k not in seen:
+            seen.add(k)
+            pk = ci.packages[k]
+            lines = [ci.pl_items[i] for i in pk.lines]
+            nws = [x.get("nw") for x in lines]
+            nw = Calc(round(sum(f.value for f in nws), 3), "", nws) if all(isinstance(f, Field) for f in nws) else None
+            head = lines[0]
+            out.append(dict(rng=pk.rng, ctn=pk.ctn, ctn_f=head.get("ctn_f"), gw=pk.gw, cbm=pk.cbm, nw=nw,
+                            label=f"CARTON {pk.rng[0]}-{pk.rng[1]}" if pk.rng else ""))
+    return out
+
+
+def _pl_values(ci: Doc, k: str) -> list:
+    """What adds up to the packing-list total of k: the lines for qty / nw, the packed units for gw / cbm."""
+    if k in ("gw", "cbm") and ci.packages:
+        return [u[k] for u in _units(ci)]
+    return [it.get(k) for it in ci.pl_items]
+
+
 def _lines_agree(ci: Doc) -> bool:
     """The packing-list lines tell the whole story: as many lines as the invoice, the same total quantity, and
     carton ranges running 1, 2, 3 … with no gap or overlap. Otherwise a line is missing or misprinted (LINE_COUNT,
@@ -108,7 +136,7 @@ def _lines_agree(ci: Doc) -> bool:
         return False
     if inv and not _close(sum(x.value for x in q), sum(_v(it.get("qty")) or 0 for it in inv)):
         return False
-    rngs = [it.get("rng") for it in pl]
+    rngs = [u.get("rng") for u in _units(ci)]
     if any(rngs):
         expect = 1
         for r in rngs:
@@ -135,10 +163,10 @@ def true_total(ci: Doc | None, k: str):
     else:
         pk = "qty" if k == "pl_qty" else k
         printed = ci.f.get(f"pl_total_{pk}")
-        rows = ci.pl_items if _lines_agree(ci) else []
-        if k in ("nw", "gw") and any(_v(it.get("gw")) is not None and _v(it.get("nw")) is not None
-                                     and it["gw"].value < it["nw"].value - 0.0005 for it in rows):
-            rows = []                               # a line's own weights are wrong (PL_GW_NW): its sum is no truth
+        rows = (_units(ci) if (k in ("gw", "cbm", "ctn") and ci.packages) else ci.pl_items) if _lines_agree(ci) else []
+        if k in ("nw", "gw") and any(_v(u.get("gw")) is not None and _v(u.get("nw")) is not None
+                                     and u["gw"].value < u["nw"].value - 0.0005 for u in _units(ci)):
+            rows = []                               # a unit's own weights are wrong (PL_GW_NW): its sum is no truth
         if k == "ctn":
             vals, refs = [it.get("ctn") for it in rows], [it.get("ctn_f") for it in rows]
         else:
@@ -226,7 +254,11 @@ def r_pl_sums(docs, out):
             ck.need_items(d, "pl_items")
             ck.need(d, f"pl_total_{k}", absent_ok=True)
             tot = d.f.get(f"pl_total_{k}")
-            exp = round(sum(it[k].value for it in d.pl_items), 3)
+            vals = _pl_values(d, k)                  # gw / cbm of a shared carton: once, from the carton
+            exp = round(sum(f.value for f in vals if isinstance(f, (Field, Calc))), 3)
+            for f in vals:
+                if not isinstance(f, (Field, Calc)):
+                    ck._input(d, f"pl_items[{k}]", "NOT_FOUND")
             if tot:
                 ck.compared()
             if tot and not _close(exp, tot.value):
@@ -236,15 +268,17 @@ def r_pl_sums(docs, out):
         ck = begin("PL_TOTAL.ctn", out, d)
         ck.need_items(d, "pl_items")
         ctn = d.f.get("pl_total_ctn")
-        if any(it.get("rng") for it in d.pl_items):
+        units = _units(d)
+        if any(u.get("rng") for u in units):
             ck.na(evidence="carton_ranges", by="PL_RANGE_TOTAL")
         else:
             ck.need(d, "pl_total_ctn", absent_ok=True)
-            for it in d.pl_items:
-                ck.need_item(d, it, "ctn")
-        if ctn and all(it["ctn"] for it in d.pl_items) and not any(it.get("rng") for it in d.pl_items):
+            for u in units:
+                if not u.get("ctn"):
+                    ck._input(d, "pl_items[ctn]", "NOT_FOUND")
+        if ctn and all(u["ctn"] for u in units) and not any(u.get("rng") for u in units):
             ck.compared()
-            exp = sum(it["ctn"] for it in d.pl_items)
+            exp = sum(u["ctn"] for u in units)
             if not _close(exp, ctn.value):
                 ck.add(Finding("PL_TOTAL", "ERROR", [d], dict(label="@ctn"), ctn.raw, fmt_like(exp, ctn.raw),
                                at(d, ctn)))
@@ -554,6 +588,12 @@ def _bl_qty(bl, refs, qty, qty_locs, ctn, ctn_locs, out, ck_q=None, ck_c=None, q
     ck_c.end()
 
 
+def _all_parts(ci) -> bool:
+    """Every goods line of the invoice is identified by a part number (no finished-goods model)."""
+    ids = getattr(ci, "item_ids", None) if ci else None
+    return bool(ids) and len(ids) == len(ci.items) and all(i.kind == "part_no" for i in ids)
+
+
 def r_hs(ci, co, bl, out):
     """HS codes. With the HS master list (company Excel) the master is the reference and the document that
     differs is blamed: each Form D item, the B/L heading, and invoice models missing from the list.
@@ -566,10 +606,13 @@ def r_hs(ci, co, bl, out):
     hs_bl = master.digits(_v(hs_bl_f))
     have = master.load() is not None
     known = {}                                            # invoice model -> master HS
+    parts = _all_parts(ci)
     ck = begin("HS_MASTER", out)
-    if ck.master(have) and ci:
+    if parts:                                             # every line is a part (part number), not a finished model
+        ck.na(evidence="items_are_parts")
+    elif ck.master(have) and ci:
         ck.need_items(ci)
-    if have and ci:
+    if have and ci and not parts:
         for it in ci.items:
             m = sval(it.get("model"))
             ck.need_item(ci, it, "model")
@@ -618,6 +661,8 @@ def r_hs(ci, co, bl, out):
                            _v(hs_bl_f) + "…", loc + at(bl, hs_bl_f, "ref")))
     ck.end()
     ck = begin("BL_HS", out)
+    if parts:                                             # the B/L heading of a parts block: no finished-goods master
+        ck.na(evidence="items_are_parts")
     ck.need(bl, "hs")
     refs = [h for h in known.values() if h]
     if ck.master(have) and hs_bl and not refs:
@@ -1438,7 +1483,10 @@ def unrecognised(docs: list[Doc], skipped: list) -> list[dict]:
         for l in d.lists.get("unparsed", []):
             out.append(dict(doc=d.name, what=f"Goods line not read (page {l.page + 1}): {l.text.strip()[:80]}",
                             vi=f"Không đọc được dòng hàng (trang {l.page + 1}): {l.text.strip()[:80]}"))
+        ids = list(getattr(d, "item_ids", []) or []) + list(getattr(d, "pl_item_ids", []) or [])
         for n, it in enumerate(d.items + d.pl_items, 1):
+            if n <= len(ids) and ids[n - 1].kind == "part_no":
+                continue                                  # a part: identified by its part number
             if not it.get("model") and d.kind in ("CI", "SC"):
                 out.append(dict(doc=d.name, what=f"Model not found for goods line {n} (page {it['qty'].page + 1})",
                                 vi=f"Không đọc được model của dòng hàng {n} (trang {it['qty'].page + 1})"))

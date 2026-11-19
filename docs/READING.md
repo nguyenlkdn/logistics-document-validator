@@ -41,6 +41,11 @@ Packing list) unless the user sets it.
 | Invoice date | `DATE : 05/10/2026`, `Invoice Date: …`, or the date printed after the invoice number without a label | `run_reader` P2 |
 | Sailing label | `SAILING ON OR ABOUT` = `SAILING ON/OR ABOUT` = `Sailing On Or About` | `run_grammar`, `run_reader` P2 |
 | FOB place | `FOB PORT A`, `FOB PORT A   IN USD`, `FOB PORT A,COUNTRY` / `FOB PORT A, COUNTRY` (the country is not part of the place) | `run_reader` P2 |
+| B/L with several invoices | one **cargo block** per invoice in the description column: goods (`"…" BRAND …` or a quoted description), `HS CODE`, `n CARTON(S) m PCS`, `INVOICE NO. x`, read cell by cell so the shipping-mark column beside it does not matter. Each block is compared with its own invoice (`BL_CARGO_BLOCK`); the B/L quantity is their sum | `run_reader` P3 |
+| Parties on the invoice | `CONSIGNEE : NAME`, `CONSIGNEE NAME`, `CONSIGNEENAME` (no space), or the name on the next line; the shipper from its `SHIPPER :` label (only without a label: the company signing the invoice) | `run_reader` P3 |
+| Packing list: one carton, several lines | the first line prints qty, N.W., G.W., CBM; the next lines only qty and N.W. They are lines of one **carton** (`CARTON/NO.1-1`), which holds G.W. and CBM once; a line without them gets none (not zero). The carton may continue on the next page after a TTL row | `run_reader` P4 |
+| Goods lines without a model | identified by the **part number** printed below (`100000000001@AB`); goods type from the description (`config.json "goods_categories"`: label, packaging, part). The HS master list (finished-goods models) does not apply to them | `run_reader` P4 |
+| Goods name without a brand | the quoted description of the invoice (`"SPARE PARTS OF …"`) when there is no `"…" BRAND …` line | `run_reader` P4 |
 
 ## 3. "Not read" or "not printed"
 

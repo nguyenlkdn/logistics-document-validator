@@ -156,13 +156,15 @@ def r_gw_nw(ci, out):
     ck.need_items(ci, "pl_items")
     ck.need(ci, "pl_total_nw")
     ck.need(ci, "pl_total_gw")
-    rows = [(p.get("model") or "", p) for p in ci.pl_items] + [("TTL", {k: ci.f.get(f"pl_total_{k}") for k in ("nw", "gw")})]
+    from .rules import _units
+    units = _units(ci) if ci.packages else [dict(p, label=p.get("model") or "") for p in ci.pl_items]
+    rows = [(u["label"], u) for u in units] + [("TTL", {k: ci.f.get(f"pl_total_{k}") for k in ("nw", "gw")})]
     for model, p in rows:
         nw, gw = p.get("nw"), p.get("gw")
         if model != "TTL" or p is not rows[-1][1]:
             for k in ("nw", "gw"):
                 if not p.get(k):
-                    ck.need_item(ci, p, k)
+                    ck._input(ci, f"pl_items[{k}]", "NOT_FOUND")
         if nw and gw:
             ck.compared()
         if nw and gw and gw.value < nw.value - 0.0005:
@@ -337,6 +339,10 @@ def r_lines(ci, out):
             diffs.append(("@model", p["model"], a["model"]))
         if not _close(a["qty"].value, p["qty"].value):
             diffs.append(("@qty", p["qty"].raw, fmt_like(a["qty"].value, p["qty"].raw)))
+        ia = ci.item_ids[n - 1] if len(ci.item_ids) == len(ci.items) else None
+        ip = ci.pl_item_ids[n - 1] if len(ci.pl_item_ids) == len(ci.pl_items) else None
+        if (ia and ip and ia.kind == ip.kind == "part_no" and ia.value != ip.value):
+            diffs.append(("@model", ip.value, ia.value))   # part numbers of the same line differ
         if a.get("po") and p.get("po") and a["po"] != p["po"]:
             diffs.append(("@po", p["po"], a["po"]))
         da, dp = a.get("desc"), p.get("desc")                # '20L' vs '21L', '(AB12)' vs '(A812)'
@@ -382,6 +388,11 @@ def r_marks(ci, bl, co, out):
         return
     ck = begin("MARKS", out)
     models = sorted({it["model"] for it in ci.items if it.get("model")})
+    from .rules import _all_parts
+    if not models and _all_parts(ci):              # parts with part numbers: marks list no models to check
+        ck.na(evidence="items_are_parts")
+        ck.end()
+        return
     if not models:
         ck.need_items(ci)
         for it in ci.items:

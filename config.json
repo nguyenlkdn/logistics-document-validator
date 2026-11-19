@@ -1673,6 +1673,38 @@
     "na_one_cargo_block": {
       "en": "Not applicable: the B/L prints one cargo block; {by} compares it.",
       "vi": "Không áp dụng: B/L chỉ có một khối hàng; {by} đã so sánh."
+    },
+    "na_items_are_parts": {
+      "en": "Not applicable: every goods line is a part identified by its part number, not a finished-goods model.",
+      "vi": "Không áp dụng: mọi dòng hàng là linh kiện có mã linh kiện, không phải model thành phẩm."
     }
+  },
+  "goods_categories": {
+    "label": [
+      "LABEL",
+      "STICKER",
+      "TAG",
+      "NAMEPLATE"
+    ],
+    "packaging": [
+      "CARTON BOX",
+      "CARTON BOXES",
+      "PACKING",
+      "PALLET",
+      "FOAM",
+      "POLYBAG"
+    ],
+    "part": [
+      "PART",
+      "PARTS",
+      "PLATE",
+      "ASSEMBLY",
+      "COVER",
+      "SCREW",
+      "BOARD",
+      "MOTOR",
+      "HOSE",
+      "VALVE"
+    ]
   }
 }

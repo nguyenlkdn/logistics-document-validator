@@ -109,13 +109,18 @@ def _cell(docs: list[dict], src: str, typ: str) -> dict:
     # every document's own values, for the table (one line each, coloured per value)
     parts = [dict(doc=n, page=p, show=[fmt(a, typ) for a in v], norm=[_norm(a, typ) for a in v])
              for n, p, v in zip(names, pages, vals)]
+    partial = False
+    if typ == "number" and len(docs) > 1 and len(vals) < len(docs):
+        # some documents of this kind give the value and others not (not printed or not read): no package total
+        partial = True
     if typ == "number" and len(vals) > 1:                     # e.g. two sales contracts: add them up
         total = sum(_num(v[0]) or 0 for v in vals)
         flat = [str(total)]
     else:
         flat = list(dict.fromkeys(a for v in vals for a in v))
     return dict(state="value", raw=flat, show=", ".join(fmt(a, typ) for a in flat), items=[fmt(a, typ) for a in flat],
-                norm=[_norm(a, typ) for a in flat], doc=names[0], docs=names, page=pages[0], parts=parts)
+                norm=[_norm(a, typ) for a in flat], doc=names[0], docs=names, page=pages[0], parts=parts,
+                partial=partial)
 
 
 def _same(a: list, b: list, typ: str) -> bool:
@@ -134,8 +139,21 @@ def _same(a: list, b: list, typ: str) -> bool:
     return set(a) == set(b)
 
 
+def _groups(s: dict) -> dict:
+    """Document name -> invoice group ids, from the check records (LDV >= 2.3). Several invoices: a contract / Form D
+    belongs to one invoice group; a B/L to all of them."""
+    out = {}
+    for r in s.get("checks", []):
+        if r.get("group_type") == "invoice":
+            for d in r.get("documents", []):
+                out.setdefault(d, set()).add(r["group"])
+    return out
+
+
 def compare(s: dict) -> dict:
     cfg = CONFIG["compare"]
+    doc_groups = _groups(s)
+    n_ci = sum(d.get("kind") == "CI" for d in s.get("docs", []))
     by_kind = {}
     for d in s.get("docs", []):
         by_kind.setdefault(d.get("kind"), []).append(d)
@@ -151,13 +169,16 @@ def compare(s: dict) -> dict:
                 cells[c["id"]] = dict(state="nodoc")
             else:
                 cells[c["id"]] = _cell(c["docs"], src, fd["type"])
-        have = [(k, v) for k, v in cells.items() if v["state"] == "value"]
-        missing = [k for k, v in cells.items() if v["state"] == "missing"]
+        have = [(k, v) for k, v in cells.items() if v["state"] == "value" and not v.get("partial")]
+        missing = [k for k, v in cells.items() if v["state"] == "missing" or v.get("partial")]
         # columns that may name only part of the values (config "subset"): a Form D certifies the invoices it lists,
         # it need not list every invoice of the package. They must not name anything the others do not have.
-        sub = [(k, v) for k, v in have if k in fd.get("subset", [])]
+        subset_cols = set(fd.get("subset", []))
+        if fd["type"] == "number" and n_ci > 1 and doc_groups:
+            subset_cols |= {"SC", "CO"}          # several invoices: a contract / Form D covers its own invoice only
+        sub = [(k, v) for k, v in have if k in subset_cols]
         if sub and len(have) > len(sub):
-            have = [(k, v) for k, v in have if k not in fd.get("subset", [])]
+            have = [(k, v) for k, v in have if k not in subset_cols]
         else:
             sub = []
         if not have:
@@ -183,16 +204,34 @@ def compare(s: dict) -> dict:
                 cells[k]["odd"] = True
             agreed = [v["norm"] for k, v in have if k not in odd]
             for k, v in sub:
-                ok = bool(agreed) and _same(v["norm"], [x for x in agreed[0] if any(_same([x], [y], fd["type"])
-                                                                                   for y in v["norm"])], fd["type"])
+                if fd["type"] == "number":         # against the invoices of the same group(s) only
+                    ok = _same(v["norm"], _group_sum(cells, have, v, doc_groups), "number")
+                    if not ok:
+                        cells[k]["vs_groups"] = True
+                else:
+                    ok = bool(agreed) and _same(v["norm"], [x for x in agreed[0] if any(_same([x], [y], fd["type"])
+                                                                                       for y in v["norm"])], fd["type"])
                 if not ok:
                     cells[k]["odd"] = True
                     result = "mismatch"
+            if sub and result == "single" and not any(v.get("odd") for _, v in sub):
+                result = "match"                   # the contract / Form D agree with their own invoice(s)
         rows.append(dict(id=fd["id"], en=fd["en"], vi=fd["vi"], type=fd["type"], unit=fd.get("unit", ""),
                          cells=cells, result=result))
     _against_ref(rows, cfg["fields"])
     return dict(columns=[{k: c[k] for k in ("id", "kind", "en", "vi")} | dict(n_docs=len(c["docs"]))
                          for c in cols], rows=rows, lines=lines(s, by_kind), not_read=cfg.get("not_read", []))
+
+
+def _group_sum(cells: dict, have: list, cell: dict, groups: dict) -> list:
+    """The invoice-side value of the invoice groups a contract / Form D cell belongs to: the per-document values of
+    the first invoice-side column (CI, else PL) for the invoices in those groups, added up."""
+    gs = set().union(*[groups.get(d, set()) for d in cell.get("docs", [])])
+    for k, v in have:
+        parts = [p for p in v.get("parts", []) if groups.get(p["doc"], set()) & gs]
+        if k in ("CI", "PL") and parts:
+            return [round(sum(p["norm"][0] or 0 for p in parts), 6)]
+    return []
 
 
 def _against_ref(rows: list, fields: list):

@@ -319,6 +319,45 @@ def _():
     assert d.f["shipper"].value == "ACME TRADING (THAILAND) CO., LTD.", d.f["shipper"]
 
 
+
+# ---- P4 cartons / part numbers / FOC goods (2026-11-19). Invented values.
+@test("packing list: lines in one shared carton print qty + N.W. only; part numbers; quoted goods name")
+def _():
+    from engine.rules import true_total, validate
+    d = pdf("p4_ci", [
+        "<   INVOICE   >",
+        [(40, "INVOICE NO. ABC26-XYZ021"), (300, "05/10/2026")],
+        "F.O.C",
+        '   "SPARE PARTS OF RICE COOKER"   NO COMMERCIAL VALUE',
+        [(40, "1"), (60, "Inner Lid Plate"), (300, "12"), (330, "PCS"), (380, "0.25"), (440, "3.00")],
+        "100000000001@AB",
+        [(40, "1"), (60, "RATING LABEL"), (300, "40"), (330, "PCS"), (380, "0.05"), (440, "2.00")],
+        "100000000002@AB",
+        [(40, "TTL:"), (80, "1 CARTON (S)"), (300, "52.00"), (360, "PCS"), (400, "USD"), (440, "5.00")],
+        "<   PACKING LIST   >",
+        [(40, "INVOICE NO. ABC26-XYZ021"), (300, "05/10/2026")],
+        '   "SPARE PARTS OF RICE COOKER"   NO COMMERCIAL VALUE',
+        [(40, "CARTON/NO.1-1"), (120, "Inner Lid Plate"), (300, "12 PCS"), (360, "1.20"), (420, "2.40"), (480, "0.050")],
+        "100000000001@AB",
+        [(120, "RATING LABEL"), (300, "40 PCS"), (360, "0.04")],
+        "100000000002@AB",
+        [(40, "TTL:"), (80, "1 CARTON (S)"), (200, "52 PCS"), (300, "1.24"), (360, "2.40"), (420, "0.050")]], "CI")
+    assert len(d.pl_items) == 2 and len(d.packages) == 1, (d.pl_items, d.packages)
+    pk = d.packages[0]
+    assert (pk.rng, pk.ctn, pk.gw.value, pk.cbm.value, pk.lines) == ((1, 1), 1, 2.40, 0.050, [0, 1]), pk
+    assert d.pl_items[1]["gw"] is None and d.pl_items[1]["nw"].value == 0.04       # no G.W. of its own, not zero
+    assert [(i.kind, i.value, i.category) for i in d.item_ids] == [("part_no", "100000000001@AB", "part"),
+                                                                   ("part_no", "100000000002@AB", "label")], d.item_ids
+    assert d.f["goods"].value == "SPARE PARTS OF RICE COOKER", d.f["goods"]
+    assert d.f["pl_goods_full"].value == "SPARE PARTS OF RICE COOKER", d.f.get("pl_goods_full")
+    assert true_total(d, "gw").value == 2.40 and true_total(d, "nw").value == 1.24 and true_total(d, "ctn").value == 1
+    keys = {f.key for f in validate([d])}
+    for k in ("PL_TOTAL", "LINE_COUNT", "CI_PL_QTY", "PL_GW_NW", "PL_LINE", "CI_COVER_TOTAL", "TOTAL_QTY"):
+        assert k not in keys, (k, keys)
+    d.pl_items[1]["nw"] = d.pl_items[1]["nw"].__class__(4.0, "4.00", d.pl_items[1]["nw"].line, 0, 0)   # carton too light
+    assert "PL_GW_NW" in {f.key for f in validate([d])}, "a carton lighter than its lines must be reported"
+
+
 if __name__ == "__main__":
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     sys.exit(1 if FAILS else 0)

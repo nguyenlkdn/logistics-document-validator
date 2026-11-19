@@ -90,6 +90,8 @@ class Doc:
     lists: dict = field(default_factory=dict)    # multi-occurrence fields -> [Field]
     cargo_blocks: list = field(default_factory=list)   # B/L: [CargoBlock]
     packages: list = field(default_factory=list)       # packing list: [Package] when lines share a carton
+    item_ids: list = field(default_factory=list)       # [ItemId] parallel to items
+    pl_item_ids: list = field(default_factory=list)    # [ItemId] parallel to pl_items
 
     @property
     def name(self):
@@ -248,7 +250,7 @@ def _extract_ci(d: Doc):
             ctn = F(l, ctn_m, 1, num(ctn_m[1])) if ctn_m else (F(l, m, 2, num(m[2])) if m[2] else None)
             d.f.update({f"pl_total_{k}": v for k, v in nums.items()}, pl_total_ctn=ctn)
             continue
-        rng = re.search(r"CARTON\s*(\d+)\s*-\s*(\d+)", l.text)
+        rng = re.search(r"CARTON\s*(?:/\s*)?(?:NO\.?\s*)?(\d+)\s*-\s*(\d+)", l.text)
         ctns = (int(rng[2]) - int(rng[1]) + 1) if rng else (num(m[2]) if m[2] else None)
         ctn_f = F(l, rng, 0, ctns) if rng else (F(l, m, 2, ctns) if m[2] else None)
         desc = None
@@ -258,7 +260,74 @@ def _extract_ci(d: Doc):
                 desc = F(pl_line, dm, 1); break
         d.pl_items.append(dict(model=_model_near(pl, i, backward=True), ctn=ctns, ctn_f=ctn_f, desc=desc,
                                rng=(int(rng[1]), int(rng[2])) if rng else None, **nums))
+    _shared_cartons(d, pl, pl_rx)
+    if not d.f.get("goods"):                       # no 'BRAND' line: the quoted goods description of the invoice
+        src = inv or L                             # the packing-list part read on its own has no invoice part
+        first = next((it["qty"].line for it in d.items + d.pl_items if it["qty"].line in src), None)
+        head = src[:src.index(first)] if first is not None else src
+        d.f["goods"] = _first(head, r'^\s*"([A-Z][^"]{5,})"', flags=0)
+    d.item_ids = [item_id(L, it) for it in d.items]
+    d.pl_item_ids = [item_id(L, it) for it in d.pl_items]
 
+
+_PARTIAL = rf"({NUM})\s*{QTY_UNIT}\s+({NUM})\s*$"          # 'CARTON LABEL   6 PCS   0.006': quantity + N.W. only
+_PART_NO = re.compile(r"^\s*([A-Z0-9]{6,}@[A-Z]{1,4}|\d{10,}[A-Z0-9]*)\s*$")
+
+
+def _shared_cartons(d: Doc, pl: list, pl_rx: str):
+    """Lines packed in the carton of the full row above them: they print quantity and N.W. only, the carton's G.W.
+    and CBM are printed once on the full row. They become packing-list lines of a Package that holds G.W. / CBM;
+    a line never gets a G.W. or CBM of its own (missing is not zero)."""
+    heads = {id(it["qty"].line): k for k, it in enumerate(d.pl_items)}
+    extra, cur = {}, None
+    for i, l in enumerate(pl):
+        if id(l) in heads:
+            cur = heads[id(l)]
+            continue
+        # a TTL row does not close the carton: a layout may print it on every page and go on with the same carton
+        if cur is None or re.search(pl_rx, l.text) or re.match(r"\s*(TTL|TOTAL)\b", l.text, re.I):
+            continue
+        m = re.search(_PARTIAL, l.text, re.I)
+        if m:
+            extra.setdefault(cur, []).append(dict(model=_model_near(pl, i), ctn=None, ctn_f=None, desc=None, rng=None,
+                                                  qty=F(l, m, 1, num(m[1])), nw=F(l, m, 2, num(m[2])), gw=None,
+                                                  cbm=None))
+    if not extra:
+        return
+    items = []
+    for k, it in enumerate(d.pl_items):
+        if k in extra:
+            pk = Package(it["rng"], it["ctn"], it["gw"], it["cbm"], [])
+            d.packages.append(pk)
+            it = dict(it, gw=None, cbm=None, package=len(d.packages) - 1)
+            pk.lines.append(len(items))
+            items.append(it)
+            for e in extra[k]:
+                pk.lines.append(len(items))
+                items.append(dict(e, package=len(d.packages) - 1))
+        else:
+            items.append(it)
+    d.pl_items = items
+
+
+def item_id(L: list, it: dict) -> ItemId:
+    """A goods line's identity: its model, or else the part number printed on the line below (e.g. '…@AB'), and the
+    goods type from its description (config "goods_categories")."""
+    from .rules import CONFIG
+    line = it["qty"].line
+    desc = re.sub(r"^\s*\d{1,3}\s{2,}", "", line.text[:it["qty"].start]).strip()
+    cats = CONFIG.get("goods_categories", {})
+    cat = next((c for c, words in cats.items() if any(re.search(rf"\b{re.escape(w)}\b", desc, re.I) for w in words)),
+               None)
+    model = it.get("model")
+    if model:
+        return ItemId(model if isinstance(model, str) else getattr(model, "value", None), "model", cat or "finished")
+    k = L.index(line) if line in L else -1
+    for nl in L[k + 1:k + 3] if k >= 0 else []:
+        m = _PART_NO.match(nl.text)
+        if m:
+            return ItemId(m[1], "part_no", cat or "part", F(nl, m, 1))
+    return ItemId(None, "none", cat or "other")
 
 def _extract_sc(d: Doc):
     L = d.lines
