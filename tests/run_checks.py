@@ -733,6 +733,22 @@ def _():
     assert ("@ctn", "95", "100") in {(f.params["label"], f.current, f.suggested) for f in fs if f.key == "CO_TOTAL"}
 
 
+@test("Form D total value over two lines: words and figure both wrong -> one finding, both lines boxed, Form D style")
+def _():
+    docs = package()                                            # invoice amount 1,000.00
+    co = docs[3]
+    l1, l2 = _line("TOTAL : NINE HUNDRED", 1), _line("POINT FIVE ZERO (900.50) USD***", 2)
+    k = l2.text.index("900.50")
+    co.f["total_value"] = Field(900.5, "900.50", l2, k, k + 6)
+    co.lists["total_value_words"] = [Field("NINE HUNDRED", "NINE HUNDRED", l1, 8, 20),
+                                     Field("POINT FIVE ZERO", "POINT FIVE ZERO", l2, 0, 15)]
+    fs, _res = run(docs)
+    f = next(x for x in fs if x.key == "CO_TOTAL" and x.params.get("label") == "@total_value_phrase")
+    assert (f.current, f.suggested) == ("NINE HUNDRED POINT FIVE ZERO (900.50)", "ONE THOUSAND POINT ZERO ZERO (1000.00)"), \
+        (f.current, f.suggested)
+    assert len([l for l in f.locs if l.role == "wrong"]) == 2
+
+
 # ----------------------------------------------------------------------------------------------- P5 plausibility gate
 def gated(docs):
     from engine.plausibility import mark

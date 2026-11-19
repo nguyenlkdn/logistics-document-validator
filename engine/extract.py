@@ -473,6 +473,20 @@ def _extract_co(d: Doc):
     if d.f["total_value"] is None:
         m = re.search(rf"\(({NUM})\)\s*USD", joined)
         d.f["total_value"] = Field(num(m[1]), m[1], L[0], 0, 0) if m else None
+    tv = d.f["total_value"]                  # the amount in words before it, on its line and up to 2 lines above
+    if tv is not None and tv.end > tv.start:
+        k = L.index(tv.line)
+        parts, start = [], next((j for j in range(k, max(k - 3, -1), -1) if re.match(r"\s*TOTAL\s*:", L[j].text)), None)
+        if start is not None:
+            for j in range(start, k + 1):
+                t = L[j].text
+                a = re.match(r"\s*TOTAL\s*:\s*", t).end() if j == start else len(t) - len(t.lstrip())
+                b = tv.start - 1 if j == k else len(t.rstrip())        # up to '(' of the figure
+                seg = t[a:b].rstrip()
+                if seg:
+                    parts.append(Field(seg, seg, L[j], a, a + len(seg)))
+            if parts and all(re.fullmatch(r"[A-Z][A-Z\- ]*", p.value) for p in parts):
+                d.lists["total_value_words"] = parts
     d.f["total_qty"] = _first(L, rf"TOTAL\s*:\s*[A-Z\- ]+\(({NUM})\)\s*(?:SET|PIECE|PCS)", conv=num, flags=0)
     for _, l, m in _search(L, tot_rx + r"(?:SET|PIECE|PCS)", 0):   # the quantity total in words ('TWO HUNDRED …')
         tw = m[1].split()

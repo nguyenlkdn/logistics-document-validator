@@ -293,6 +293,10 @@
     "total_qty_phrase": {
       "en": "total quantity (words and figures)",
       "vi": "tổng số lượng (bằng chữ và bằng số)"
+    },
+    "total_value_phrase": {
+      "en": "total value (words and figures)",
+      "vi": "tổng trị giá (bằng chữ và bằng số)"
     }
   },
   "messages": {

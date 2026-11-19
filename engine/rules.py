@@ -553,6 +553,20 @@ def r_co(ci, co, bl, out):
             want = f"{_words_like(bv, words.value)} ({fmt_like(bv, a.raw)})"
             ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label="@total_qty_phrase", src="@src_invoice"), ph.raw,
                            want, at(co, ph) + at(ci, b, "ref")))
+        elif (k == "total_value" and a and bv is not None and not _close(a.value, bv) and co.lists.get("total_value_words")
+              and (vw := words_to_number(" ".join(p.value for p in co.lists["total_value_words"]))) is not None
+              and not _close(vw, bv)):
+            # the amount in words and in figures both wrong (words over 1-2 lines): one finding over the whole phrase
+            parts = co.lists["total_value_words"]
+            words = " ".join(p.value for p in parts)
+            last = parts[-1]
+            t = last.line.text
+            end = a.end + (1 if t[a.end:a.end + 1] == ")" else 0)
+            tail = Field(t[last.start:end], t[last.start:end], last.line, last.start, end) if last.line is a.line else None
+            boxes = [x for p in parts[:-1] for x in at(co, p)] + (at(co, tail) if tail else at(co, last) + at(co, a))
+            ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label="@total_value_phrase", src="@src_invoice"),
+                           f"{words} ({a.raw})", f"{_amount_words(bv, a.raw, words)} ({fmt_like(bv, a.raw)})",
+                           boxes + at(ci, b, "ref")))
         elif a and bv is not None and not _close(a.value, bv):
             ck.add(Finding("CO_TOTAL", "ERROR", [co, ci], dict(label=f"@{k}", src="@src_invoice"), a.raw,
                            f"{bv:,.2f}".rstrip("0").rstrip("."),
@@ -569,6 +583,18 @@ def _words_like(n, sample: str) -> str:
     """n in words, written like sample ('NINETY FOUR' without a hyphen gives 'NINETY EIGHT')."""
     w = number_to_words(n)
     return w if "-" in (sample or "") else w.replace("-", " ")
+
+
+_DIGIT_WORDS = "ZERO ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE".split()
+
+
+def _amount_words(v: float, sample_raw: str, sample_words: str) -> str:
+    """1234.5 -> 'ONE THOUSAND TWO HUNDRED THIRTY FOUR POINT FIVE ZERO' (Form D style: decimals digit by digit,
+    as many decimals as the printed figure, no hyphen if the document writes none)."""
+    dec = len(sample_raw.split(".")[1]) if "." in sample_raw else 0
+    whole, frac = f"{v:.{dec}f}".split(".") if dec else (f"{v:.0f}", "")
+    w = _words_like(int(whole), sample_words)
+    return w + (" POINT " + " ".join(_DIGIT_WORDS[int(c)] for c in frac) if frac else "")
 
 
 def _phrase(words: Field, fig: Field) -> Field | None:

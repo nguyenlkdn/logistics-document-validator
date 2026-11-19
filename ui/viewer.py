@@ -97,6 +97,7 @@ def render(path: str, pno: int, zoom, boxes: list[dict], hits: list[tuple], toke
     from engine.evidence import tag_places                          # tags never cover another finding's box
     tagged = [b for b in boxes if b.get("no")]
     where = dict(zip(map(id, tagged), tag_places([tuple(b["bbox"]) + (b["no"],) for b in tagged], page_w=w)))
+    seen_tags = set()
     for b in sorted(boxes, key=lambda b: b.get("focus", False)):     # the selected finding on top
         col = COLOR["RESOLVED"] if b["role"] == "ref" else COLOR.get(b["sev"], COLOR["ERROR"])
         cls = "ldv-box" + (" ldv-ref" if b["role"] == "ref" else "") + (" ldv-focus" if b.get("focus") else "")
@@ -104,7 +105,10 @@ def render(path: str, pno: int, zoom, boxes: list[dict], hits: list[tuple], toke
         if b.get("focus"):
             style += f";box-shadow:0 0 0 4px {_rgba(col, .25)}"
         pos = {"above": "", "right": " r", "left": " l", "below": " b"}[where.get(id(b), "above")]
-        tag = f'<span class="ldv-tag{pos}" style="background:{col}">#{b["no"]}</span>' if b.get("no") else ""
+        first = b.get("no") and (b["no"], b["role"]) not in seen_tags   # one tag per finding (and role) on the page
+        if first:
+            seen_tags.add((b["no"], b["role"]))
+        tag = f'<span class="ldv-tag{pos}" style="background:{col}">#{b["no"]}</span>' if first else ""
         parts.append(f'<div class="{cls}" style="{style}" data-f="{b.get("fno", "")}" '
                      f'title="{html.escape(b.get("title", ""))}">{tag}</div>')
     text = []

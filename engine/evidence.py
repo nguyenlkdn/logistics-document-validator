@@ -101,6 +101,7 @@ def annotated_pages(path, page_marks, dpi: int = 110) -> list[bytes]:
             rs = [tuple(pymupdf.Rect(m[1], m[2], m[3], m[4]) + (-3, -2, 3, 2)) + (m[6],) for m in on]
             for m, where in zip(on, tag_places(rs, page_w=doc[pno].rect.width)):
                 place[id(m)] = where
+        tagged = set()
         for m in marks:
             pno, x0, y0, x1, y1, sev, no = m
             page, c = doc[pno], SEV_COLOR.get(sev, RED)
@@ -110,6 +111,9 @@ def annotated_pages(path, page_marks, dpi: int = 110) -> list[bytes]:
             tag = dict(above=pymupdf.Rect(r.x0, r.y0 - 10, r.x0 + w, r.y0), right=pymupdf.Rect(r.x1, r.y0, r.x1 + w, r.y0 + 10),
                        left=pymupdf.Rect(r.x0 - w, r.y0, r.x0, r.y0 + 10),
                        below=pymupdf.Rect(r.x0, r.y1, r.x0 + w, r.y1 + 10))[place.get(id(m), "above")]
+            if (pno, no) in tagged:                    # one finding over several boxes (a phrase on 2 lines): one tag
+                continue
+            tagged.add((pno, no))
             page.draw_rect(tag, color=c, fill=c)
             page.insert_text((tag.x0 + 2, tag.y1 - 2.3), f"#{no}", fontsize=7.5, color=(1, 1, 1))
         return [pg.get_pixmap(dpi=dpi).tobytes("png") for pg in doc]
