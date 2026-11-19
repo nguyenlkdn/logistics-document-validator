@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pymupdf
 
+from .grammar import CTN_UNIT, DATE_DMY, DEC, DEC2, DOC_ID, NUM, QTY_UNIT, SAILING
 from .pdftext import Line, doc_lines
 from .util import num, parse_date
 
@@ -23,6 +24,7 @@ class Field:
     line: Line
     start: int
     end: int
+    status: str = "READ"          # engine.checks.FieldStatus, set by the reader: READ | UNREADABLE (SUSPECT: P5)
 
     @property
     def page(self):
@@ -37,6 +39,8 @@ def F(line: Line, m: re.Match, group=1, value=_RAW) -> Field:
     value=None means "printed but not understood" (e.g. the date '21-NOV-2O26'): the field stays empty and the
     VALUE_UNREADABLE rule reports it, instead of a text standing in for a date."""
     raw = m.group(group)
+    if value is None:                                       # printed but not understood: the reader says so
+        return Field(None, raw, line, m.start(group), m.end(group), "UNREADABLE")
     return Field(raw if value is _RAW else value, raw, line, m.start(group), m.end(group))
 
 
@@ -130,7 +134,7 @@ def _model_near(lines, i, span=3, backward=False):
 
 def _fob_all(lines):
     out = []
-    for _, l, m in _search(lines, r"\bFOB ([A-Z][A-Z ]*?[A-Z])(?=\s{2,}|\s*$| IN USD)", 0):
+    for _, l, m in _search(lines, r"\bFOB ([A-Z][A-Z ]*?[A-Z])(?=\s{2,}|\s*$| IN USD|\s*,\s*[A-Z])", 0):
         out.append(F(l, m, 1))
     return out
 
@@ -154,16 +158,18 @@ def _extract_ci(d: Doc):
     L = d.lines
     pl_start = next((i for i, l in enumerate(L) if "PACKING LIST" in l.text.upper()), len(L))
     inv, pl = L[:pl_start], L[pl_start:]
-    d.f["invoice_no"] = _first(L, r"INVOICE NO\.?:?\s*([A-Z0-9]{8,})")
-    d.f["invoice_date"] = (_first(L, r"\bDATE\s*:\s*(\d{1,2}/\d{1,2}/\d{4})", conv=parse_date)
-                           or _first(L, r"Invoice Date:\s*(\S+)", conv=parse_date))
+    d.f["invoice_no"] = _first(L, rf"INVOICE NO\.?\s*:?\s*({DOC_ID})")
+    d.f["invoice_date"] = (_first(L, rf"\bDATE\s*:\s*({DATE_DMY})", conv=parse_date)
+                           or _first(L, r"Invoice Date:\s*(\S+)", conv=parse_date)
+                           # the date printed right after the invoice number, without a label
+                           or _first(L, rf"INVOICE NO\.?\s*:?\s*{DOC_ID}\s{{2,}}({DATE_DMY})\s*$", conv=parse_date))
     d.f["vessel"] = _first(L, r"SHIPPED BY\s*:\s*(.+?)(?:\s{2,}|$)", conv=_vessel)
     d.f["pol"] = (_first(L, r"Port of Loading\s*:\s*([A-Za-z ]+)") or _first(L, r"FROM\s*:\s*([A-Z ]+?)(?:\s{2,}|$)"))
     d.f["pod"] = (_first(L, r"Port of Discharge\s*:\s*([A-Z ]+?)(?=,|\s{2,}|$)")
                   or _first(L, r"\bTO\s*:\s*([A-Z ]+?)(?:\s{2,}|$)"))
     d.lists["pod"] = [F(l, m, 1) for _, l, m in _search(L, r"Port of Discharge\s*:\s*([A-Z ]+?)(?=,|\s{2,}|$)")]
-    d.f["sailing"] = (_first(L, r"Sailing On Or About\s*:\s*(\d.+?)(?:\s{2,}|$)", conv=parse_date)
-                      or _after(L, r"SAILING ON OR ABOUT", r"^\s*(\d{1,2}/\d{1,2}/\d{4})", conv=parse_date))
+    d.f["sailing"] = (_first(L, rf"{SAILING}\s*:\s*(\d.+?)(?:\s{{2,}}|$)", conv=parse_date)
+                      or _after(L, SAILING, rf"^\s*({DATE_DMY})", conv=parse_date))
     d.f["containers"] = _first(L, r"TOTAL CONTAINER\s*:\s*(\d+)\s*x", conv=int)
     for _, l, m in _search(L, r"TOTAL CONTAINER\s*:\s*((?:\d+\s*[xX]\s*\d{2}\s*'?\s*[A-Z]{2}[\s+,&]*)+)"):
         d.lists["cntr_types"] = [F(l, m, 1)]
@@ -178,7 +184,7 @@ def _extract_ci(d: Doc):
     d.f["pos"] = Field(sorted(pos), "", L[0], 0, 0)
     d.lists["fob"] = _fob_all(L)
 
-    item_rx = r"([\d,]+)\s*(?:SET\(S\)|PCS|SETS)\s{2,}([\d,]+\.\d{2})\s{2,}([\d,]+\.\d{2})\s*$"
+    item_rx = rf"({NUM})\s*{QTY_UNIT}\s{{2,}}({DEC2})\s{{2,}}({DEC2})\s*$"
     hits = list(_search(inv, item_rx))
     for n, (i, l, m) in enumerate(hits):
         po = re.search(PO_RE, l.text)
@@ -189,20 +195,20 @@ def _extract_ci(d: Doc):
                 desc = F(nl, dm, 1); break
         d.items.append(dict(model=_model_near(inv, i), qty=F(l, m, 1, num(m[1])), price=F(l, m, 2, num(m[2])),
                             amount=F(l, m, 3, num(m[3])), po=po.group(0) if po else None, desc=desc))
-    for _, l, m in _search(inv, r"^(?:TTL|TOTAL)\b.*?(?:USD\s*)?([\d,]+\.\d{2})\s*$"):
+    for _, l, m in _search(inv, rf"^(?:TTL|TOTAL)\b.*?(?:USD\s*)?({DEC2})\s*$"):
         d.f["total_amount"] = F(l, m, 1, num(m[1]))
-    for _, l, m in _search(inv, r"^(?:TTL|TOTAL)\b.*?([\d,]+)\s*(?:SET\(S\)|PCS)"):
+    for _, l, m in _search(inv, rf"^(?:TTL|TOTAL)\b.*?({NUM})\s*{QTY_UNIT}"):     # '357.00 PCS': all of it
         d.f["total_qty"] = F(l, m, 1, num(m[1]))
     words = [l.text for l in inv if re.search(r"\bSAY\b", l.text, re.I)]
     if words:
         i = inv.index(next(l for l in inv if l.text in words))
         d.f["amount_words"] = Field(" ".join(x.text for x in inv[i:i + 2]), "", inv[i], 0, 0)
 
-    pl_rx = (r"([\d,]+)\s*(?:SET\(S\)|PCS)(?:\s+([\d,]+)\s*CTNS)?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s*$")
+    pl_rx = rf"({NUM})\s*{QTY_UNIT}(?:\s+({NUM})\s*CTNS)?\s+({DEC})\s+({DEC})\s+({DEC})\s*$"
     for i, l, m in _search(pl, pl_rx):
         nums = dict(qty=F(l, m, 1, num(m[1])), nw=F(l, m, 3, num(m[3])), gw=F(l, m, 4, num(m[4])),
                     cbm=F(l, m, 5, num(m[5])))
-        ctn_m = re.search(r"([\d,]+)\s*CARTON\(S\)", l.text)
+        ctn_m = re.search(rf"({NUM})\s*CARTON\s*\(\s*S\s*\)", l.text)
         if re.match(r"\s*(TTL|TOTAL)", l.text, re.I) or l.text.split()[0].upper().startswith(("TTL", "TOTAL")):
             ctn = F(l, ctn_m, 1, num(ctn_m[1])) if ctn_m else (F(l, m, 2, num(m[2])) if m[2] else None)
             d.f.update({f"pl_total_{k}": v for k, v in nums.items()}, pl_total_ctn=ctn)
@@ -230,12 +236,12 @@ def _extract_sc(d: Doc):
     d.lists["fob"] = _fob_all(L)
     d.f["shipment_by"] = _first(L, r"SHIPMENT\s+By\s+(\S+)", conv=parse_date)
     d.f["payment"] = _first(L, r"PAYMENT\s+(By .+?)\s+for full", flags=re.I)
-    rx = rf"^(\d+)\s{{2,}}(\S+)\s{{2,}}([\d,]+)\s{{2,}}(SETS?|PCS)\s{{2,}}([\d,.]+)\s{{2,}}([\d,]+\.\d{{2}})\s*$"
+    rx = rf"^(\d+)\s{{2,}}(\S+)\s{{2,}}({NUM})\s{{2,}}(SETS?|PCS)\s{{2,}}({NUM})\s{{2,}}({DEC2})\s*$"
     for _, l, m in _search(L, rx, 0):
         d.items.append(dict(no=F(l, m, 1, int(m[1])), model=m[2], qty=F(l, m, 3, num(m[3])),
                             price=F(l, m, 5, num(m[5])), amount=F(l, m, 6, num(m[6]))))
-    d.f["total_amount"] = _first(L, r"^TOTAL\s*:.*?([\d,]+\.\d{2})\s*$", conv=num)
-    d.f["total_qty"] = _first(L, r"^TOTAL\s*:\s*([\d,]+)", conv=num)
+    d.f["total_amount"] = _first(L, rf"^TOTAL\s*:.*?({DEC2})\s*$", conv=num)
+    d.f["total_qty"] = _first(L, rf"^TOTAL\s*:\s*({NUM})", conv=num)
     d.f["amount_words"] = _first(L, r"^Say\s*:\s*(.+)$")
     docs, on = [], False
     for l in L:
@@ -258,16 +264,16 @@ def _extract_bl(d: Doc):
         d.f["pol"] = F(v.line, m, 1) if m else None
     d.f["pod"] = _after(L, r"\[ Port of Discharge \]", r"^([A-Z ]+?)(?=,|\s{2,})")
     d.lists["pod"] = [d.f["pod"]] if d.f["pod"] else []
-    for _, l, m in _search(L, r"(\d+)\s*CONTAINER\(S\).*?\s([\d,]+\.\d{3})\s+([\d,]+\.\d{3})\s*$"):
+    for _, l, m in _search(L, rf"(\d+)\s*CONTAINER\(S\).*?\s({DEC})\s+({DEC})\s*$"):
         d.f["containers"] = F(l, m, 1, int(m[1]))
         d.f["gw"] = F(l, m, 2, num(m[2]))
         d.f["cbm"] = F(l, m, 3, num(m[3]))
         break
     # total cartons of the said-to-contain box: not '1,250 CARTONS (1,250 SETS)' in the goods description and not
     # an attach-sheet row ('... // 950 CARTONS // ...'), whichever comes first in the layout
-    d.f["ctn"] = (_first([l for l in L if "//" not in l.text], r"\b([\d,]+)\s*CARTONS\b(?!\s*\()", conv=num)
-                  or _first(L, r"\b([\d,]+)\s*CARTONS\b", conv=num))
-    d.f["invoice_no"] = _first(L, r"INVOICE NO\.?\s*([A-Z0-9]{8,})")
+    d.f["ctn"] = (_first([l for l in L if "//" not in l.text], rf"({NUM})\s*CARTONS\b(?!\s*\()", conv=num)
+                  or _first(L, rf"({NUM})\s*CARTONS\b", conv=num))
+    d.f["invoice_no"] = _first(L, rf"INVOICE NO\.?\s*:?\s*({DOC_ID})")
     d.f["hs"] = _first(L, r"HS CODE:?\s*([\d.]+)")
     _extract_bl_cargo(d)
 
@@ -284,8 +290,8 @@ def _extract_bl_cargo(d: Doc):
         d.f["cntr_words"] = Field(m[1], l.text[m.start(1):m.end(2) + 1], l, m.start(1), m.end(2) + 1)
         d.f["cntr_words_n"] = F(l, m, 2, int(m[2]))
         break
-    load_rx = (r"([A-Z]{4}\d{7})\s*//\s*\S+\s*//\s*(([\d,]+)\s*CARTONS?)\s*//"
-               r"\s*(([\d,.]+)\s*KGS)\s*//\s*(([\d,.]+)\s*CBM)")
+    load_rx = (rf"([A-Z]{{4}}\d{{7}})\s*//\s*\S+\s*//\s*(({NUM})\s*CARTONS?)\s*//"
+               rf"\s*(({NUM})\s*KGS)\s*//\s*(({NUM})\s*CBM)")
     d.lists["cntr_load"], d.lists["cntr_load_parts"] = [], []
     for _, l, m in _search(L, load_rx, 0):         # one attach-sheet row: container // seal // cartons // KGS // CBM
         d.lists["cntr_load"].append(Field((m[1], num(m[3]), num(m[5]), num(m[7])), m[6], l, m.start(6), m.end(6)))
@@ -309,7 +315,7 @@ def _extract_bl_cargo(d: Doc):
         if nxt and re.fullmatch(r"\s*[A-Z]{1,3}\s*", nxt.text) and g.end == len(g.line.text.rstrip()):
             g = Field(g.value + nxt.text.strip(), g.raw, g.line, g.start, g.end)
     d.f["goods"] = g
-    for _, l, m in _search(L, r"([\d,]+)\s*CARTONS?\s*\(\s*([\d,]+)\s*([A-Z]+)\s*\)", 0):
+    for _, l, m in _search(L, rf"({NUM})\s*CARTONS?\s*\(\s*({NUM})\s*([A-Z]+)\s*\)", 0):
         d.f["bl_qty"] = F(l, m, 2, num(m[2]))
         d.f["bl_unit"] = F(l, m, 3)
         d.f["bl_qty_ctn"] = F(l, m, 1, num(m[1]))             # '1,250 CARTONS (1,250 SETS)': the cartons too
@@ -322,17 +328,17 @@ def _extract_bl_cargo(d: Doc):
 
 def _extract_co(d: Doc):
     L = d.lines
-    d.f["departure"] = _after(L, r"Departure date", r"^(\d{1,2}/\d{1,2}/\d{4})", conv=parse_date)
+    d.f["departure"] = _after(L, r"Departure date", rf"^({DATE_DMY})", conv=parse_date)
     d.f["vessel"] = _after(L, r"Vessel.s name", r"^(.+?)(?:\s{2,}|$)", conv=_vessel)
     d.f["pod"] = _after(L, r"^Port of Discharge", r"^([A-Z ]+?)(?=,|\s{2,}|$)")
     d.lists["pod"] = [f for _, l, m in _search(L, r"^Port of Discharge") for f in
                       [_after(L[L.index(l):], r"^Port of Discharge", r"^([A-Z ]+?)(?=,|\s{2,}|$)")] if f]
-    rx = r"^(\d+)\s{2,}.*?HS\. CODE\. ([\d.]+).*?\s([\d,]+) (SET|PIECE|PCS)S?\s{2,}([A-Z0-9]+)"
+    rx = rf"^(\d+)\s{{2,}}.*?HS\. CODE\. ([\d.]+).*?\s({NUM}) (SET|PIECE|PCS)S?\s{{2,}}([A-Z0-9]+)"
     hits = list(_search(L, rx, 0))
     for n, (i, l, m) in enumerate(hits):
         date_f = None
         for nl in L[i + 1:i + 4]:
-            dm = re.search(r"(\d{1,2}/\d{1,2}/\d{4})\s*$", nl.text)
+            dm = re.search(rf"({DATE_DMY})\s*$", nl.text)
             if dm:
                 date_f = F(nl, dm, 1, parse_date(dm[1])); break
         end = hits[n + 1][0] if n + 1 < len(hits) else len(L)
@@ -340,7 +346,7 @@ def _extract_co(d: Doc):
         stop = next((k for k, x in enumerate(block) if k and re.match(r"\s*TOTAL\s*:", x.text)), len(block))
         d.items.append(dict(no=int(m[1]), hs=m[2], hs_f=F(l, m, 2, m[2]), qty=F(l, m, 3, num(m[3])), inv_ref=m[5], inv_date=date_f,
                             **_co_item_details(block[:stop])))
-    tot_rx = r"TOTAL\s*:\s*((?:[A-Z]+[\- ])*[A-Z]+)\s*\(([\d,]+)\)\s*"
+    tot_rx = rf"TOTAL\s*:\s*((?:[A-Z]+[\- ])*[A-Z]+)\s*\(({NUM})\)\s*"
     hits = [(l, m) for _, l, m in _search(L, tot_rx + "CARTON")]
     hits += [(l, m) for i, l, m in _search(L, tot_rx + "$")                  # '... (1,250)' / 'CARTON***' below
              if i + 1 < len(L) and re.match(r"\s*CARTON", L[i + 1].text)]
@@ -352,16 +358,16 @@ def _extract_co(d: Doc):
         d.f["total_ctn_words"] = Field(" ".join(tw), " ".join(tw), l, m.end(1) - len(" ".join(tw)), m.end(1)) if tw else None
         break
     joined = " ".join(l.text for l in L)
-    m = re.search(r"\(([\d,.]+)\)\s*USD", joined)
+    m = re.search(rf"\(({NUM})\)\s*USD", joined)
     d.f["total_value"] = Field(num(m[1]), m[1], L[0], 0, 0) if m else None
-    m = re.search(r"TOTAL : [A-Z\- ]+\(([\d,]+)\) (?:SET|PIECE|PCS)", joined)
+    m = re.search(rf"TOTAL : [A-Z\- ]+\(({NUM})\) (?:SET|PIECE|PCS)", joined)
     d.f["total_qty"] = Field(num(m[1]), m[1], L[0], 0, 0) if m else None
 
 
 NUMBER_WORDS = set("ZERO ONE TWO THREE FOUR FIVE SIX SEVEN EIGHT NINE TEN ELEVEN TWELVE THIRTEEN FOURTEEN FIFTEEN "
                    "SIXTEEN SEVENTEEN EIGHTEEN NINETEEN TWENTY THIRTY FORTY FIFTY SIXTY SEVENTY EIGHTY NINETY "
                    "HUNDRED THOUSAND MILLION".split())
-PKG_RE = r"((?:[A-Z]+[\- ])*[A-Z]+)\s*\(\s*([\d,]+)\s*\)\s*(?:CARTON|CASE|PALLET|PACKAGE|BOX)"   # '( 500 )': pieces joined
+PKG_RE = rf"((?:[A-Z]+[\- ])*[A-Z]+)\s*\(\s*({NUM})\s*\)\s*(?:CARTON|CASE|PALLET|PACKAGE|BOX)"   # '( 500 )': pieces joined
 
 
 def _co_item_details(block: list) -> dict:
@@ -396,7 +402,7 @@ def _co_item_details(block: list) -> dict:
     m = re.search(r"\bBRAND\s+(.+?)\s*(?:\(\s*1\s*CARTON|MODEL\s*:|$)", col)
     if m:
         goods = m[1].strip()
-        pk = re.search(r"\s(?:(?:" + "|".join(sorted(NUMBER_WORDS)) + r")[\- ]?)+\s*\([\d,]+\)\s*(?:CARTON|CASE|PALLET|PACKAGE|BOX)",
+        pk = re.search(r"\s(?:(?:" + "|".join(sorted(NUMBER_WORDS)) + r")[\- ]?)+\s*\(" + NUM + r"\)\s*(?:CARTON|CASE|PALLET|PACKAGE|BOX)",
                        " " + goods)
         if pk:                                # the package count of box 7 follows the name in the column text
             goods = goods[:max(pk.start() - 1, 0)].strip() or goods
@@ -440,7 +446,7 @@ def load(path: Path, kind: str | None = None) -> Doc | None:
     return d
 
 
-ROW_RE = re.compile(r"[\d,]+\s*(?:SET\(S\)|SETS?|PCS|PIECES?)\b.*\d\.\d{2,3}\s*$", re.I)
+ROW_RE = re.compile(rf"{NUM}\s*(?:SETS?\s*\(\s*S\s*\)|SETS?|PCS|PIECES?)\b.*\d\.\d{{2,3}}\s*$", re.I)
 
 
 def _unparsed_rows(d: Doc) -> list:

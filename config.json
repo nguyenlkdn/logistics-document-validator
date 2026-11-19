@@ -835,6 +835,9 @@
       },
       {
         "id": "invoice_no",
+      "subset": [
+        "CO"
+      ],
         "en": "Invoice no.",
         "vi": "Số hóa đơn",
         "type": "docref",

@@ -246,6 +246,45 @@ def _():
     assert not [f for f in out if f.key == "BL_VS_PL"], out            # the B/L agrees with the lines: no finding
 
 
+
+# ---- P2 value grammar (2026-11-19): layouts of an FOC parts invoice / a contract that were misread. Invented values.
+@test("invoice: '357.00 PCS' total is 357 (not '00'), 'CARTON (S)' with a space, hyphenated invoice no. + bare date")
+def _():
+    d = pdf("p2_ci", [
+        "<   INVOICE   >",
+        [(40, "INVOICE NO. ABC26-XYZ021"), (300, "05/10/2026")],
+        "SAILING ON/OR ABOUT: 14/10/2026",
+        [(40, "1"), (60, "PART PLATE AB-100"), (300, "12"), (330, "PCS"), (380, "0.25"), (440, "3.00")],
+        [(40, "1"), (60, "LABEL CD-200"), (300, "345"), (330, "PCS"), (380, "0.08"), (440, "27.60")],
+        [(40, "TTL:"), (80, "1 CARTON (S)"), (300, "357.00"), (360, "PCS"), (400, "USD"), (440, "30.60")],
+        "<   PACKING LIST   >",
+        [(40, "INVOICE NO. ABC26-XYZ021"), (300, "05/10/2026")],
+        [(40, "TTL:"), (80, "1 CARTON (S)"), (200, "357 PCS"), (300, "4.926"), (360, "6.380"), (420, "0.481")]], "CI")
+    assert d.f["invoice_no"].value == "ABC26-XYZ021", d.f["invoice_no"]
+    assert str(d.f["invoice_date"].value) == "2026-10-05", d.f["invoice_date"]
+    assert str(d.f["sailing"].value) == "2026-10-14", d.f["sailing"]
+    assert d.f["total_qty"].value == 357.0 and d.f["total_qty"].raw == "357.00", d.f["total_qty"]
+    assert d.f["total_amount"].value == 30.60
+    assert [it["qty"].value for it in d.items] == [12.0, 345.0]
+    assert d.f["pl_total_ctn"].value == 1.0, d.f.get("pl_total_ctn")
+    assert d.f["pl_total_qty"].value == 357.0 and d.f["pl_total_cbm"].value == 0.481
+    assert [str(h["date"].value) for h in d.lists["headers"]] == ["2026-10-05", "2026-10-05"], d.lists["headers"]
+
+
+@test("B/L: hyphenated invoice numbers in the invoice list")
+def _():
+    d = pdf("p2_bl", ["[ Shipper ]", "ACME CO., LTD.", "INVOICE NO. ACME26110001", "INVOICE NO. ABC26-XYZ021"], "BL")
+    assert [f.value for f in d.lists["invoice_nos"]] == ["ACME26110001", "ABC26-XYZ021"], d.lists["invoice_nos"]
+
+
+@test("contract: 'FOB PORT A,COUNTRY' (comma, no space) is the place PORT A")
+def _():
+    from engine.extract import _fob_all
+    got = [f.value for f in _fob_all(lines('"ACME" BRAND RICE COOKER   FOB PORT A,THAILAND', "FOB PORT B, VIETNAM",
+                                            "FOB PORT C   IN USD", "and FOB price where RVC is applied"))]
+    assert got == ["PORT A", "PORT B", "PORT C"], got
+
+
 if __name__ == "__main__":
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     sys.exit(1 if FAILS else 0)

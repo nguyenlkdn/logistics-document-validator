@@ -153,6 +153,13 @@ def compare(s: dict) -> dict:
                 cells[c["id"]] = _cell(c["docs"], src, fd["type"])
         have = [(k, v) for k, v in cells.items() if v["state"] == "value"]
         missing = [k for k, v in cells.items() if v["state"] == "missing"]
+        # columns that may name only part of the values (config "subset"): a Form D certifies the invoices it lists,
+        # it need not list every invoice of the package. They must not name anything the others do not have.
+        sub = [(k, v) for k, v in have if k in fd.get("subset", [])]
+        if sub and len(have) > len(sub):
+            have = [(k, v) for k, v in have if k not in fd.get("subset", [])]
+        else:
+            sub = []
         if not have:
             result = "none"
         else:
@@ -174,6 +181,13 @@ def compare(s: dict) -> dict:
                 result = "incomplete" if missing else ("single" if len(have) == 1 else "match")
             for k in odd:
                 cells[k]["odd"] = True
+            agreed = [v["norm"] for k, v in have if k not in odd]
+            for k, v in sub:
+                ok = bool(agreed) and _same(v["norm"], [x for x in agreed[0] if any(_same([x], [y], fd["type"])
+                                                                                   for y in v["norm"])], fd["type"])
+                if not ok:
+                    cells[k]["odd"] = True
+                    result = "mismatch"
         rows.append(dict(id=fd["id"], en=fd["en"], vi=fd["vi"], type=fd["type"], unit=fd.get("unit", ""),
                          cells=cells, result=result))
     _against_ref(rows, cfg["fields"])

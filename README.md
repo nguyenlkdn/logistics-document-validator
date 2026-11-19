@@ -18,6 +18,7 @@ engine/
   pdftext.py           rebuild text lines with geometry (ignores rotated watermarks)
   extract.py           classify CI/SC/BL/CO + extract fields (each remembers page/position)
   extract_net.py       extra fields for the cross-document / self-check rules (parties, origin, TTL lines, …)
+  grammar.py           value grammar: whole-token numbers, units, document numbers, dates, labels (P2)
   rules.py             validation rules → Finding (message key, current, suggested, locations)
   rules_net.py         cross-document and self-consistency rules (2.1); full list: docs/RULES.md
   checks.py            check registry + runner: every check leaves a record (PASS / FAIL / REVIEW_REQUIRED /
@@ -53,6 +54,7 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python tests/run_baseline.py            # must print ALL PASS
 .venv/bin/python tests/run_unit.py                # review features (cross-check, sign-off, reports, search)
 .venv/bin/python tests/run_reader.py              # layouts the reader must handle (see docs/READING.md)
+.venv/bin/python tests/run_grammar.py             # number / unit / document-number / label grammar
 .venv/bin/python tests/run_checks.py [--local]    # every check leaves a record; no PASS without its inputs
 .venv/bin/python tools/find_unread.py tests/baseline/SET.zip   # printed values not read: reading gaps
 .venv/bin/python tests/ui_smoke.py                # optional, browser walk-through (pip install playwright)

@@ -35,6 +35,12 @@ Packing list) unless the user sets it.
 | Invoice / packing list header | the packing list repeats the invoice header: it is read on its own (`pl_*` fields) so a difference between the two parts shows | baseline |
 | Goods description | the full name with the brand (`"ACME" BRAND RICE COOKER`); quotes, `BRAND`, `AND/OF/THE` and plural `S` do not count when comparing; one name inside the other matches | baseline |
 | Dates | `21/11/2026`, `21-NOV-2026`, `Nov 21, 2026`, `21 November 2026` … are the same date | baseline |
+| Numbers (all readers, `engine/grammar.py`) | whole tokens only: `357` = `357.00`, `1,250` = `1,250.00`, `0.481`, `48,316.250`. A number is never read from the middle of another (`357.00` is never `00`). `1,25` and `1.250,00` are ambiguous: not read, reported | `run_grammar` |
+| Quantity / carton units | `SET(S)` = `SET (S)` = `SETS` = `SET`, `PCS` = `PC` = `PIECE(S)`, `UNIT(S)`; cartons `CARTON(S)` = `CARTON (S)` = `CARTONS` = `CTNS` | `run_grammar`, `run_reader` P2 |
+| Invoice number | letters / digits with `-` `/` `.` inside: `ACME2611E001`, `ABC26-XYZ021`; on the invoice, page headers and the B/L invoice list | `run_reader` P2 |
+| Invoice date | `DATE : 05/10/2026`, `Invoice Date: …`, or the date printed after the invoice number without a label | `run_reader` P2 |
+| Sailing label | `SAILING ON OR ABOUT` = `SAILING ON/OR ABOUT` = `Sailing On Or About` | `run_grammar`, `run_reader` P2 |
+| FOB place | `FOB PORT A`, `FOB PORT A   IN USD`, `FOB PORT A,COUNTRY` / `FOB PORT A, COUNTRY` (the country is not part of the place) | `run_reader` P2 |
 
 ## 3. "Not read" or "not printed"
 

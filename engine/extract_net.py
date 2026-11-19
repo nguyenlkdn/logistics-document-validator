@@ -6,6 +6,7 @@ Every field keeps its place in the PDF (Field), so findings can be boxed on the 
 import re
 
 from .extract import MARK_HEAD, MODEL_RE, PO_RE, Doc, F, Field, _after, _first, _search, column_models
+from .grammar import CTN_UNIT, DATE_DMY, DEC, DEC2, DOC_ID, NUM, QTY_UNIT
 from .util import num, parse_date
 
 CURRENCIES = ("USD", "EUR", "JPY", "THB", "VND", "CNY", "SGD", "GBP")
@@ -46,8 +47,8 @@ def _money_cur(L) -> list:
 def _ttl_ci(l, m=None) -> dict:
     """Invoice TTL line -> {ctn, qty, amount} (fields present only when written on the line)."""
     t, out = l.text, {}
-    for key, rx, conv in (("ctn", r"([\d,]+)\s*CARTON\(S\)", num), ("qty", r"([\d,]+)\s*(?:SET\(S\)|SETS?|PCS)\b", num),
-                          ("amount", r"([\d,]+\.\d{2})\s*(?:IN USD)?\s*$", num)):
+    for key, rx, conv in (("ctn", rf"({NUM})\s*CARTON\s*\(\s*S\s*\)", num), ("qty", rf"({NUM})\s*{QTY_UNIT}", num),
+                          ("amount", rf"({DEC2})\s*(?:IN USD)?\s*$", num)):
         mm = re.search(rx, t)
         if mm:
             out[key] = F(l, mm, 1, conv(mm[1]))
@@ -118,13 +119,12 @@ def extra_ci(d: Doc, header_only: bool = False):
     d.lists["ci_ttls"] = [x for _, l, _m in _search(inv, r"^\s*(?:TTL|TOTAL)\b") for x in [_ttl_ci(l)] if x]
     ttls = []
     for _, l, _m in _search(pl, r"^\s*(?:TTL|TOTAL)\b"):
-        mm = re.search(r"([\d,]+)\s*(?:SET\(S\)|PCS)(?:\s+([\d,]+)\s*CTNS)?\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s+([\d,]+\.\d+)\s*$",
-                       l.text)
+        mm = re.search(rf"({NUM})\s*{QTY_UNIT}(?:\s+({NUM})\s*CTNS)?\s+({DEC})\s+({DEC})\s+({DEC})\s*$", l.text)
         if not mm:
             continue
         row = dict(qty=F(l, mm, 1, num(mm[1])), nw=F(l, mm, 3, num(mm[3])), gw=F(l, mm, 4, num(mm[4])),
                    cbm=F(l, mm, 5, num(mm[5])))
-        cm = re.search(r"([\d,]+)\s*CARTON\(S\)", l.text)
+        cm = re.search(rf"({NUM})\s*CARTON\s*\(\s*S\s*\)", l.text)
         if cm:
             row["ctn"] = F(l, cm, 1, num(cm[1]))
         elif mm[2]:
@@ -144,7 +144,7 @@ def extra_ci(d: Doc, header_only: bool = False):
             if m:
                 p["no"], p["po"] = int(m[1]), m[2]
                 break
-    d.f["eta"] = _first(L, r"\bETA\s*:\s*(\d{1,2}/\d{1,2}/\d{4})", conv=parse_date)
+    d.f["eta"] = _first(L, rf"\bETA\s*:\s*({DATE_DMY})", conv=parse_date)
     d.f["origin"] = _first(L, r"COUNTRY OF ORIGIN\s*:?\s*([A-Za-z][A-Za-z ]*?)(?:\s{2,}|$)")
     d.f["payment"] = (_first(L, r"TERMS OF PAYMENT\s*:\s*(.+?)(?:\s{2,}|$)")
                       or _first(L, r"Payment Terms\s*:\s*(.+?)(?:\s{2,}|Sailing|$)"))
@@ -188,13 +188,13 @@ def extra_ci(d: Doc, header_only: bool = False):
                               ("freight", r"\bFREIGHT\b"),
                               ("origin", r"\bORIGIN\b|MADE IN"))
               if not d.f.get(k) and not re.search(rx, whole, re.I)]
-    if not d.f.get("total_qty") and not any(re.search(r"[\d,]+\s*(?:SET\(S\)|SETS?|PCS|PIECES?|UNITS?)\b", l.text, re.I)
+    if not d.f.get("total_qty") and not any(re.search(rf"{NUM}\s*{QTY_UNIT}", l.text, re.I)
                                             for _, l, _m in _search(inv, r"^\s*(?:TTL|TOTAL)\b")):
         absent.append("total_qty")                   # the invoice part has no quantity total, only line quantities
     if absent:
         d.f["absent"] = Field(", ".join(absent), "", L[0], 0, 0)
     d.lists["headers"] = [dict(no=F(l, m, 1), date=F(l, m, 2, parse_date(m[2])))
-                          for _, l, m in _search(L, r"INVOICE NO\.?\s*([A-Z0-9]{8,})\s+DATE\s*:\s*(\d{1,2}/\d{1,2}/\d{4})")]
+                          for _, l, m in _search(L, rf"INVOICE NO\.?\s*:?\s*({DOC_ID})\s+(?:DATE\s*:\s*)?({DATE_DMY})")]
     if not header_only and 0 < pl_start < len(L):
         _pl_header(d, pl)
 
@@ -243,7 +243,7 @@ def extra_bl(d: Doc):
     if absent:                                     # not printed on this B/L: "not on this document", not "not read"
         d.f["absent"] = Field(", ".join(absent), "", L[0], 0, 0)
     if not d.f.get("bl_qty"):                      # quantity per invoice, one line each: add them up
-        rows = list(_search(L, r"^\s*([\d,]+)\s*CARTON\(?S?\)?\s+([\d,]+)\s*(PCS|PIECES?|SETS?|UNITS?)\s*$", 0))
+        rows = list(_search(L, rf"^\s*({NUM})\s*{CTN_UNIT}\s+({NUM})\s*(PCS|PIECES?|SETS?|UNITS?)\s*$", 0))
         if rows:
             d.lists["bl_qty_rows"] = [F(l, m, 2, num(m[2])) for _, l, m in rows]
             ctns = [F(l, m, 1, num(m[1])) for _, l, m in rows]
@@ -263,14 +263,14 @@ def extra_bl(d: Doc):
                 d.f["bl_qty_ctn"] = Field(total_ctn, f"{total_ctn:,.0f}", both_c, 0, len(both_c.text))
             d.f["bl_unit"] = F(l, m, 3)
     # every invoice the B/L covers: one B/L can carry several invoices, one 'INVOICE NO.' line each
-    d.lists["invoice_nos"] = [F(l, m, 1) for _, l, m in _search(L, r"INVOICE NO\.?\s*([A-Z0-9]{8,})")]
+    d.lists["invoice_nos"] = [F(l, m, 1) for _, l, m in _search(L, rf"INVOICE NO\.?\s*:?\s*({DOC_ID})")]
     if len(d.lists["invoice_nos"]) > 1:            # cross-check shows them all
         f0 = d.lists["invoice_nos"][0]
         d.f["invoice_nos"] = Field(", ".join(f.value for f in d.lists["invoice_nos"]), f0.raw, f0.line, f0.start, f0.end)
 
 
 _INV_HEAD = re.compile(r"^[A-Z]{2,}[A-Z0-9]*\d[A-Z0-9]*$")
-_DATE = re.compile(r"^\d{1,2}/\d{1,2}/\d{4}$")
+_DATE = re.compile(rf"^{DATE_DMY}$")
 
 
 def _co_invoices(L) -> list:

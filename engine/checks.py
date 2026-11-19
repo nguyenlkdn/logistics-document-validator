@@ -93,9 +93,12 @@ def _absent(doc, name: str) -> bool:
 
 
 def field_state(doc, name: str):
-    """The Field of doc.f[name], or Missing(status) when it is not usable. Derived from the readers' conventions
-    (P1 changes no reader): value None + printed text = UNREADABLE, listed in 'absent' = ABSENT, otherwise NOT_FOUND."""
+    """The Field of doc.f[name], or Missing(status) when it is not usable. UNREADABLE is set by the reader on the
+    Field (LDV 2.4); ABSENT comes from the reader's 'absent' list; a missing key or an empty value is NOT_FOUND.
+    (Fields made without F() and value None + printed text are still UNREADABLE.)"""
     f = doc.f.get(name) if doc is not None else None
+    if f is not None and getattr(f, "status", "READ") not in (None, FieldStatus.READ):
+        return Missing(name, f.status, doc.name)            # set by the reader (UNREADABLE; SUSPECT from P5)
     if f is not None and hasattr(f, "value"):
         v = f.value
         if v is not None and v != "" and v != []:
