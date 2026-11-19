@@ -759,6 +759,19 @@ def _():
     assert tag_places([box]) == ["above"]          # no text around: the usual place
 
 
+@test("Form D model error: the invoice reference box is on the invoice's model, not on its quantity")
+def _():
+    from engine.rules_net import _line_model
+    l = _line("    AB-X10(W1)VN   12 PCS   5.00    60.00", 3)
+    k = l.text.index("12")
+    a = dict(model="AB-X10(W1)VN", qty=Field(12.0, "12", l, k, k + 2))
+    f = _line_model(a)
+    assert f is not None and l.text[f.start:f.end] == "AB-X10(W1)VN", f
+    l2 = _line("    AB-X10 (W1)VN   12 PCS", 4)
+    f2 = _line_model(dict(model="AB-X10(W1)VN", qty=Field(12.0, "12", l2, l2.text.index("12"), l2.text.index("12") + 2)))
+    assert f2 is not None and l2.text[f2.start:f2.end] == "AB-X10 (W1)VN", f2
+
+
 # ----------------------------------------------------------------------------------------------- P5 plausibility gate
 def gated(docs):
     from engine.plausibility import mark

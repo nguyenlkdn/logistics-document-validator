@@ -379,8 +379,24 @@ def r_co_model(ci, co, out):
             ck.compared()
         if m and ref and master.key(m) != master.key(ref):
             ck.add(Finding("CO_MODEL", "ERROR", [co, ci], dict(no=it["no"], model=m, ref=ref), m, ref,
-                           _model_at(co, it) + at(ci, a.get("model_f") or a["qty"], "ref")))
+                           _model_at(co, it) + at(ci, _line_model(a) or a["qty"], "ref")))
     ck.end()
+
+
+def _line_model(a):
+    """The model of an invoice / packing-list line as a Field on that line (lines keep the model as text only)."""
+    m, q = a.get("model"), a.get("qty")
+    if not (m and q is not None and getattr(q, "line", None) is not None):
+        return None
+    t = q.line.text
+    k = t.find(m)
+    if k < 0:                                     # printed with spaces inside ('AB-X10 (W1)VN'): match ignoring them
+        rx = r"\s*".join(map(re.escape, m.replace(" ", "")))
+        f = re.search(rx, t)
+        if not f:
+            return None
+        return Field(m, f[0], q.line, f.start(), f.end())
+    return Field(m, m, q.line, k, k + len(m))
 
 
 def _model_at(co, it):
