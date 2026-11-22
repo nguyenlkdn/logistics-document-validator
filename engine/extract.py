@@ -406,7 +406,7 @@ def _extract_bl(d: Doc):
             if not ves:                         # printed label, nothing under it: a blank on the B/L, not unread
                 s = next(s for t, s in lab.items() if t.startswith("[ Vessel"))
                 ln = Line(l.page, l.y, [s])
-                d.f["blank:vessel"] = Field("[ Vessel ]", s.text, ln, 0, len(ln.text))
+                d.f["blank:vessel"] = Field("VESSEL / VOY. NO.", s.text, ln, 0, len(ln.text))
                 d.f["absent"] = Field("vessel", "", L[0], 0, 0)
             break
     d.f["pod"] = _after(L, r"\[ Port of Discharge \]", r"^([A-Z ]+?)(?=,|\s{2,})")

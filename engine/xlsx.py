@@ -583,6 +583,21 @@ def read_ci(d, sheets):
                     v = ",".join(f"{n}x{t}" for t, n in types.items())
                     d.lists["cntr_types"] = [Field(v, v, cs[0]["no"].line, cs[0]["no"].start, cs[0]["no"].end)]
         d.f["pl_consignee"] = _value(pl, r"^\s*Messrs")
+        d.f["pl_shipper"] = _company(pl)
+        pl_pos = sorted({x for c in pl.cells for x in re.findall(PO_RE, c.text)})
+        if pl_pos:
+            d.f["pl_pos"] = Field(pl_pos, "", pl.cells[0].line, 0, 0)
+        cs = d.lists.get("pl_containers", [])
+        if cs:                                        # the packing list's own container count (its container rows)
+            d.f["pl_containers"] = _f(cs[0]["cell"], len(cs))
+            d.f["pl_cntr_nos"] = d.f.get("cntr_nos")
+        # header fields the packing-list sheet does not print at all: 'not printed' (cross-check), not 'not read'
+        pt = pl.text()
+        for k, rx in (("pl_vessel", r"VESSEL|SHIPPED BY|\bM/?V\b"), ("pl_incoterm", r"\b(?:FOB|CIF|CFR|CIP|CPT|EXW|FCA|DAP|DDP)\b"),
+                      ("pl_freight", r"\bFREIGHT\b"), ("pl_origin", r"\bORIGIN\b|MADE IN"),
+                      ("pl_payment", r"PAYMENT"), ("pl_pos", PO_RE), ("pl_shipper", r"\b(?:LTD|LIMITED|PTE|INC|CORP)")):
+            if not d.f.get(k) and not re.search(rx, pt, re.I):
+                absent.append(k)
         d.f["pl_pod"] = _port(_value(pl, r"^\s*PORT OF (?:DISCHARGE|DESTINATION)"))
         d.f["pl_invoice_no"] = _value(pl, r"^\s*Invoice\s*No\.?")
         d.f["pl_date"] = _value(pl, r"^\s*Date", conv=_date_of)
@@ -637,6 +652,7 @@ def read_sc(d, sheets):
     r_head, cols = _header(sh, dict(no=r"^\s*NO\.?\s*$", qty=r"QTY|Quantity", price=r"U/?\s*PRICE|Unit Price",
                                     amount=r"AMOUNT"))
     d.lists["fob"] = []
+    sc_absent = []
     if r_head:
         mcol, mrow = _model_col(sh, r_head, set(cols.values()))
         if mcol:
@@ -654,6 +670,8 @@ def read_sc(d, sheets):
             if term == "FOB":
                 d.lists["fob"] = [port]
                 d.f["fob_port"] = port
+            else:                                     # CIF / CFR …: the contract names the destination, no loading port
+                sc_absent.append("fob_port")
         d.lists["charges"] = _charges(sh, r_head, cols["amount"])
         for c in sh.cells:
             if c.row > r_head and re.match(r"\s*TOTAL\s*[:：]?\s*$", c.text, re.I):
@@ -665,7 +683,7 @@ def read_sc(d, sheets):
         d.lists["currency"] = [d.f["currency"]] if d.f["currency"] else []
     d.f["amount_words"] = _amount_words(sh)
     d.f["shipment_by"] = None
-    absent = []
+    absent = sc_absent
     for c in sh.find(r"^\s*SHIPMENT\s*$"):
         for x in sh.row(c.row):
             if x.col > c.col and (isinstance(x.value, (datetime, date)) or _date_of(x)):

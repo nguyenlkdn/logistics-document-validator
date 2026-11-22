@@ -102,7 +102,12 @@ def _absent(d: dict, src: str) -> bool:
 
 def _cell(docs: list[dict], src: str, typ: str) -> dict:
     vals, pages, names = [], [], []
+    blank = lambda d: next((d.get("fields", {}).get("blank:" + k.strip()) for k in src.split("|")
+                            if d.get("fields", {}).get("blank:" + k.strip())), None)
     if docs and all(_absent(d, src) for d in docs):
+        b = next(((d, blank(d)) for d in docs if blank(d)), None)
+        if b:                                     # a box printed with nothing in it is not 'not printed'
+            return dict(state="blank", label=b[1].get("value") or "", doc=b[0]["name"], page=b[1].get("page"))
         return dict(state="na")
     for d in docs:
         v, p = _values(d, src, typ)
@@ -124,8 +129,8 @@ def _cell(docs: list[dict], src: str, typ: str) -> dict:
     if typ == "number" and len(docs) > 1 and len(vals) < len(docs):
         # some documents of this kind give the value and others not (not printed or not read): no package total
         partial = True
-    nos = [(d.get("fields") or {}).get("cntr_nos") for d in docs]
-    if typ == "number" and len(vals) > 1 and src == "containers" and all(nos):
+    nos = [(d.get("fields") or {}).get("pl_cntr_nos" if src == "pl_containers" else "cntr_nos") for d in docs]
+    if typ == "number" and len(vals) > 1 and src in ("containers", "pl_containers") and all(nos):
         # packing lists that name their containers: one container may hold goods of several invoices
         total = len({x.strip() for n in nos for x in str(n.get("value") or "").split(",") if x.strip()})
         flat = [str(total)]

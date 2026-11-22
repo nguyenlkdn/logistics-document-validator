@@ -344,6 +344,11 @@ def extra_bl(d: Doc):
     if absent:                                     # not printed on this B/L: "not on this document", not "not read"
         d.f["absent"] = Field(", ".join(absent), "", L[0], 0, 0)
     d.cargo_blocks = cargo_blocks(L)
+    goods = list(dict.fromkeys(b.goods.value for b in d.cargo_blocks if b.goods))
+    if goods and not d.f.get("goods") and not d.f.get("goods_full"):
+        # goods named per invoice block only ('ACME FAN …' / 'ACME BLENDER'): all of them (cross-check, rules)
+        g0 = next(b.goods for b in d.cargo_blocks if b.goods)
+        d.f["goods_full"] = Field(", ".join(goods), g0.raw, g0.line, g0.start, g0.end)
     codes = list(dict.fromkeys(b.hs.value for b in d.cargo_blocks if b.hs))
     if len(codes) > 1:                             # one HS heading per invoice block: all of them (cross-check)
         h0 = next(b.hs for b in d.cargo_blocks if b.hs)
