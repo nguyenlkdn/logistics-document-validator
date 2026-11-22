@@ -159,7 +159,13 @@ _STATE = {}
 
 
 def _init(pdfs):
-    docs = [load(Path(p)) for p in pdfs]
+    from engine.extract import EXCEL, load_excel
+    docs = []
+    for p in map(Path, pdfs):
+        if p.suffix.lower() in EXCEL:        # invoice / contract workbooks: read as context, typos not planted
+            docs += load_excel(p, Path(tempfile.mkdtemp(prefix="ldv_sweep_xl_")))
+        else:
+            docs.append(load(p))
     _STATE["pdfs"] = [Path(p) for p in pdfs]
     _STATE["docs"] = [d for d in docs if d]
     _STATE["base"] = sig(_STATE["docs"])
@@ -217,11 +223,12 @@ def sweep(set_path: Path, kinds, jobs: int, master_xlsx):
         zipfile.ZipFile(set_path).extractall(work)
     else:
         shutil.copytree(set_path, work / set_path.name)
-    pdfs = sorted(str(p) for p in work.rglob("*.pdf"))
+    pdfs = sorted(str(p) for p in work.rglob("*") if p.suffix.lower() in (".pdf", ".xlsx", ".xlsm"))
     if master_xlsx:                                     # once, here: the workers only read it
         master.import_xlsx(Path(master_xlsx))
     _init(pdfs)
-    todo = [(di, path, k) for di, d in enumerate(_STATE["docs"]) for path, _f in fields(d) for k in kinds]
+    todo = [(di, path, k) for di, d in enumerate(_STATE["docs"]) if not getattr(d, "source_file", "")
+            for path, _f in fields(d) for k in kinds]
     with ProcessPoolExecutor(jobs, initializer=_init, initargs=(pdfs,)) as ex:
         res = [r for r in ex.map(_one, todo, chunksize=4) if r]
     shutil.rmtree(work, ignore_errors=True)

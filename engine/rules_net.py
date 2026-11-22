@@ -36,7 +36,7 @@ from collections import Counter
 from . import master
 from .checks import begin, has_text, status_of
 from .extract import NUMBER_WORDS, Field
-from .rules import Finding, _call, _close, at, fmt_like, true_total
+from .rules import Finding, _call, _close, _v, at, fmt_like, true_total
 
 ZIP = zip
 
@@ -250,7 +250,7 @@ def r_co_self(co, out):
     seen = {f.key for f in out if f.docs and f.docs[0] is co}
     tq = co.f.get("total_qty")
     s = sum(it["qty"].value for it in co.items)
-    ck_s.need(co, "total_qty")
+    ck_s.need(co, "total_qty", absent_ok=getattr(co, "form", "D") == "E")   # Form E prints no quantity total
     if tq and seen & {"CO_QTY", "CO_TOTAL"} and not _close(s, tq.value):
         ck_s.blocked("CO_QTY / CO_TOTAL")         # the difference is already reported there
     elif tq:
@@ -283,6 +283,14 @@ def r_co_self(co, out):
         want_n, want_of = pg["f"].page + 1, n_pages
         if (pg["n"], pg["of"]) != (want_n, want_of):
             ck_p.add(Finding("CO_PAGES", "MINOR", [co], {}, pg["f"].raw, f"Page : {want_n} of {want_of}", at(co, pg["f"])))
+    if pages and getattr(co, "form", "D") == "E":    # every page carries '(PAGE n OF m)': one not read is mistyped
+        from .rules import Loc
+        have = {pg["f"].page for pg in pages}
+        for p in range(n_pages):
+            if p not in have:
+                ck_p.compared()
+                ck_p.add(Finding("CO_PAGES", "MINOR", [co], {}, "", f"(PAGE {p + 1} OF {n_pages})",
+                                 [Loc(co, p, None, "PAGE")]))
     ck_p.end()
 
 
@@ -294,7 +302,9 @@ def r_ci_pl_ctn(ci, out):
     if not ci.lists.get("ci_ttls"):
         L = ci.lines
         pl_start = next((i for i, l in enumerate(L) if "PACKING LIST" in l.text.upper()), len(L))
-        if any(re.match(r"\s*(?:TTL|TOTAL)\b", l.text, re.I) for l in L[:pl_start]):
+        if getattr(ci, "pl_page", None) is not None:   # an Excel workbook: the packing list is its own sheet
+            pl_start = next((i for i, l in enumerate(L) if l.page >= ci.pl_page), len(L))
+        if any(re.match(r"\s*(?:TTL|TOTAL)\b(?!\s+AMOUNT)", l.text, re.I) for l in L[:pl_start]):
             ck._input(ci, "lists.ci_ttls", "NOT_FOUND")
         else:
             ck.na(evidence="not_printed", field="lists.ci_ttls", doc=ci.name)
@@ -317,6 +327,23 @@ def r_ci_pl_ctn(ci, out):
     ck.end()
 
 
+def split_by_container(ci) -> bool:
+    """The packing list is written container by container (a container number starts its rows)."""
+    return bool(ci and ci.lists.get("pl_containers"))
+
+
+def model_qty(rows) -> dict:
+    """{model key: (total quantity, [rows])}."""
+    out = {}
+    for it in rows:
+        if not it.get("model") or _v(it.get("qty")) is None:
+            continue
+        k = master.key(it["model"])
+        q, rs = out.get(k, (0.0, []))
+        out[k] = (q + it["qty"].value, rs + [it])
+    return out
+
+
 def r_lines(ci, out):
     if not ci:
         return
@@ -327,6 +354,24 @@ def r_lines(ci, out):
         ck.end()
         return
     ck.compared()
+    same_lines = len(ci.items) == len(ci.pl_items) and all(
+        a.get("model") and p.get("model") and master.key(a["model"]) == master.key(p["model"])
+        and _close(a["qty"].value, p["qty"].value) for a, p in zip(ci.items, ci.pl_items))
+    if split_by_container(ci) and not same_lines:
+        # a packing list by container: one invoice line may be loaded into several containers, and one container
+        # holds several lines. Line by line means nothing here; every model's quantity must add up the same.
+        inv, pl = model_qty(ci.items), model_qty(ci.pl_items)
+        for k in sorted(set(inv) | set(pl)):
+            a, b = inv.get(k), pl.get(k)
+            if a and b and _close(a[0], b[0]):
+                continue
+            locs = [x for it in (b[1] if b else []) for x in at(ci, it["qty"])]
+            locs += [x for it in (a[1] if a else []) for x in at(ci, it["qty"], "ref")]
+            name = (a or b)[1][0]["model"]
+            ck.add(Finding("PL_MODEL_QTY", "ERROR", [ci], dict(model=name), f"{b[0]:,.0f}" if b else "0",
+                           f"{a[0]:,.0f}" if a else "0", locs))
+        ck.end()
+        return
     if len(ci.items) != len(ci.pl_items):
         ref = ci.f.get("pl_total_qty") or ci.pl_items[-1]["qty"]
         ck.add(Finding("LINE_COUNT", "ERROR", [ci], dict(have=len(ci.pl_items), want=len(ci.items)),
@@ -361,6 +406,52 @@ def r_lines(ci, out):
     ck.end()
 
 
+_CRITERIA = re.compile(r'^(?:WO|PE|CTH|CTSH|CC|PSR|DE\s*MINIMIS|ACU|\d{1,3}(?:\.\d+)?\s*%)$')
+
+
+def r_co_values(ci, co, out):
+    """Form E box 9: an item printing its FOB value (RVC criterion) prints the invoice line's amount; box 8: the
+    origin criterion is one of the known codes ('"PE"', '"WO"', '"CTH"', '40%' …)."""
+    if not co:
+        return
+    if getattr(co, "form", "D") != "E":            # Form D box 9: quantity only is normal (owner, 2026-11-17)
+        for cid in (("CO_ITEM_VALUE", "CO_CRITERION") if ci else ("CO_CRITERION",)):
+            ck = begin(cid, out, co) if cid == "CO_CRITERION" else begin(cid, out)
+            ck.na(evidence="form_e_only")
+            ck.end()
+        return
+    ck = begin("CO_ITEM_VALUE", out) if ci else None
+    vals = [it for it in co.items if it.get("fob")]
+    if ck is None:
+        pass
+    elif not vals:
+        ck.na(evidence="not_printed", field="items[fob]", doc=co.name)
+    elif len(co.items) != len(ci.items):
+        ck.blocked("CO_ITEMS")
+    else:
+        for it, a in zip(co.items, ci.items):
+            if not it.get("fob") or not a.get("amount"):
+                continue
+            ck.compared()
+            if not _close(it["fob"].value, a["amount"].value):
+                ck.add(Finding("CO_ITEM_VALUE", "ERROR", [co, ci], dict(no=it["no"]), it["fob"].raw,
+                               fmt_like(a["amount"].value, it["fob"].raw), at(co, it["fob"]) + at(ci, a["amount"], "ref")))
+    if ck is not None:
+        ck.end()
+    ck = begin("CO_CRITERION", out, co)
+    for it in co.items:
+        c = it.get("criterion")
+        if not c:
+            continue
+        ck.compared()
+        if not _CRITERIA.match(c.value.strip().upper()) or c.value.strip() != c.value.strip().upper():
+            ck.add(Finding("CO_CRITERION", "WARNING", [co], dict(no=it["no"], crit=c.value), c.raw,
+                           c.value.strip().upper(), at(co, c)))
+    if not ck.n_compared:
+        ck.na(evidence="not_printed", field="items[criterion]", doc=co.name)
+    ck.end()
+
+
 def r_co_model(ci, co, out):
     if not (ci and co):
         return
@@ -377,7 +468,8 @@ def r_co_model(ci, co, out):
         ck.need_item(ci, a, "model")
         if m and ref:
             ck.compared()
-        if m and ref and master.key(m) != master.key(ref):
+        if m and ref and (master.key(m) != master.key(ref) or (m != ref and re.sub(r"\s+", "", m) != re.sub(r"\s+", "", ref))):
+            # a letter in the wrong case ('...(W)Vn') is a typo on the certificate too
             ck.add(Finding("CO_MODEL", "ERROR", [co, ci], dict(no=it["no"], model=m, ref=ref), m, ref,
                            _model_at(co, it) + at(ci, _line_model(a) or a["qty"], "ref")))
     ck.end()
@@ -506,7 +598,7 @@ def r_import_country(co, bl, out):
     dest = bl.f["dest_country"]
     for f in co.lists.get("import_country", []):
         ck.compared()
-        if f.value.upper().strip() != dest.value.upper().strip():
+        if re.sub(r"\s+", "", f.value.upper()) != re.sub(r"\s+", "", dest.value.upper()):   # VIET NAM = VIETNAM
             ck.add(Finding("CO_IMPORT_COUNTRY", "ERROR", [co, bl], dict(country=f.value, ref=dest.value), f.value,
                            dest.value, at(co, f) + at(bl, dest, "ref")))
     ck.end()
@@ -516,11 +608,21 @@ def r_parties(ci, scs, bl, co, out):
     # order = which document wins a tie: contract / invoice, then Form D (certified), the B/L (typed by the forwarder) last
     names = dict(consignee=[(ci, "consignee")] + [(s, "buyer") for s in scs] + [(co, "consignee"), (bl, "consignee")],
                  shipper=[(s, "seller") for s in scs] + [(co, "exporter"), (bl, "shipper")])
+    shippers = [(s, s.f.get("seller")) for s in scs] + [(co, co.f.get("exporter") if co else None),
+                                                         (bl, bl.f.get("shipper") if bl else None)]
+    tp = co.f.get("third_party") if co else None
+    if tp:
+        # third-party invoicing (Form E box 13): box 1 is the maker, the operator in box 7 is the seller. The B/L
+        # shipper may be either of them.
+        names["shipper"] = [(s, "seller") for s in scs] + [(co, "third_party"), (bl, "shipper")]
+        maker = co.f.get("exporter")
+        bs = bl.f.get("shipper") if bl else None
+        shippers = [(s, s.f.get("seller")) for s in scs] + [(co, tp)] + (
+            [] if bs is None or (maker and _party(bs.value) == _party(maker.value)) else [(bl, bs)])
     for role, entries in (
             ("@consignee", [(ci, ci.f.get("consignee") if ci else None)] + [(s, s.f.get("buyer")) for s in scs]
              + [(co, co.f.get("consignee") if co else None), (bl, bl.f.get("consignee") if bl else None)]),
-            ("@shipper", [(s, s.f.get("seller")) for s in scs]
-             + [(co, co.f.get("exporter") if co else None), (bl, bl.f.get("shipper") if bl else None)])):
+            ("@shipper", shippers)):
         ck = begin(f"PARTY.{role[1:]}", out)
         _sources(ck, [(d, n, d.f.get(n)) for d, n in names[role[1:]] if d is not None])
         odd, ref = _odd_ones([(d, f) for d, f in entries if d], _party)
@@ -535,6 +637,8 @@ def r_currency(ci, scs, co, out):
     for d in docs_:
         if d.lists.get("currency"):
             ck._input(d, "lists.currency", "READ")
+        elif "currency" in str(_v(d.f.get("absent")) or "").split(", "):
+            continue                               # the document prints no money at all (Form E without FOB values)
         else:
             ck._input(d, "lists.currency", "NOT_FOUND")
     per_doc = [(d, d.lists.get("currency", [])) for d in ([ci] + list(scs) + [co]) if d]
@@ -754,6 +858,9 @@ def _typo_contexts(text: str):
         (r"\bCARTONS?\s*\d+\s*-\s*([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\b", 1, "digit", d2),       # CARTON 1-1O43
         (r"\bPage\s*:\s*([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\s+of\b", 1, "digit", d2),          # Page : I of 2
         (r"\bPage\s*:\s*\d+\s+of\s+([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\b", 1, "digit", d2),
+        (r"\(\s*PAGE\s+([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\s+(?i:OF)\b", 1, "digit", d2),          # (PAGE I OF 4)
+        (r"\(\s*PAGE\s+\d+\s+(0[Ff])\s+\d", 1, "letter", lambda t: "OF"),            # (PAGE 2 0F 4)
+        (r"\(\s*PAGE\s+\d+\s+(?i:OF)\s+([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\s*\)", 1, "digit", d2),
         (r"(?:\b|(?<=\d[Xx]))(?:\d+\s*[Xx]\s*)?([0-9OIlSB]*[OIlSB][0-9OIlSB]*)\s*'?\s*" + _CNTR_TYPES + r"\b", 1,
          "digit", d2),                                                         # 4OHC, 1x4OHQ
         (r"(?:\b|(?<=\d[Xx]))(?!(?:20|40|45)(?!\d))(\d{2})\s*'?\s*" + _CNTR_TYPES + r"\b", 1, "size",
@@ -802,11 +909,16 @@ def r_text_typo(docs, out):
     vocab = frozenset(w.upper() for d in docs for l in d.lines for w in re.findall(r"[A-Za-z0-9]+", l.text)
                       if not re.search(r"[a-z]", w) or w.isupper()) | NUMBER_WORDS | {"PCS", "SETS", "SET", "CARTONS"}
     found = {}
+    # a voyage number ending in its direction ('0123N', 'S034') is read as the voyage and compared (VESSEL)
+    voyages = {v.value[1] for d in docs for v in [d.f.get("vessel")] if v is not None and isinstance(v.value, tuple)
+               and re.fullmatch(r"\d{3,}[NSEW]|[NSEW]\d{3,}", v.value[1] or "")}   # 0123N, S034
     for d in docs:
         ck = begin("TEXT_TYPO", out, d)
         ck.compared()
         for l in d.lines:
             for a, b, w, kind, fix in typo_words(l.text, vocab):
+                if kind == "digit" and w in voyages:
+                    continue
                 if any(x < b and a < y for x, y in found.get(id(l), [])) or _reported(out, d, l.page, w):
                     continue                        # the same place found by a word rule and a context rule: once
                 found.setdefault(id(l), []).append((a, b))
@@ -893,6 +1005,7 @@ def validate_net(docs, ci, bl, co, scs, out):
     _call(r_ci_pl_ctn, ci, out)
     _call(r_lines, ci, out)
     _call(r_co_model, ci, co, out)
+    _call(r_co_values, ci, co, out)
     _call(r_marks, ci, bl, co, out)
     _call(r_origin, ci, scs, co, out, bl)
     _call(r_import_country, co, bl, out)

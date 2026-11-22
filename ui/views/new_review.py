@@ -28,6 +28,20 @@ def probe_pdf(data: bytes) -> dict:
         return dict(kind=None, pages=None, broken=True)
 
 
+@st.cache_data(show_spinner=False, max_entries=64)
+def probe_excel(data: bytes) -> dict:
+    """Document types in a workbook (invoice / packing list -> CI, contract sheets -> SC), read-only, in memory."""
+    try:
+        import openpyxl
+        from engine import xlsx
+        wb = openpyxl.load_workbook(io.BytesIO(data), data_only=True)
+        roles = [xlsx.sheet_role(xlsx.Sheet(ws, 0)) for ws in wb.worksheets if ws.sheet_state == "visible"]
+        kinds = sorted({"SC" if r == "SC" else "CI" for r in roles if r})
+        return dict(kinds=kinds, pages=sum(1 for r in roles if r))
+    except Exception:
+        return dict(kinds=[], pages=None, broken=True)
+
+
 def _junk(name: str) -> bool:
     p = PurePosixPath(name)
     return p.name.startswith(".") or p.name.lower() == "thumbs.db" or "__MACOSX" in p.parts
@@ -43,7 +57,16 @@ def inventory(files) -> tuple[list[dict], list[str]]:
     def add(name, data, inside=""):
         h = hashlib.sha1(data).hexdigest()
         row = dict(name=name, inside=inside, size=len(data), kind=None, pages=None)
-        if not name.lower().endswith(".pdf"):
+        if name.lower().endswith((".xlsx", ".xlsm")):          # invoice / packing list / contract workbook
+            p = probe_excel(data)
+            row.update(kind=(p["kinds"] or [None])[0], kinds=p["kinds"], pages=p["pages"])
+            if p.get("broken"):
+                row["status"], row["level"] = t1("ok_broken"), "error"
+            elif not p["kinds"]:
+                row["status"], row["level"] = t1("ok_unrec"), "warn"
+            else:
+                row["status"], row["level"] = t1("ok_excel", kinds=", ".join(kind_label(k) for k in p["kinds"])), "ok"
+        elif not name.lower().endswith(".pdf"):
             row["status"], row["level"] = t1("ok_notpdf"), "warn"
         else:
             p = probe_pdf(data)
@@ -77,7 +100,7 @@ def inventory(files) -> tuple[list[dict], list[str]]:
 def render():
     ui.header(t("new_title"), ui.esc(t("new_intro")))
     ui.stepper(None)
-    files = st.file_uploader(t("upload"), type=["zip", "pdf", "jpg", "jpeg", "png"], accept_multiple_files=True,
+    files = st.file_uploader(t("upload"), type=["zip", "pdf", "xlsx", "xlsm", "jpg", "jpeg", "png"], accept_multiple_files=True,
                              help=t("upload_help"), key="uploader")
     st.caption(t("upload_help"))
     if not files:
@@ -115,7 +138,7 @@ def render():
             r["kind"], r["level"] = chosen, "ok"
     if kinds:
         st.info(t("type_changed", files=", ".join(kinds)), icon=":material/edit:")
-    found = {r["kind"] for r in rows if r["level"] == "ok"}
+    found = {k for r in rows if r["level"] == "ok" for k in (r.get("kinds") or [r["kind"]])}
     for k in KINDS:
         if k not in found:
             st.warning(t("missing_kind", kind=kind_label(k)), icon=":material/help:")

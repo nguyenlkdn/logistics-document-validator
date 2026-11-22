@@ -47,6 +47,14 @@ Packing list) unless the user sets it.
 | Goods lines without a model | identified by the **part number** printed below (`100000000001@AB`); goods type from the description (`config.json "goods_categories"`: label, packaging, part). The HS master list (finished-goods models) does not apply to them | `run_reader` P4 |
 | Goods name without a brand | the quoted description of the invoice (`"SPARE PARTS OF …"`) when there is no `"…" BRAND …` line | `run_reader` P4 |
 
+### Other layouts (LDV 2.7)
+
+| Document | How it is read | Test |
+|---|---|---|
+| Excel invoice / packing list / contract (`.xlsx`, `.xlsm`) | `engine/xlsx.py`: every **visible** sheet's print area is drawn as a PDF page (`<file> [Invoice+PL].pdf`, `<file> [Contract].pdf`, one contract per sheet) so the viewer and highlights work; values are read from the **cells** (label cell -> value cell, table header -> column). Hidden working sheets are not documents. Freight / insurance rows are charges: total = lines + charges. A packing list written container by container is compared per model (`PL_MODEL_QTY`), not line by line. | `run_reader` Excel ×4 |
+| Form E (ASEAN-China) | `engine/form_e.py`: the goods table is read column by column (box headings + the column rules on the page). Box 7 words cut at the column edge (`SE-` / `VEN`) and figures split over lines (`(12` / `5)`) are joined; an item may go on at the top of the next page; box 10 printed once covers the items under it; `TOTAL PACKED IN … (n) CARTONS`; third-party operator = the seller, box 1 = the maker. Form E prints no quantity / value total (not applicable). Findings say "Form E". | `run_reader` Form E ×2 |
+| B/L without label text (labels in the background picture) | `engine/bl_plain.py`: shipper / consignee / notify = the three name blocks at the top left; receipt, vessel + loading port, discharge port + delivery = the rows under them (by column); containers, cartons + KGS + CBM, the said-to-contain column, `TOTAL: n×40HC`. | `run_reader` plain B/L |
+
 ## 3. "Not read" or "not printed"
 
 A Cross-check cell is **yellow (not read)** when the document should have the value and LDV did not find it, and

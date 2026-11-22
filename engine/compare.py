@@ -124,7 +124,12 @@ def _cell(docs: list[dict], src: str, typ: str) -> dict:
     if typ == "number" and len(docs) > 1 and len(vals) < len(docs):
         # some documents of this kind give the value and others not (not printed or not read): no package total
         partial = True
-    if typ == "number" and len(vals) > 1:                     # e.g. two sales contracts: add them up
+    nos = [(d.get("fields") or {}).get("cntr_nos") for d in docs]
+    if typ == "number" and len(vals) > 1 and src == "containers" and all(nos):
+        # packing lists that name their containers: one container may hold goods of several invoices
+        total = len({x.strip() for n in nos for x in str(n.get("value") or "").split(",") if x.strip()})
+        flat = [str(total)]
+    elif typ == "number" and len(vals) > 1:                   # e.g. two sales contracts: add them up
         total = sum(_num(v[0]) or 0 for v in vals)
         flat = [str(total)]
     else:
@@ -137,10 +142,10 @@ def _cell(docs: list[dict], src: str, typ: str) -> dict:
 def _same(a: list, b: list, typ: str) -> bool:
     if typ == "number":
         return len(a) == len(b) == 1 and a[0] is not None and b[0] is not None and abs(a[0] - b[0]) <= TOL
-    if typ == "hs":
-        heads = [x for x in a + b if x]
-        short = min(heads, key=len) if heads else ""
-        return bool(short) and all(x.startswith(short) for x in heads)       # 8516 covers 8516.10.11
+    if typ == "hs":                        # 8516 covers 8516.10.11; a B/L with several headings covers each item
+        pre = lambda x, ys: any(x.startswith(y) or y.startswith(x) for y in ys)
+        a_, b_ = [x for x in a if x], [x for x in b if x]
+        return bool(a_ and b_) and all(pre(x, b_) for x in a_) and all(pre(y, a_) for y in b_)
     if typ == "goods":                     # one document names the goods together, another one item at a time
         wa, wb = set(" ".join(a).split()), set(" ".join(b).split())
         return bool(wa and wb) and (wa <= wb or wb <= wa)
@@ -181,6 +186,15 @@ def compare(s: dict) -> dict:
             else:
                 cells[c["id"]] = _cell(c["docs"], src, fd["type"])
         have = [(k, v) for k, v in cells.items() if v["state"] == "value" and not v.get("partial")]
+        if fd["id"] == "shipper":
+            # third-party invoicing (Form E box 13): the certificate names the maker in box 1 and the seller as the
+            # operator; a B/L shipper that is the maker is right too (rule PARTY.shipper does the same)
+            makers = [_norm(x, fd["type"]) for d in by_kind.get("CO", []) if (d.get("fields") or {}).get("third_party")
+                      for x in [((d.get("fields") or {}).get("exporter") or {}).get("value")] if x]
+            bl = cells.get("BL", {})
+            if makers and bl.get("state") == "value" and all(n in makers for n in bl["norm"]):
+                bl["maker"] = True
+                have = [(k, v) for k, v in have if k != "BL"]
         missing = [k for k, v in cells.items() if v["state"] == "missing" or v.get("partial")]
         # columns that may name only part of the values (config "subset"): a Form D certifies the invoices it lists,
         # it need not list every invoice of the package. They must not name anything the others do not have.

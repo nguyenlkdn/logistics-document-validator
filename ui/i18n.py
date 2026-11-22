@@ -139,10 +139,10 @@ T = {
     "new_intro": ("Upload ONE shipment: a .zip, or its PDF files. Documents are only read, never changed.",
                   "Tải lên MỘT lô hàng: một file .zip hoặc các file PDF. Chứng từ chỉ được đọc, không bị sửa."),
     "upload": ("Shipment documents", "Bộ chứng từ"),
-    "upload_help": ("Accepted: .zip or .pdf (several PDFs at once), up to 200 MB per file. "
-                    "Images (.jpg, .png) are listed but not checked.",
-                    "Chấp nhận: .zip hoặc .pdf (nhiều file PDF cùng lúc), tối đa 200 MB mỗi file. "
-                    "Ảnh (.jpg, .png) được liệt kê nhưng không được kiểm tra."),
+    "upload_help": ("Accepted: .zip, .pdf or Excel invoice / packing list / contract (.xlsx, .xlsm), up to 200 MB "
+                    "per file. Images (.jpg, .png) are listed but not checked.",
+                    "Chấp nhận: .zip, .pdf hoặc file Excel hóa đơn / packing list / hợp đồng (.xlsx, .xlsm), tối đa "
+                    "200 MB mỗi file. Ảnh (.jpg, .png) được liệt kê nhưng không được kiểm tra."),
     "inventory": ("Files to check", "Các file sẽ kiểm tra"),
     "inv_hint": ("Remove a file with the ✕ next to it in the upload box.",
                  "Bỏ một file bằng nút ✕ bên cạnh file trong ô tải lên."),
@@ -156,6 +156,7 @@ T = {
     "col_findings": ("Findings", "Lỗi"),
     "col_doc": ("Document", "Chứng từ"),
     "ok_ready": ("Ready", "Sẵn sàng"),
+    "ok_excel": ("Ready (Excel: {kinds})", "Sẵn sàng (Excel: {kinds})"),
     "type_help": ("Change it if LDV recognised the document wrongly", "Đổi nếu LDV nhận diện sai loại chứng từ"),
     "type_hint": ("If a type is wrong or missing, pick the right one in the Detected type column.",
                   "Nếu loại chứng từ sai hoặc chưa nhận diện được, chọn lại ở cột Loại nhận diện."),

@@ -96,6 +96,8 @@ class Doc:
     packages: list = field(default_factory=list)       # packing list: [Package] when lines share a carton
     suspect_lines: int = 0                             # P5 S2: goods rows not read -> line sums are SUSPECT
     item_ids: list = field(default_factory=list)       # [ItemId] parallel to items
+    form: str = "D"                                    # certificate of origin: Form D or Form E (engine/form_e.py)
+    source_file: str = ""                              # the workbook a drawn Excel document comes from
     pl_item_ids: list = field(default_factory=list)    # [ItemId] parallel to pl_items
 
     @property
@@ -109,10 +111,16 @@ def classify(text: str) -> str | None:
         return "SC"
     if "FORM D" in t and "CERTIFICATE OF ORIGIN" in t:
         return "CO"
+    from .form_e import is_form_e
+    if is_form_e(t):
+        return "CO"
     if "[ SHIPPER ]" in t or "BILL OF LADING" in t:
         return "BL"
     if "COMMERCIAL INVOICE" in t or "PACKING LIST" in t:
         return "CI"
+    from .bl_plain import is_plain_bl
+    if is_plain_bl(text):                         # a B/L with its labels in the background picture
+        return "BL"
     return None
 
 
@@ -188,7 +196,8 @@ def _vessel(raw: str):
     t = re.sub(r"[\s,.;]+$", "", raw.strip().upper())
     m = (re.match(r"(.+?)\s*(?:/\s*)?(?:\bV(?:OY(?:AGE)?)?\.?\s*(?:NO\.?)?\s*)(\d[\w\-]*)$", t)      # V. / V / VOY. / VOYAGE NO.
          or re.match(r"(.+?)\s*/\s*(\w[\w\-]*)$", t)                                              # NAME / VOY
-         or re.match(r"(.+?[A-Z])\s+(\d[\w\-]*)$", t))                                            # NAME VOY
+         or re.match(r"(.+?[A-Z])\s+(\d[\w\-]*)$", t)                                             # NAME VOY
+         or re.match(r"(.+?)\s+([A-Z]{1,2}\d{2,}[A-Z]?)$", t))                                     # NAME 12 S034
     if not m:
         return (t, "")
     name = re.sub(r"[\s/,]+$", "", m[1]).strip()
@@ -379,6 +388,27 @@ def _extract_bl(d: Doc):
         d.f["vessel"] = Field(_vessel(v.raw), v.raw, v.line, v.start, v.end)
         m = re.search(r"\s{2,}([A-Z ]+?)(?=,|\s*$)", v.line.text)
         d.f["pol"] = F(v.line, m, 1) if m else None
+    if not v:                                  # vessel / voyage boxes left empty, port of loading filled in
+        for i, l, _m in _search(L, r"\[ Vessel \]\s+\[ Voy"):
+            lab = {s.text.strip(): s for s in l.spans}
+            vx = next((s.bbox[0] for t, s in lab.items() if t.startswith("[ Vessel")), None)
+            px = next((s.bbox[0] for t, s in lab.items() if "Port of Loading" in t), None)
+            if px is None:
+                break
+            cells = [(nl, s) for nl in L[i + 1:i + 4] if nl.page == l.page and nl.y - l.y < 20 for s in nl.spans]
+            pol = next(((nl, s) for nl, s in cells if abs(s.bbox[0] - px) < 25), None)
+            ves = [(nl, s) for nl, s in cells if vx is not None and s.bbox[0] < px - 25 and s.bbox[0] >= vx - 15]
+            if pol:
+                m = re.match(r"\s*([A-Z][A-Z ]*?)(?=,|\s{2,}|$)", pol[1].text)
+                if m:
+                    ln = Line(pol[0].page, pol[0].y, [pol[1]])
+                    d.f["pol"] = Field(m[1], m[1], ln, m.start(1), m.end(1))
+            if not ves:                         # printed label, nothing under it: a blank on the B/L, not unread
+                s = next(s for t, s in lab.items() if t.startswith("[ Vessel"))
+                ln = Line(l.page, l.y, [s])
+                d.f["blank:vessel"] = Field("[ Vessel ]", s.text, ln, 0, len(ln.text))
+                d.f["absent"] = Field("vessel", "", L[0], 0, 0)
+            break
     d.f["pod"] = _after(L, r"\[ Port of Discharge \]", r"^([A-Z ]+?)(?=,|\s{2,})")
     d.lists["pod"] = [d.f["pod"]] if d.f["pod"] else []
     for _, l, m in _search(L, rf"(\d+)\s*CONTAINER\(S\).*?\s({DEC})\s+({DEC})\s*$"):
@@ -595,19 +625,42 @@ def load(path: Path, kind: str | None = None) -> Doc | None:
     if not kind:
         return None
     raw_all = "\n".join(p.get_text() for p in pdf)   # includes rotated text, e.g. a diagonal DRAFT watermark
-    is_draft = bool(re.search(r"\bDRAFT\b", full + "\n" + raw_all, re.I) or "draft" in path.name.lower())
+    # '非有效证书' ("not a valid certificate"): the draft watermark of a Chinese certificate of origin
+    is_draft = bool(re.search(r"\bDRAFT\b|非有效证书", full + "\n" + raw_all, re.I) or "draft" in path.name.lower())
     d = Doc(path, kind, lines, pdf[0].rect.width, is_draft)
-    EXTRACTORS[kind](d)
+    from . import bl_plain, form_e
+    fe = kind == "CO" and form_e.is_form_e(full)       # Form E (ASEAN-China): its own layout, the Form D fields
+    plain = kind == "BL" and bl_plain.is_plain_bl(full)   # B/L without label text: read by position
+    (form_e.extract if fe else bl_plain.extract if plain else EXTRACTORS[kind])(d)
     if kind == "CO":                                # box 6 marks: model on one line, colour code "(BK)" on the next
         d.lists["marks_models"] = [Field(a + b, a, Line(pno, 0.0), 0, 0) for pno, pg in enumerate(pdf)
                                    for a, b in re.findall(r"(?m)^(" + MARK_HEAD + r")\s*\n\s*(\([A-Za-z0-9]+\)[A-Za-z]*" + MARK_TAIL + r")\s*$",
                                                           pg.get_text())]
     d.lists["unparsed"] = _unparsed_rows(d)
     from .extract_net import EXTRA                   # extra fields for the cross-document / self-check rules
-    EXTRA[kind](d)
+    if not plain:
+        (form_e.extra if fe else EXTRA[kind])(d)
     from .plausibility import mark                   # P5: readings with a detectable defect are SUSPECT
     mark(d)
     return d
+
+
+EXCEL = (".xlsx", ".xlsm")
+
+
+def load_excel(path: Path, outdir: Path) -> list:
+    """An Excel workbook (invoice / packing list / contract sheets) as Docs; each drawn as a PDF in outdir."""
+    from . import xlsx
+    from .plausibility import mark
+    docs = []
+    for kind, pdf, sheets, lines in xlsx.split(path, outdir):
+        d = Doc(pdf, kind, lines, sheets[0].width, False)
+        d.source_file = path.name
+        (xlsx.read_ci if kind == "CI" else xlsx.read_sc)(d, sheets)
+        d.lists["unparsed"] = []
+        mark(d)
+        docs.append(d)
+    return docs
 
 
 ROW_RE = re.compile(rf"{NUM}\s*(?:SETS?\s*\(\s*S\s*\)|SETS?|PCS|PIECES?)\b.*\d\.\d{{2,3}}\s*$", re.I)

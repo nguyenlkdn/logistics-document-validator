@@ -440,6 +440,275 @@ def _():
     c = _cell([doc], "containers", "number")
     assert c["state"] == "blank" and c["label"] == "TOTAL CONTAINER" and c["page"] == 1, c
 
+
+def _workbook(path, charges=True, split_pl=True, blank_shipment=False):
+    """An invented invoice / packing list / contract workbook (sheet layout like a supplier's Excel CIPL)."""
+    import openpyxl
+    wb = openpyxl.Workbook()
+    inv = wb.active
+    inv.title = "Inv."
+    inv["B1"] = "ACME TRADING CO., LTD."
+    inv["A8"], inv["B8"], inv["G8"], inv["H8"] = "Messrs:", "Buyer Vietnam Co.,Ltd.", "Invoice No.:", "ACME26110001X"
+    inv["G10"], inv["H10"] = "Date:", "2026-11-01"
+    inv["A12"], inv["B12"] = "Term of Payment:", "OA 30 days after B/L Date"
+    inv["A13"], inv["B13"] = "PORT OF DISCHARGE:", "PORT ALPHA,NOWHERE"
+    inv["A14"], inv["B14"], inv["G14"], inv["H14"], inv["I14"] = "Mark & No.", "Description of Goods", "Quantity\nSETS", "Unit Price \nUSD", "Amount\nUSD"
+    inv["A16"], inv["B16"], inv["G16"] = "N/M", "ACME FAN AND ACME HEATER", "CIF PORT ALPHA,NOWHERE"
+    inv["B18"] = "MODEL NO."
+    inv["B19"], inv["G19"], inv["H19"], inv["I19"] = "AB-X10(W1)", 100, "10.00", 1000
+    inv["B20"], inv["G20"], inv["H20"], inv["I20"] = "CD-Y20", 50, "20.50", 1025
+    inv["B21"], inv["G21"], inv["H21"], inv["I21"] = "AB-X10(W1)", 30, "10.00", 300
+    total = 2325
+    if charges:
+        inv["B22"], inv["I22"] = "Freight", 100
+        inv["B23"], inv["I23"] = "Insurance", 25.5
+        total += 125.5
+    inv["B30"] = "Country of origin: Nowhere"
+    inv["B32"] = "SAY TOTAL U.S. DOLLARS TWO THOUSAND FOUR HUNDRED FIFTY AND CENTS FIFTY ONLY"
+    inv["G34"], inv["H34"], inv["I34"] = "TOTAL AMOUNT:", "USD", total
+    pl = wb.create_sheet("PL")
+    pl["C1"] = "ACME TRADING CO., LTD."
+    pl["A7"], pl["B7"], pl["I7"], pl["J7"] = "Messrs:", "Buyer Vietnam Co.,Ltd.", "Invoice No.:", "ACME26110001X"
+    pl["I9"], pl["J9"] = "Date:", "2026-11-01"
+    for c, h in zip("ABGHIJK", ("Mark & No.", "Description of Goods", "Quantity\nSETS", "Quantity\nCTNS", "N.W.\nKGS",
+                                "G.W.\nKGS", "Measurement\nCBM")):
+        pl[f"{c}13"] = h
+    pl["A15"], pl["B15"] = "N/M", "ACME FAN AND ACME HEATER"
+    pl["B18"], pl["C18"] = "CONTAINER NO.", "MODEL NO."
+    rows = ([("1.ABCU1234567/40HQ", "AB-X10(W1)", 80), (None, "CD-Y20", 50), ("2.ABCU7654321/40HQ", "AB-X10(W1)", 50)]
+            if split_pl else [("1.ABCU1234567/40HQ", "AB-X10(W1)", 100), (None, "CD-Y20", 50), (None, "AB-X10(W1)", 30)])
+    for i, (cn, model, q) in enumerate(rows):
+        r = 19 + i
+        if cn:
+            pl[f"B{r}"] = cn
+        pl[f"C{r}"], pl[f"G{r}"], pl[f"H{r}"], pl[f"I{r}"], pl[f"J{r}"], pl[f"K{r}"] = model, q, q, q * 2, q * 2.5, 0.1 * q
+    pl["B30"], pl["C30"] = "PORT OF DISCHARGE:", "PORT ALPHA,NOWHERE"
+    pl["B32"] = "TOTAL PACKED IN ONE HUNDRED AND EIGHTY (180) CARTONS ONLY."
+    pl["F34"], pl["G34"], pl["H34"], pl["I34"], pl["J34"], pl["K34"] = "TOTAL:", 180, 180, 360, 450, 18
+    sc = wb.create_sheet("SC")
+    sc["A1"] = "Sales Contract"
+    sc["A6"], sc["B6"] = "No.", "AC000000000001"
+    sc["A10"], sc["B10"], sc["I10"], sc["J10"] = "The Seller:", "ACME TRADING CO., LTD.", "Date:", "2026-10-30"
+    sc["A15"], sc["B15"] = "The Buyer:", "BUYER VIETNAM CO.,LTD"
+    sc["A26"], sc["B26"], sc["G26"], sc["I26"], sc["J26"] = "NO.", "DESCRIPTION", "Quantity\nSETS", "U/PRICE", "AMOUNT(USD)"
+    sc["B27"], sc["J27"] = "ACME FAN AND ACME HEATER", "CIF PORT ALPHA,NOWHERE"
+    for i, (m, q, pr) in enumerate((("AB-X10(W1)", 100, "10.00"), ("CD-Y20", 50, "20.50"), ("AB-X10(W1)", 30, "10.00")), 1):
+        sc[f"A{28 + i}"], sc[f"B{28 + i}"], sc[f"G{28 + i}"], sc[f"I{28 + i}"], sc[f"J{28 + i}"] = i, m, q, pr, q * float(pr)
+    sc["B40"], sc["G40"], sc["J40"] = "TOTAL：", 180, 2325
+    sc["A41"] = "SAY TOTAL U.S. DOLLARS TWO THOUSAND THREE HUNDRED TWENTY FIVE ONLY."
+    sc["A45"], sc["B45"] = 5, " SHIPMENT"
+    if not blank_shipment:
+        sc["E45"], sc["F45"] = "By ", __import__("datetime").datetime(2026, 11, 20)
+    sc["A47"], sc["B47"], sc["D47"] = 9, " PAYMENT    ", "OA 30 days after B/L Date"
+    hidden = wb.create_sheet("work")
+    hidden["A1"] = "Invoice No.: NOT-A-DOCUMENT"
+    hidden.sheet_state = "hidden"
+    wb.save(path)
+
+
+@test("Excel workbook: invoice + packing list + contract sheets are read by cell; hidden sheets are not documents")
+def _():
+    from engine.extract import load_excel
+    p = TMP / "acme_cipl.xlsx"
+    _workbook(p)
+    docs = load_excel(p, TMP)
+    kinds = sorted(d.kind for d in docs)
+    assert kinds == ["CI", "SC"], kinds
+    ci = next(d for d in docs if d.kind == "CI")
+    assert ci.f["invoice_no"].value == "ACME26110001X" and str(ci.f["invoice_date"].value) == "2026-11-01"
+    assert [(i["model"], i["qty"].value, i["amount"].value) for i in ci.items] == [
+        ("AB-X10(W1)", 100, 1000), ("CD-Y20", 50, 1025), ("AB-X10(W1)", 30, 300)], ci.items
+    assert [c["amount"].value for c in ci.lists["charges"]] == [100, 25.5]
+    assert ci.f["total_amount"].value == 2450.5 and ci.f["incoterm"].value == "CIF PORT ALPHA"
+    assert ci.f["qty_unit"].value == "SETS" and ci.f["currency"].value == "USD"
+    assert ci.f["pl_total_ctn"].value == 180 and ci.f["containers"].value == 2 and len(ci.pl_items) == 3
+    assert ci.pl_items[2]["container"] == "ABCU7654321"
+    f = ci.f["invoice_no"]                          # the value keeps its place on the drawn page
+    assert f.line.text[f.start:f.end] == "ACME26110001X", (f.line.text, f.start, f.end)
+    sc = next(d for d in docs if d.kind == "SC")
+    assert sc.f["sc_no"].value == "AC000000000001" and sc.f["total_amount"].value == 2325
+    assert str(sc.f["shipment_by"].value) == "2026-11-20" and len(sc.items) == 3
+
+
+@test("Excel invoice with freight / insurance rows: total = lines + charges; words 'AND CENTS FIFTY' read")
+def _():
+    from engine.extract import load_excel
+    from engine.rules import validate
+    from engine.util import words_to_number
+    p = TMP / "acme_cipl2.xlsx"
+    _workbook(p)
+    docs = load_excel(p, TMP / "x2") if (TMP / "x2").mkdir() is None else None
+    keys = {f.key for f in validate(docs)}
+    assert "TOTAL_AMOUNT" not in keys and "WORDS_VS_FIGURES" not in keys, keys
+    assert words_to_number("SAY TOTAL U.S. DOLLARS ONE HUNDRED TWENTY THREE AND CENTS FORTY FIVE ONLY.") == 123.45
+
+
+@test("packing list by container: lines differ from the invoice, each model's quantity adds up (no LINE_COUNT)")
+def _():
+    from engine.extract import load_excel
+    from engine.rules import validate
+    p = TMP / "acme_cipl3.xlsx"
+    _workbook(p, split_pl=True)
+    (TMP / "x3").mkdir()
+    docs = load_excel(p, TMP / "x3")
+    keys = {f.key for f in validate(docs)}
+    assert "LINE_COUNT" not in keys and "PL_MODEL_QTY" not in keys, keys
+    ci = next(d for d in docs if d.kind == "CI")
+    ci.pl_items[2]["qty"].value = 40                # 80 + 40 = 120 sets of AB-X10(W1) packed, invoice 130
+    keys = {f.key for f in validate(docs)}
+    assert "PL_MODEL_QTY" in keys, keys
+
+
+@test("contract term 'SHIPMENT' printed with nothing after it is a blank, not unread")
+def _():
+    from engine.extract import load_excel
+    p = TMP / "acme_cipl4.xlsx"
+    _workbook(p, blank_shipment=True)
+    (TMP / "x4").mkdir()
+    sc = next(d for d in load_excel(p, TMP / "x4") if d.kind == "SC")
+    assert sc.f.get("shipment_by") is None and sc.f.get("blank:shipment_by") is not None
+    assert "shipment_by" in sc.f["absent"].value
+
+
+def _form_e(name, items, total_lines, box10=("ACME26110001", "X", "NOV. 01,2026"), third=True):
+    """An invented Form E page: box headings, column rules, box 7 cut at the column edge, box 10 printed once."""
+    p = TMP / f"{name}.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page(width=595, height=842)
+    put = lambda x, y, t: page.insert_text((x, y), t, fontsize=7, fontname="helv")
+    put(56, 44, "1.Products consigned from(Exporter's business name,address,")
+    put(63, 62, "ACME MAKER APPLIANCES MANUFACTURING CO.,")
+    put(63, 72, "LTD. NO.1 SOMEWHERE ROAD")
+    put(362, 77, "ASEAN-CHINA FREE TRADE AREA")
+    put(382, 105, "CERTIFICATE OF ORIGIN")
+    put(57, 117, "2.Products consigned to (Consignee's name,address,country)")
+    put(62, 130, "BUYER VIETNAM CO.,LTD.")
+    put(435, 134, "FORM E")
+    put(64, 217, "Departure date")
+    put(125, 220, "NOV. 03,2026")
+    put(64, 239, "Vessel's name/Aircraft etc. ACME STAR 012 S034")
+    put(64, 263, "Port of Discharge    PORT ALPHA,NOWHERE")
+    for x, t in ((56, "5.item"), (100, "6.Marks and"), (166, "7.Number and type of packages, description"),
+                 (354, "8.Origin criteria"), (432, "9.Gross weight or net"), (512, "10.Number,")):
+        put(x, 326, t)
+    for x in (54, 98, 164, 352, 426, 500, 568):
+        page.draw_line((x, 320), (x, 612), width=0.5)
+    y = 376
+    for k, it in enumerate(items):
+        put(74, y, str(k + 1))
+        put(99, y, "N/M")
+        put(379, y, '"PE"')
+        put(430, y, it["qty"])
+        if k == 0 and box10:
+            put(503, y, box10[0])
+            put(503, y + 11, box10[1])
+            put(503, y + 21, box10[2])
+        for n, t in enumerate(it["box7"]):
+            put(169, y + 11 * n, t)
+        y += 11 * (len(it["box7"]) + 1)
+    for n, t in enumerate(total_lines):
+        put(169, y + 11 * n, t)
+    put(61, 613, "11.Declaration by the exporter")
+    put(70, 637, "and Statement are correct,that all the products were produced in")
+    put(167, 654, "NOWHERE")
+    put(70, 697, "products exported to")
+    put(175, 714, "VIET NAM")
+    put(279, 23, "非有效证书" if False else "Original")
+    doc.save(p)
+    return load(p)
+
+
+_FE_ITEMS = [dict(qty="1250SETS", box7=["ONE THOUSAND TWO HUNDRED AND FIFTY (125", "0) CTNS OF ACME MICROWAVE O-",
+                                        "VEN", "1 CTN = 1 SET", "MODEL NO: AB-X10(W1)", "HS CODE:123456"]),
+             dict(qty="160SETS", box7=["EIGHTY (80) CTNS OF ACME BLEN-", "DER", "MODEL NO: CD-Y20",
+                                       "1 CARTON=2 SETS", "HS CODE:234567"])]
+_FE_TOTAL = ["TOTAL PACKED IN ONE THOUSAND THREE HUND-", "RED AND THIRTY (1330) CARTONS ONLY.", "***  ***  ***",
+             "THIRD-PARTY OPERATOR:ACME TRADING CO., L-", "TD. 1 SOMEWHERE STREET"]
+
+
+@test("Form E: box 7 words cut at the column edge and a figure split over lines are read whole; box 10 once")
+def _():
+    d = _form_e("fe1", _FE_ITEMS, _FE_TOTAL)
+    assert d.kind == "CO" and d.form == "E", (d.kind, getattr(d, "form", None))
+    a, b = d.items
+    assert (a["pkg_words"], a["pkg_fig"].value, a["per_ctn"], a["model"], a["hs"]) == (
+        "ONE THOUSAND TWO HUNDRED AND FIFTY", 1250, 1, "AB-X10(W1)", "123456"), a
+    assert a["goods"].value == "ACME MICROWAVE OVEN", a["goods"].value
+    assert (b["pkg_fig"].value, b["per_ctn"], b["qty"].value, b["goods"].value) == (80, 2, 160, "ACME BLENDER"), b
+    assert a["inv_ref"] == b["inv_ref"] == "ACME26110001X" and str(b["inv_date"].value) == "2026-11-01"
+    assert d.f["total_ctn"].value == 1330 and d.f["total_ctn_words"].value == "ONE THOUSAND THREE HUNDRED AND THIRTY"
+    assert d.f["vessel"].value == ("ACME STAR 012", "S034") and str(d.f["departure"].value) == "2026-11-03"
+    assert d.f["third_party"].value == "ACME TRADING CO., LTD.", d.f["third_party"].value
+    assert d.f["exporter"].value == "ACME MAKER APPLIANCES MANUFACTURING CO., LTD.", d.f["exporter"].value
+    assert "total_qty" in d.f["absent"].value            # Form E prints no quantity / value total
+
+
+@test("Form E: wrong carton words are found; findings say 'Form E'")
+def _():
+    from engine.rules import Finding, r_co_packages
+    items = [dict(_FE_ITEMS[0]), _FE_ITEMS[1]]
+    items[0] = dict(items[0], box7=["ONE THOUSAND TWO HUNDRED AND FIVE (125"] + _FE_ITEMS[0]["box7"][1:])
+    d = _form_e("fe2", items, _FE_TOTAL)
+    assert d.items[0]["pkg_words"] == "ONE THOUSAND TWO HUNDRED AND FIVE"
+    f = Finding("CO_QTY", "ERROR", [d], dict(no=1))
+    assert "Form E" in f.text("en") and "Form D" not in f.text("en"), f.text("en")
+
+
+def _plain_bl(name):
+    """An invented carrier B/L whose box labels are a background picture: values only, read by position."""
+    p = TMP / f"{name}.pdf"
+    doc = pymupdf.open()
+    page = doc.new_page(width=1190, height=1684)
+    put = lambda x, y, t: page.insert_text((x, y), t, fontsize=14, fontname="helv")
+    put(46, 63, "ACME MAKER APPLIANCES")
+    put(981, 73, "ACMEBL0012345")
+    put(46, 83, "MANUFACTURING CO.,LTD")
+    put(46, 104, "NO.1 SOMEWHERE ROAD")
+    put(46, 206, "BUYER VIETNAM CO.,LTD.")
+    put(46, 226, "NO. 2, SOME STREET")
+    put(44, 354, "ACME LOGISTICS VIETNAM CO., LTD.")
+    put(44, 374, "ROOM 1, SOME TOWER")
+    put(335, 503, "PORT BETA,NOWHERE")
+    put(86, 553, "ACME STAR  012S")
+    put(335, 553, "PORT BETA,NOWHERE")
+    put(48, 603, "PORT ALPHA,VIETNAM")
+    put(335, 603, "PORT ALPHA,VIETNAM")
+    put(30, 728, "N/M")
+    put(475, 755, "SHIPPER'S LOAD,COUNT&SEAL,CONTENTS UNKNOWN")
+    put(30, 769, "ABCU1234567 /0012345     40HCF")
+    put(607, 779, "SAID TO CONTAIN")
+    put(30, 789, "ABCU7654321 /0054321     40HCF")
+    put(352, 803, "180")
+    put(420, 803, "CARTONS")
+    put(540, 803, "ACME FAN AND")
+    put(800, 803, "450.000KGS")
+    put(960, 803, "18.000CBM")
+    put(540, 823, "ACME HEATER")
+    put(540, 843, "180 CTNS = 180 SETS")
+    put(540, 863, "HS CODE:345678 , 456789")
+    put(540, 883, "INVOICE NO.: ACME26110001X")
+    put(335, 1268, "TOTAL: 2×40HC   CONTAINERS ONLY.")
+    put(24, 1510, "FREIGHT PREPAID")
+    doc.save(p)
+    return load(p)
+
+
+@test("B/L without label text (labels in the background picture): read by block order and column")
+def _():
+    d = _plain_bl("plain_bl")
+    assert d.kind == "BL"
+    f = d.f
+    assert f["bl_no"].value == "ACMEBL0012345" and f["shipper"].value == "ACME MAKER APPLIANCES MANUFACTURING CO.,LTD"
+    assert f["consignee"].value == "BUYER VIETNAM CO.,LTD." and f["vessel"].value == ("ACME STAR", "012S")
+    assert (f["pol"].value, f["pod"].value, f["delivery"].value, f["dest_country"].value) == (
+        "PORT BETA", "PORT ALPHA", "PORT ALPHA", "VIETNAM")
+    assert [x.value for x in d.lists["cntr"]] == [("ABCU1234567", "40HC"), ("ABCU7654321", "40HC")]
+    assert (f["ctn"].value, f["gw"].value, f["cbm"].value, f["bl_qty"].value) == (180, 450, 18, 180)
+    assert f["cntr_summary"].value == "2X40HC" and f["invoice_no"].value == "ACME26110001X"
+    assert f["goods"].value == "ACME FAN AND ACME HEATER" and f["hs_all"].value == "345678, 456789"
+    assert f["freight"].value == "PREPAID"
+
+
 if __name__ == "__main__":
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     sys.exit(1 if FAILS else 0)

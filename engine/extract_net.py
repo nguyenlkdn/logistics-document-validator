@@ -233,6 +233,7 @@ _CARGO = re.compile(rf"\s*({NUM})\s*{CTN_UNIT}\s*\(?\s*(?:({NUM})\s*(PCS|PIECES?
 _BL_INV = re.compile(rf"INVOICE NO\.?\s*:?\s*({DOC_ID})")
 _BL_HS = re.compile(r"HS\s*CODE\s*:?\s*([\d.]+)", re.I)
 _BL_GOODS = re.compile(r'^\s*("[^"]{6,}"(?:\s+BRAND\s+[A-Z][A-Z /&\-]*[A-Z])?|"?[A-Z][A-Z0-9&.\-]*"?\s+BRAND\s+[A-Z][A-Z /&\-]*[A-Z])\s*$')
+_PLAIN_GOODS = re.compile(r"^\s*((?:AND\s+)?[A-Z][A-Z\-]{2,}(?:\s+[A-Z][A-Z\-]+)+)\s*$")
 _NOT_GOODS = re.compile(r"SHIPPER|SAID TO CONTAIN|LOAD|COUNT|SEAL|FREIGHT", re.I)
 
 
@@ -245,10 +246,24 @@ def _tails(line):
         yield Line(line.page, line.y, [sp for c in cells[i:] for sp in c.spans])
 
 
+def _close_sum(v, others) -> bool:
+    return abs(v - sum(others)) < 0.5
+
+
 def cargo_blocks(L) -> list:
     """B/L description column, read cell by cell so the shipping-mark column next to it does not matter:
     goods description, HS heading, 'n CARTON(S) m PCS', 'INVOICE NO. x' -> one CargoBlock per invoice."""
     blocks, cur, seen = [], {}, {}
+    # the description column: where the 'n CARTONS (m SETS)' rows start. A goods line without 'BRAND' or quotes
+    # ('ACME FAN AND ACME HEATER') is read only there, right above a cargo row.
+    cargo_at = [(l, t.spans[0].bbox[0]) for l in L for t in _tails(l) if _CARGO.match(t.text)]
+
+    def plain_goods(l, t):
+        if not _PLAIN_GOODS.match(t.text) or _NOT_GOODS.search(t.text):
+            return False
+        k = L.index(l)
+        return any(abs(t.spans[0].bbox[0] - x) < 6 and 0 < L.index(cl) - k <= 3 and cl.page == l.page
+                   for cl, x in cargo_at)
 
     def close():
         if cur.get("ctn"):
@@ -273,12 +288,19 @@ def cargo_blocks(L) -> list:
                 break
             m = _BL_HS.search(t.text)
             if m and re.match(r"\s*#?\s*HS", t.text, re.I):
-                if cur.get("ctn"):
-                    close()
+                if cur.get("ctn") and (cur.get("hs") or cur.get("invoice")):
+                    close()                       # a new heading; under its cartons it is the block's own heading
                 cur["hs"] = F(t, m, 1)
                 seen.setdefault("hs", cur["hs"])
                 break
+            if cur.get("goods") and not cur.get("ctn") and re.match(r"\s*AND\s+[A-Z]", t.text) \
+                    and _PLAIN_GOODS.match(t.text):        # the goods line wrapped: '... AND' / 'ACME HEATER'
+                g = cur["goods"]
+                cur["goods"] = Field(g.value + " " + t.text.strip(), g.raw, g.line, g.start, g.end)
+                break
             m = _BL_GOODS.match(t.text)
+            if not (m and not _NOT_GOODS.search(m[1])) and plain_goods(l, t):
+                m = _PLAIN_GOODS.match(t.text)
             if m and not _NOT_GOODS.search(m[1]):
                 if cur.get("ctn"):
                     close()
@@ -287,6 +309,9 @@ def cargo_blocks(L) -> list:
                 seen.setdefault("goods", cur["goods"])
                 break
     close()
+    if len(blocks) > 2:                          # the package total in its own column ('1,500 CARTONS') is no block
+        blocks = [b for b in blocks if not (b.qty is None and b.invoice is None and b.goods is None and _close_sum(
+            b.ctn.value, [o.ctn.value for o in blocks if o is not b]))]
     if len(blocks) == 1:                         # one block: everything in the description column is its own
         for k, v in seen.items():
             if getattr(blocks[0], k) is None:
@@ -314,9 +339,15 @@ def extra_bl(d: Doc):
     absent = [k for k, rx in (("origin", r"MADE IN|\bORIGIN\b"), ("freight", r"\bFREIGHT\s+(?:COLLECT|PREPAID)"),
                               ("final_dest", r"FINAL DESTINATION\s*:"))
               if not d.f.get(k) and not re.search(rx, whole, re.I)]
+    if d.f.get("absent"):                          # set by the reader (a box left blank)
+        absent = d.f["absent"].value.split(", ") + absent
     if absent:                                     # not printed on this B/L: "not on this document", not "not read"
         d.f["absent"] = Field(", ".join(absent), "", L[0], 0, 0)
     d.cargo_blocks = cargo_blocks(L)
+    codes = list(dict.fromkeys(b.hs.value for b in d.cargo_blocks if b.hs))
+    if len(codes) > 1:                             # one HS heading per invoice block: all of them (cross-check)
+        h0 = next(b.hs for b in d.cargo_blocks if b.hs)
+        d.f["hs_all"] = Field(", ".join(codes), h0.raw, h0.line, h0.start, h0.end)
     if not d.f.get("bl_qty"):                      # quantity per invoice, one block each: add them up
         rows = [b for b in d.cargo_blocks if b.qty]
         if rows:

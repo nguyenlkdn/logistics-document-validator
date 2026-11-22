@@ -226,6 +226,8 @@ REGISTRY_ROWS = [
     _d("CI_PL_CTN", "r_ci_pl_ctn", "document", "CI", "CI.lists.ci_ttls CI.Σctn", "CI_PL_CTN"),
     _d("LINES", "r_lines", "document", "CI", "CI.items CI.pl_items", "LINE_COUNT PL_LINE CI_LINE_DESC"),
     _d("CO_MODEL", "r_co_model", "invoice", "CO CI", "CO.items CI.items", "CO_MODEL"),
+    _d("CO_ITEM_VALUE", "r_co_values", "invoice", "CO CI", "CO.items[fob] CI.items[amount]", "CO_ITEM_VALUE"),
+    _d("CO_CRITERION", "r_co_values", "document", "CO", "CO.items[criterion]", "CO_CRITERION"),
     _d("MARKS", "r_marks", "invoice", "CI", "CI.items CI.items[model] CI.lists.marks_models CI.lists.pl_marks_models "
                                              "BL.lists.marks_models CO.lists.marks_models", "CI_MARKS_MODEL PL_MARKS_MODEL MARKS_MISSING MARKS_NONE"),
     _d("ORIGIN", "r_origin", "invoice", "", "*.origin CO.lists.origin", "ORIGIN"),

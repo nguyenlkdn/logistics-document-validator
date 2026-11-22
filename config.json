@@ -119,8 +119,8 @@
       "vi": "Vận đơn (B/L)"
     },
     "CO": {
-      "en": "Form D (Certificate of Origin)",
-      "vi": "C/O mẫu D"
+      "en": "Certificate of Origin (Form D / Form E)",
+      "vi": "C/O (mẫu D / mẫu E)"
     }
   },
   "severity": {
@@ -759,6 +759,24 @@
     "BL_BLOCK": {
       "en": "B/L cargo block of invoice {inv}: {label} ≠ that invoice",
       "vi": "Khối hàng của hóa đơn {inv} trên B/L: {label} ≠ hóa đơn đó"
+    },
+    "PL_MODEL_QTY": {
+      "en": "Packing list quantity of model {model} ≠ invoice",
+      "vi": "Số lượng model {model} trên Packing List ≠ hóa đơn",
+      "note_en": "Packing list by container: the quantities of a model in all containers must add up to the invoice quantity",
+      "note_vi": "Packing List theo container: tổng số lượng một model ở các container phải bằng số lượng trên hóa đơn"
+    },
+    "CO_ITEM_VALUE": {
+      "en": "Form E item {no}: FOB value ≠ invoice line amount",
+      "vi": "C/O mẫu E mục {no}: trị giá FOB ≠ trị giá dòng hóa đơn",
+      "note_en": "Box 9 prints a value only for an item under the RVC criterion; it must be the invoice amount of that line",
+      "note_vi": "Ô 9 chỉ ghi trị giá cho mục theo tiêu chí RVC; trị giá phải bằng trị giá dòng hóa đơn tương ứng"
+    },
+    "CO_CRITERION": {
+      "en": "Form E item {no}: origin criterion {crit} is not a known code",
+      "vi": "C/O mẫu E mục {no}: tiêu chí xuất xứ {crit} không đúng mã",
+      "note_en": "Box 8: WO, PE, CTH, CTSH, PSR or an RVC percentage (e.g. 40%)",
+      "note_vi": "Ô 8: WO, PE, CTH, CTSH, PSR hoặc tỷ lệ RVC (ví dụ 40%)"
     }
   },
   "cities": {
@@ -860,7 +878,7 @@
           "PL": "pl_shipper",
           "SC": "seller",
           "BL": "shipper",
-          "CO": "exporter"
+          "CO": "third_party|exporter"
         }
       },
       {
@@ -1008,9 +1026,12 @@
         "type": "hs",
         "unit": "",
         "src": {
-          "BL": "hs",
+          "BL": "hs_all|hs",
           "CO": "items.hs"
-        }
+        },
+        "subset": [
+          "CO"
+        ]
       },
       {
         "id": "amount",
@@ -1542,6 +1563,14 @@
     "BL_CARGO_BLOCK": {
       "en": "Each B/L cargo block = its own invoice (cartons, quantity)",
       "vi": "Mỗi khối hàng trên B/L = hóa đơn của khối đó (số kiện, số lượng)"
+    },
+    "CO_ITEM_VALUE": {
+      "en": "Form E item FOB value (box 9) = invoice line amount",
+      "vi": "Trị giá FOB từng mục C/O mẫu E (ô 9) = trị giá dòng hóa đơn"
+    },
+    "CO_CRITERION": {
+      "en": "Form E origin criterion (box 8) is a known code",
+      "vi": "Tiêu chí xuất xứ C/O mẫu E (ô 8) đúng mã"
     }
   },
   "core_checks": [
@@ -1715,6 +1744,10 @@
     "suspect_reading": {
       "en": "LDV may have read an input wrongly (S1: a number cut from a larger one · S2: some goods lines were not read · S3: a role label inside a company name). Check it on the document.",
       "vi": "LDV có thể đã đọc sai dữ liệu (S1: số bị cắt từ một số lớn hơn · S2: một số dòng hàng không đọc được · S3: nhãn vai trò nằm trong tên công ty). Hãy kiểm tra trên chứng từ."
+    },
+    "na_form_e_only": {
+      "en": "Form E boxes only (this certificate is a Form D)",
+      "vi": "Chỉ áp dụng cho C/O mẫu E (chứng từ này là mẫu D)"
     }
   },
   "goods_categories": {

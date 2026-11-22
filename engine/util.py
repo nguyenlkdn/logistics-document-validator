@@ -29,7 +29,7 @@ def _parse_date(s: str):
     m = re.search(r"(?<![A-Z0-9])(\d{1,2})[\s\-]+([A-Z]{3})[A-Z]*[\s\-]+(\d{4})", s)
     if m and m[2] in _MONTHS:
         return date(int(m[3]), _MONTHS[m[2]], int(m[1]))
-    m = re.search(r"([A-Z]{3})[A-Z]*\s+(\d{1,2})\s+(\d{4})", s)
+    m = re.search(r"([A-Z]{3})[A-Z]*\.?\s*(\d{1,2})\s+(\d{4})", s)          # 'OCT. 24,2026' (Form E)
     if m and m[1] in _MONTHS:
         return date(int(m[3]), _MONTHS[m[1]], int(m[2]))
     return None
@@ -67,6 +67,11 @@ def words_to_number(text: str):
         digits = [str(_UNITS[w]) for w in m[1].split() if w in _UNITS]
         cents = float("0." + "".join(digits)) if digits else 0.0
         t = t[:m.start()]
+    elif re.search(r"\bCENTS?\s+[A-Z]", t):           # '... FORTY TWO AND CENTS FIFTY FIVE ONLY'
+        m = re.search(r"^(.*?)(?:\bAND\s+)?\bCENTS?\b(.*)$", t)
+        c = _int_words(m[2].split())
+        cents = (c or 0) / 100
+        t = m[1]
     else:
         m = re.search(r"^(.*)\bAND\b(.*?)\bCENTS?\b", t)
         if m:

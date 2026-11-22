@@ -51,10 +51,15 @@ class Finding:
     def text(self, lang: str) -> str:
         p = {k: _label_refs(v, lang) for k, v in self.params.items()}
         t = CONFIG["messages"][self.key][lang].format(**p)
+        if any(getattr(d, "form", "D") == "E" for d in self.docs if getattr(d, "kind", "") == "CO"):
+            t = t.replace("Form D", "Form E").replace("mẫu D", "mẫu E")     # the certificate is a Form E
         return t[:1].upper() + t[1:]
 
     def note(self, lang: str) -> str:
-        return CONFIG["messages"][self.key].get(f"note_{lang}", "")
+        n = CONFIG["messages"][self.key].get(f"note_{lang}", "")
+        if any(getattr(d, "form", "D") == "E" for d in self.docs if getattr(d, "kind", "") == "CO"):
+            n = n.replace("Form D", "Form E").replace("mẫu D", "mẫu E")
+        return n
 
     @property
     def doc_names(self):
@@ -130,7 +135,7 @@ def _lines_agree(ci: Doc) -> bool:
     carton ranges running 1, 2, 3 … with no gap or overlap. Otherwise a line is missing or misprinted (LINE_COUNT,
     CI_PL_QTY, PL_LINE, PL_RANGE_* report it) and the line sum is not the truth either."""
     pl, inv = ci.pl_items, ci.items
-    if not pl or (inv and len(inv) != len(pl)):
+    if not pl or (inv and len(inv) != len(pl) and not ci.lists.get("pl_containers")):   # by container: any count
         return False
     q = [it.get("qty") for it in pl]
     if any(not isinstance(x, Field) or x.value is None for x in q):
@@ -224,7 +229,9 @@ def r_line_math(docs, out):
         ck.need_items(d)
         if tot and d.items:
             ck.compared()
-            exp = round(sum(it["qty"].value * it["price"].value for it in d.items), 2)
+            # charges billed on their own line (CIF: freight, insurance) are part of the total
+            exp = round(sum(it["qty"].value * it["price"].value for it in d.items)
+                        + sum(c["amount"].value for c in d.lists.get("charges", [])), 2)
             if not _close(exp, tot.value):
                 ck.add(Finding("TOTAL_AMOUNT", "ERROR", [d], {}, tot.raw, fmt_like(exp, tot.raw), at(d, tot)))
         ck.end()
@@ -370,7 +377,7 @@ def r_po_coverage(scs, ci, out):
     ck.need(ci, "pos", trace=r"(?i)\bP/?O\b|PURCHASE ORDER")    # an empty list is not "all P/O covered"
     for s in scs:
         ck.need(s, "pos")
-    inv_pos = set(ci.f["pos"].value)
+    inv_pos = set(ci.f["pos"].value) if ci.f.get("pos") else set()   # an invoice layout without any P/O: not compared
     sc_pos = set().union(*[set(s.f["pos"].value) for s in scs if s.f.get("pos")])
     if inv_pos and sc_pos:
         ck.compared()
@@ -394,7 +401,7 @@ def r_po_coverage(scs, ci, out):
         else:
             ck.add(Finding("SC_PO_MISSING", "ERROR", list(scs) + [ci], dict(missing=", ".join(missing)),
                            sc_raw, ", ".join(sorted(sc_pos | set(missing))), wrong + ref))
-    if extra:
+    if extra and inv_pos:
         ck.add(Finding("SC_PO_EXTRA", "WARNING", list(scs), dict(extra=", ".join(extra)), ", ".join(extra), "",
                        [x for s in scs for x in at(s, s.f.get("sc_no"))]))
     ck.end()
@@ -520,11 +527,16 @@ def r_co(ci, co, bl, out):
             ck_q.add(Finding("CO_QTY", "ERROR", [co, ci], dict(no=it["no"]), it["qty"].raw,
                              fmt_like(ci_it["qty"].value, it["qty"].raw),
                              at(co, it["qty"]) + at(ci, ci_it["qty"], "ref")))
+    seen = set()
     for it in co.items:                              # box 10 of every item names the invoice: no line pairing needed
         full = it.get("inv_ref_f")                 # whole number read from box 10 (it can wrap onto the next line)
-        if inv_no:
+        if inv_no and it.get("inv_ref"):
             ck_n.compared()
-        if inv_no and (it["inv_ref"] != inv_no if full else not inv_no.startswith(it["inv_ref"])):
+        if full is not None and id(full) in seen:  # one box 10 for several items (Form E): reported once
+            continue
+        if full is not None:
+            seen.add(id(full))
+        if inv_no and it.get("inv_ref") and (it["inv_ref"] != inv_no if full else not inv_no.startswith(it["inv_ref"])):
             ck_n.add(Finding("CO_INVOICE_NO", "ERROR", [co, ci], dict(no=it["no"]), it["inv_ref"], inv_no,
                              at(co, full) + at(ci, ci.f.get("invoice_no"), "ref") if full else at_line(co, it["qty"].line)))
     ck_q.end()
@@ -542,7 +554,7 @@ def r_co(ci, co, bl, out):
         ck = begin("CO_TOTAL.value" if k == "total_value" else "CO_TOTAL.qty", out)
         a, b = co.f.get(k), true_total(ci, ci_k)
         bv = b.value if b else None
-        ck.need(co, k)
+        ck.need(co, k, absent_ok=getattr(co, "form", "D") == "E")   # Form E has no quantity / value total line
         ck.need_total_val(ci, ci_k, b)
         if a and bv is not None:
             ck.compared()
@@ -723,6 +735,9 @@ def r_hs(ci, co, bl, out):
     if blk is not None and blk.hs:
         hs_bl_f = blk.hs
     hs_bl = master.digits(_v(hs_bl_f))
+    # a B/L heading may list several codes ('HS CODE: 850110, 850120'): an item under any of them is under the B/L
+    bl_heads = [master.digits(f.value) for f in (bl.lists.get("hs_codes") or [])] if bl and blk is None else []
+    bl_heads = [h for h in bl_heads if h] or [hs_bl]
     have = master.load() is not None
     known = {}                                            # invoice model -> master HS
     parts = _all_parts(ci)
@@ -761,7 +776,7 @@ def r_hs(ci, co, bl, out):
                                it["hs"], master.fmt(ref), loc))
         elif hs_bl:
             ck.compared()
-            if not master.digits(it["hs"]).startswith(hs_bl):
+            if not any(master.digits(it["hs"]).startswith(h) for h in bl_heads):
                 off.append((it, loc))
         else:                                             # no master entry and no B/L heading: nothing to compare with
             if not have or m:
@@ -789,7 +804,7 @@ def r_hs(ci, co, bl, out):
             ck.master_missing(m)
     if hs_bl and refs:
         ck.compared()
-    if hs_bl and refs and not any(h.startswith(hs_bl) for h in refs):
+    if hs_bl and refs and not any(h.startswith(x) for h in refs for x in bl_heads):
         heads = Counter(h[:len(hs_bl)] for h in refs)
         ck.add(Finding("BL_HS_MASTER", "ERROR", [bl], dict(hs=_v(hs_bl_f), ref=", ".join(sorted(heads))),
                        _v(hs_bl_f), heads.most_common(1)[0][0], at(bl, hs_bl_f)))
@@ -1105,6 +1120,8 @@ def r_co_marks(ci, co, out):
 
 def _first_unit(doc) -> str | None:
     """Unit used for quantities on a document: SET / PCS / ... (first one written after a number)."""
+    if doc.f.get("qty_unit"):                       # the quantity column's heading names it ('Quantity (SETS)')
+        return doc.f["qty_unit"].value
     for l in doc.lines:
         m = re.search(r"\b[\d,]+\s*(SETS?|PCS|PIECES?|UNITS?)\b", l.text)
         if m:
@@ -1121,6 +1138,10 @@ def _city(place: str) -> str | None:
     p = _norm_words(place)
     for city, names in CONFIG.get("cities", {}).items():
         if p in {_norm_words(n) for n in [city] + names}:
+            return city
+    for city, names in CONFIG.get("cities", {}).items():    # city + terminal: 'HAIPHONG DINH VU'
+        al = {_norm_words(n) for n in [city] + names}
+        if any(p.startswith(a) and p[len(a):] in al for a in al if len(a) >= 5):
             return city
     return None
 
@@ -1232,12 +1253,88 @@ def _product_name(desc: str) -> str:
     return re.split(r"\s+(?:SERIES\b|MODEL\b|\d|\()", desc.upper().strip(' "'))[0].strip()
 
 
+def _heading_names(ci) -> list:
+    """Product names of a goods heading over all lines ('ACME FAN AND ACME HEATER' -> ['ACME FAN', 'ACME HEATER'])."""
+    g = ci.f.get("pl_goods_full") or ci.f.get("goods_full")
+    if not g or not isinstance(g.value, str):
+        return []
+    return [re.sub(r"\s+", " ", x).strip().upper() for x in re.split(r"\s+AND\s+|\s*[,;/]\s*", g.value) if x.strip()]
+
+
+def _goods_vs_heading(ci, co, it, goods, ck_g):
+    """Form D/E item goods name = one of the products of the packing list's goods heading."""
+    names = _heading_names(ci)
+    g = ci.f.get("pl_goods_full") or ci.f.get("goods_full")
+    ck_g._input(ci, "pl_goods_full", "READ")
+    if not goods:
+        return
+    ck_g.compared()
+    have = re.sub(r"\s+", " ", goods.value.upper().strip(' ."'))
+    if not any(n == have or n.endswith(" " + have) or have.endswith(" " + n) for n in names):
+        ck_g.add(Finding("CO_GOODS_DESC", "ERROR", [co, ci], dict(no=it["no"], model=it.get("model") or ""),
+                         goods.value, " / ".join(names), at(co, goods) + at(ci, g, "ref")))
+
+
+def _co_packages_by_model(ci, co, ck, ck_g):
+    """Form D/E box 7 against a packing list written container by container: each item's cartons (figures and
+    words) = its quantity ÷ sets per carton; per model, the cartons of all its items = the packing list's cartons."""
+    from .rules_net import model_qty
+    ck.need_items(co)
+    ck.need_items(ci, "pl_items")
+    per_model = {}
+    for it in co.items:
+        fig, words, per, qty = it.get("pkg_fig"), it.get("pkg_words"), it.get("per_ctn"), it["qty"].value
+        truth = _whole(qty / per) if per else None
+        ref = at(co, it["qty"], "ref")
+        if fig and truth:
+            ck.compared()
+            if not _close(fig.value, truth):
+                ck.add(Finding("CO_PKG_COUNT", "ERROR", [co], dict(no=it["no"], what="@figures", ref=f"{truth:,}"),
+                               f"({fig.raw})", f"({truth:,})", at(co, fig) + ref))
+        wv = words_to_number(words) if words else None
+        if wv is not None and truth:
+            ck.compared()
+            if not _close(wv, truth):
+                wf = _item_list_at(co, "pkg_words_f", it)
+                ck.add(Finding("CO_PKG_COUNT", "ERROR", [co], dict(no=it["no"], what="@words", ref=f"{truth:,}"),
+                               words, _words_like(truth, words), (at(co, wf) if wf else at(co, fig) if fig else []) + ref))
+        if not (fig or truth):
+            ck.need_item(co, it, "pkg_fig")
+        if it.get("model") and (fig or truth):
+            k = master.key(it["model"])
+            n, its = per_model.get(k, (0, []))
+            per_model[k] = (n + (fig.value if fig else truth), its + [it])
+        _goods_vs_heading(ci, co, it, it.get("goods"), ck_g) if _heading_names(ci) else ck_g.need_item(ci, {}, "desc")
+    pl = {}
+    for p in ci.pl_items:
+        if p.get("model") and p.get("ctn") is not None:
+            k = master.key(p["model"])
+            n, rows = pl.get(k, (0, []))
+            pl[k] = (n + p["ctn"], rows + [p])
+    for k, (n, its) in per_model.items():
+        if k not in pl:
+            continue                                  # a model not on the packing list: CO_MODEL / LINES report it
+        ck.compared()
+        if not _close(n, pl[k][0]):
+            ck.add(Finding("CO_PKG_COUNT", "ERROR", [co, ci],
+                           dict(no=", ".join(str(it["no"]) for it in its), what="@figures", ref=f"{pl[k][0]:,.0f}"),
+                           f"{n:,.0f}", f"{pl[k][0]:,.0f}",
+                           [x for it in its for x in at(co, it.get("pkg_fig"))]
+                           + [x for p in pl[k][1] for x in at(ci, p.get("ctn_f"), "ref")]))
+    ck.end()
+    ck_g.end()
+
+
 def r_co_packages(ci, co, out):
     """Form D box 7 per item: cartons (figures + words) × sets per carton = quantity, and = packing list;
     goods name = invoice. Blame the document that does not add up."""
     if not (ci and co):
         return
     ck, ck_g = begin("CO_PKG", out), begin("CO_GOODS_DESC", out)
+    if ci.lists.get("pl_containers") and len(co.items) != len(ci.pl_items):
+        _co_packages_by_model(ci, co, ck, ck_g)      # a packing list by container: no line-to-item pairing
+        _co_total_ctn(ci, co, out)
+        return
     pairs = _pairs(ci, co)
     for c in (ck, ck_g):
         c.need_items(co)
@@ -1289,6 +1386,9 @@ def r_co_packages(ci, co, out):
             ck.need_item(co, it, "per_ctn")
         goods = it.get("goods")
         ck_g.need_item(co, it, "goods")
+        if not p.get("desc") and _heading_names(ci):  # one goods heading over all lines (Excel sheets)
+            _goods_vs_heading(ci, co, it, goods, ck_g)
+            continue
         ck_g.need_item(ci, p, "desc")
         if goods and p.get("desc"):
             want = _product_name(p["desc"].value)
@@ -1299,6 +1399,10 @@ def r_co_packages(ci, co, out):
                                  goods.value, want, at(co, goods) + at(ci, p["desc"], "ref")))
     ck.end()
     ck_g.end()
+    _co_total_ctn(ci, co, out)
+
+
+def _co_total_ctn(ci, co, out):
     tot, tot_w, ref = co.f.get("total_ctn"), co.f.get("total_ctn_words"), true_total(ci, "ctn")
     ck = begin("CO_TOTAL.ctn", out)
     ck.need(co, "total_ctn")
@@ -1505,9 +1609,27 @@ def _sig(f: Finding):
             tuple((l.doc.name, l.page, l.clip, l.text, l.role) for l in f.locs))
 
 
+def _shipment_containers(cis):
+    """Packing lists that name their containers (one container may hold goods of several invoices): every invoice's
+    container mix is the shipment's, the distinct containers of all of them (compared with the one B/L)."""
+    nos = {}
+    for c in cis:
+        for x in c.lists.get("pl_containers", []):
+            if x.get("type"):
+                nos[x["no"].value] = f"{x['type'][1]}{x['type'][2].upper()}"
+    if not nos or len(cis) < 2:
+        return
+    mix = ",".join(f"{n}x{t}" for t, n in Counter(nos.values()).items())
+    for c in cis:
+        if c.lists.get("cntr_types"):
+            f0 = c.lists["cntr_types"][0]
+            c.lists["cntr_types"] = [Field(mix, f0.raw, f0.line, f0.start, f0.end)]
+
+
 def _validate_multi(docs: list[Doc], cis: list[Doc]) -> list[Finding]:
     run = current_run()
     groups = {id(c): [c] for c in cis}
+    _shipment_containers(cis)
     shared = [d for d in docs if d.kind not in ("CI", "SC", "CO")]       # B/L: one for the whole shipment
     out: list[Finding] = []
     ship = Group("shipment", "shipment", ", ".join(_label(c, docs) for c in cis), list(docs), multi=True)

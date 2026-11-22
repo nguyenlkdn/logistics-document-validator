@@ -199,7 +199,7 @@ def _():
     assert not closure_errors(BASE_RES, package()), closure_errors(BASE_RES, package())
     ids = {r.check_id for r in BASE_RES}
     assert ids == set(REGISTRY) - {"DOC_PAIRING"} | {"DOC_PAIRING"}, set(REGISTRY) - ids   # every check id has a record
-    assert len(REGISTRY) == 99, len(REGISTRY)
+    assert len(REGISTRY) == 101, len(REGISTRY)      # 2.7: + CO_ITEM_VALUE, CO_CRITERION (Form E)
 
 
 @test("T4 declared vs used inputs: every input a check read is declared in CheckDef.needs")

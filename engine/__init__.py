@@ -11,7 +11,7 @@ from pathlib import Path
 
 from . import _dllpath  # noqa: F401  (must come before anything that imports pymupdf)
 from . import evidence, master, report, session
-from .extract import load
+from .extract import load, load_excel
 from .rules import CONFIG, unrecognised, validate, validate_checks
 
 
@@ -69,11 +69,20 @@ def check(inputs: list[Path], name: str | None = None, out_root: Path | None = N
     workdir = Path(tempfile.mkdtemp(prefix="ldv_"))
     pdfs = collect(inputs, workdir)
     fp = hashlib.sha1("".join(sorted(hashlib.sha1(p.read_bytes()).hexdigest() for p in pdfs
-                                     if p.suffix.lower() == ".pdf")).encode()).hexdigest()
+                                     if p.suffix.lower() in (".pdf", ".xlsx", ".xlsm"))).encode()).hexdigest()
     if kinds:                                      # a corrected document type gives a different result: new revision
         fp = hashlib.sha1((fp + repr(sorted(kinds.items()))).encode()).hexdigest()
-    docs, skipped = [], []
+    docs, skipped, xl_errors = [], [], []
     for p in pdfs:
+        if p.suffix.lower() in (".xlsx", ".xlsm"):     # invoice / packing list / contract sheets of a workbook
+            try:
+                xs = load_excel(p, p.parent)
+            except Exception:                          # not a workbook we can read: listed as skipped
+                import traceback
+                xl_errors.append(f"{p.name}\n{traceback.format_exc()}")
+                xs = []
+            (docs.extend(xs) if xs else skipped.append(p))
+            continue
         if p.suffix.lower() != ".pdf":
             skipped.append(p)
             continue
@@ -87,7 +96,7 @@ def check(inputs: list[Path], name: str | None = None, out_root: Path | None = N
     name = re.sub(r"[^\w\-. ]", "_", name).strip() or "shipment"
     res = Result(name, docs, skipped, findings, unrecognised(docs, skipped), workdir=workdir, fingerprint=fp,
                  kinds={k: v for k, v in kinds.items() if any(d.name == k for d in docs)}, checks=checks)
-    res.diagnostics = list(getattr(checks, "diagnostics", []))
+    res.diagnostics = xl_errors + list(getattr(checks, "diagnostics", []))
     res.verdict = verdict([c.to_dict() for c in checks],
                           [dict(no=i, severity=f.severity, suspect=getattr(f, "suspect", ""))
                            for i, f in enumerate(findings, 1)])
