@@ -353,12 +353,28 @@ def item_id(L: list, it: dict) -> ItemId:
             return ItemId(m[1], "part_no", cat or "part", F(nl, m, 1))
     return ItemId(None, "none", cat or "other")
 
+_PO_LIST = re.compile(rf"\s*{PO_RE}(?:/\d+)?(?:\s*[,;&]?\s*{PO_RE}(?:/\d+)?)*\s*[,;&]?\s*")
+
+
+def po_refs(line: Line, text: str, start: int = 0) -> list:
+    """Every P/O number printed in text (which begins at start of line), repeats included, each with its place."""
+    return [Field(m[0], m[0], line, start + m.start(), start + m.end()) for m in re.finditer(PO_RE, text)]
+
+
 def _extract_sc(d: Doc):
     L = d.lines
     d.f["sc_no"] = _first(L, r"No\.\s*:\s*(.+?)(?:\s{2,}|$)")
     if d.f["sc_no"]:
         d.f["pos"] = Field(sorted(set(re.findall(PO_RE, d.f["sc_no"].raw))), "", L[0], 0, 0)
         ln = d.f["sc_no"].line
+        # every P/O of the contract number as printed (d.f["pos"] has each once); a long list wraps to the next lines
+        d.lists["po_refs"] = po_refs(ln, d.f["sc_no"].raw, d.f["sc_no"].start)
+        k = next(i for i, l in enumerate(L) if l is ln)
+        for l in L[k + 1:k + 4]:
+            more = [c for c in l.cells() if l.page == ln.page and _PO_LIST.fullmatch(c.text)]
+            if not more:
+                break
+            d.lists["po_refs"] += [f for c in more for f in po_refs(c, c.text)]
         dm = re.search(r"\s{2,}(\S.*\d{4})\s*$", ln.text)
         d.f["sc_date"] = F(ln, dm, 1, parse_date(dm[1])) if dm else None
     d.lists["fob"] = _fob_all(L)

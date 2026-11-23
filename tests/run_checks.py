@@ -199,7 +199,7 @@ def _():
     assert not closure_errors(BASE_RES, package()), closure_errors(BASE_RES, package())
     ids = {r.check_id for r in BASE_RES}
     assert ids == set(REGISTRY) - {"DOC_PAIRING"} | {"DOC_PAIRING"}, set(REGISTRY) - ids   # every check id has a record
-    assert len(REGISTRY) == 103, len(REGISTRY)      # 2.7: + CO_ITEM_VALUE, CO_CRITERION (Form E); 2.8: CNTR_VS_PL, SC_CHARGES
+    assert len(REGISTRY) == 105, len(REGISTRY)      # 2.7: + CO_ITEM_VALUE, CO_CRITERION (Form E); 2.8: CNTR_VS_PL, SC_CHARGES; 2.9: the P/O numbers of a contract
 
 
 @test("T4 declared vs used inputs: every input a check read is declared in CheckDef.needs")
@@ -941,6 +941,80 @@ if "--local" in sys.argv:
                 problems, n = blank_out(docs, z.name)
                 print(f"      {n} inputs removed")
                 assert not problems, problems[:20]
+
+# ------------------------------------------------------------------- P/O numbers of a sales contract (PO T01 - T10)
+def _po(n):
+    return f"PR{n:012d}"
+
+
+def _sc_with(pos, name="po_sc.pdf"):
+    s = package()[1]
+    raw = ", ".join(p.strip() for p in pos if p and p.strip()) or "X"
+    s.path = Path(name)
+    s.f["sc_no"] = F(raw)
+    s.lists["po_refs"] = [F(p) for p in pos]
+    return s
+
+
+def _po_findings(*scs):
+    out = []
+    rules.r_sc_po_numbers(list(scs), out)
+    assert all(f.severity == "WARNING" for f in out)
+    return [(f.key, f.docs[0].name, f.params.get("po") or f.params["n"]) for f in out]
+
+
+DUP, CNT = "SC_DUPLICATE_PO_NUMBER", "SC_PO_COUNT_EXCEEDED"
+for tid, pos, want in (
+        ("T01 one P/O", [_po(1)], []),
+        ("T02 three different P/Os", [_po(1), _po(2), _po(3)], []),
+        ("T03 four different P/Os", [_po(1), _po(2), _po(3), _po(4)], [(CNT, 4)]),
+        ("T04 a repeated P/O", [_po(1), _po(2), _po(1)], [(DUP, _po(1))]),
+        ("T05 three different, one repeated: duplicate only", [_po(1), _po(2), _po(3), _po(2)], [(DUP, _po(2))]),
+        ("T07 blanks around a number", [_po(1), f"  {_po(1)} "], [(DUP, _po(1))]),
+        ("T08 empty values", ["", _po(1), "   ", "", _po(2), None], []),
+        ("T09 both", [_po(1), _po(2), _po(3), _po(4), _po(1)], [(DUP, _po(1)), (CNT, 4)]),
+        ("one warning for a number printed three times", [_po(1)] * 3, [(DUP, _po(1))])):
+    @test(f"PO {tid}")
+    def _():
+        assert [(k, v) for k, _d, v in _po_findings(_sc_with(pos))] == want, _po_findings(_sc_with(pos))
+
+
+@test("PO T06 the same P/O in two contracts is not a duplicate")
+def _():
+    assert not _po_findings(_sc_with([_po(1), _po(2)], "a.pdf"), _sc_with([_po(1), _po(3)], "b.pdf"))
+
+
+@test("PO T10 several contracts: each warning on its own contract, with its number and the places")
+def _():
+    a, b = _sc_with([_po(1), _po(1)], "a.pdf"), _sc_with([_po(n) for n in (1, 2, 3, 4)], "b.pdf")
+    assert _po_findings(a, b, _sc_with([_po(1)], "c.pdf")) == [(DUP, "a.pdf", _po(1)), (CNT, "b.pdf", 4)]
+    out = []
+    rules.r_sc_po_numbers([a, b], out)
+    assert [len(f.locs) for f in out] == [2, 4] and out[0].params["sc"] == a.f["sc_no"].value
+    assert out[0].text("en") == f"Sales Contract {_po(1)}, {_po(1)} contains a duplicate P/O number: {_po(1)} (2 times)", out[0].text("en")
+    assert "contains 4 distinct P/O numbers. The maximum allowed is 3" in out[1].text("en")
+    assert all(_po(1) in out[0].text(x) for x in ("en", "vi"))
+
+
+@test("PO integration: both warnings through the engine, the package verdict does not become RED or lose core checks")
+def _():
+    docs = package()
+    finds0, checks0 = validate_checks(docs)
+    st = {c.check_id: c.status for c in checks0}
+    assert (st[DUP], st[CNT]) == (CheckStatus.PASS, CheckStatus.PASS)
+    docs[1].lists["po_refs"] = [F(p) for p in (PO, _po(2), _po(3), _po(4), PO)]
+    finds, checks = validate_checks(docs)
+    st = {c.check_id: c.status for c in checks}
+    assert (st[DUP], st[CNT]) == (CheckStatus.REVIEW_REQUIRED, CheckStatus.REVIEW_REQUIRED)
+    new = [f for f in finds if f.key in (DUP, CNT)]
+    assert len(new) == 2 and len(finds) == len(finds0) + 2
+    v0, v = (verdict([c.to_dict() for c in cs], [dict(no=i, severity=f.severity, suspect="") for i, f in enumerate(fs, 1)])
+             for cs, fs in ((checks0, finds0), (checks, finds)))
+    assert v["state"] == v0["state"] and v["open_errors"] == v0["open_errors"], (v0, v)
+    docs[1].f["sc_no"] = None                          # not read: never PASS
+    docs[1].lists["po_refs"] = []
+    assert {c.status for c in validate_checks(docs)[1] if c.check_id in (DUP, CNT)} == {CheckStatus.NOT_RUN}
+
 
 @test("HS list: suggestions from checked documents (evidence for and against); nothing is used before it is added")
 def _():

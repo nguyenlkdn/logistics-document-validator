@@ -639,7 +639,7 @@ def read_ci(d, sheets):
 
 def read_sc(d, sheets):
     """One sales-contract sheet into the fields the PDF contract reader fills."""
-    from .extract import Field, PO_RE
+    from .extract import Field, PO_RE, _PO_LIST
     sh = sheets[0]
     first = d.lines[0] if d.lines else Line(0, 0.0)
     lab, v = _label(sh, r"^\s*No\.?")
@@ -649,6 +649,11 @@ def read_sc(d, sheets):
         raw = ",".join(c.text.strip() for c in nos)
         d.f["sc_no"] = _f(v, raw)
         d.f["pos"] = Field(sorted(set(re.findall(PO_RE, raw))), "", v.line, v.start, v.end)
+        # every P/O as printed, repeats included: the number cell and the P/O cells under it, up to the seller
+        seller = next((c.row for c in sh.find(r"^\s*The Seller")), v.row + 4)
+        cells = [v] + sorted((c for c in sh.cells if c.col == v.col and v.row < c.row < max(seller, v.row + 4)
+                              and _PO_LIST.fullmatch(c.text)), key=lambda c: c.row)
+        d.lists["po_refs"] = [_f(c, m[0], m.start(), m.end()) for c in cells for m in re.finditer(PO_RE, c.text)]
     buyer = sh.find(r"The Buyer")
     d.f["sc_date"] = None
     for c in sorted(sh.cells, key=lambda c: (c.row, c.col)):   # the contract date: a date cell above the buyer

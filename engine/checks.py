@@ -168,6 +168,8 @@ REGISTRY_ROWS = [
     _d("INVOICE_REF", "r_bl_vs_pl", "invoice", "BL CI", "BL.invoice_no CI.invoice_no", "INVOICE_REF", multi="replaced"),
     _d("INCOTERM_PORT", "r_incoterm", "document", "*", "BL.pol CI.pol *.lists.fob", "INCOTERM"),
     _d("SC_PO_COVERAGE", "r_po_coverage", "invoice", "SC CI", "CI.pos SC.pos", "SC_PO_TYPO SC_PO_MISSING SC_PO_EXTRA"),
+    _d("SC_DUPLICATE_PO_NUMBER", "r_sc_po_numbers", "document", "SC", "SC.sc_no", "SC_DUPLICATE_PO_NUMBER"),
+    _d("SC_PO_COUNT_EXCEEDED", "r_sc_po_numbers", "document", "SC", "SC.sc_no", "SC_PO_COUNT_EXCEEDED"),
     _d("SC_VS_CI", "r_sc_vs_ci", "invoice", "SC CI", "CI.items SC.items", "SC_VS_CI"),
     _d("SC_CHARGES", "r_sc_vs_ci", "invoice", "SC CI", "SC.lists.charges CI.lists.charges", "SC_CHARGES SC_CHARGES_TWICE"),
     _d("SC_NUMBERING", "r_sc_vs_ci", "document", "SC", "SC.items", "SC_NUMBERING"),

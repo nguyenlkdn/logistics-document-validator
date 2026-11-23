@@ -361,6 +361,14 @@
       "en": "Invoice PO(s) missing from Sales Contract No.: {missing}",
       "vi": "PO trên hóa đơn không có trong số Hợp đồng: {missing}"
     },
+    "SC_DUPLICATE_PO_NUMBER": {
+      "en": "Sales Contract {sc} contains a duplicate P/O number: {po} ({n} times)",
+      "vi": "Hợp đồng {sc} có số P/O bị lặp: {po} ({n} lần)"
+    },
+    "SC_PO_COUNT_EXCEEDED": {
+      "en": "Sales Contract {sc} contains {n} distinct P/O numbers. The maximum allowed is {max}",
+      "vi": "Hợp đồng {sc} có {n} số P/O khác nhau. Tối đa cho phép là {max}"
+    },
     "SC_PO_EXTRA": {
       "en": "Sales Contract PO not on invoice: {extra}",
       "vi": "PO trong Hợp đồng không có trên hóa đơn: {extra}"
@@ -1285,6 +1293,14 @@
       "en": "FOB place = port of loading",
       "vi": "Địa điểm FOB = cảng xếp hàng"
     },
+    "SC_DUPLICATE_PO_NUMBER": {
+      "en": "No P/O number twice in one sales contract",
+      "vi": "Không lặp số P/O trong một hợp đồng"
+    },
+    "SC_PO_COUNT_EXCEEDED": {
+      "en": "Number of P/Os in one sales contract within the limit",
+      "vi": "Số lượng P/O trong một hợp đồng không vượt giới hạn"
+    },
     "SC_PO_COVERAGE": {
       "en": "Every invoice P/O is in the sales contract",
       "vi": "Mọi P/O của hóa đơn có trong hợp đồng"
@@ -1626,6 +1642,7 @@
       "vi": "Tiêu chí xuất xứ C/O mẫu E (ô 8) đúng mã"
     }
   },
+  "sc_max_pos": 3,
   "core_checks": [
     "TOTAL_AMOUNT.ci",
     "TOTAL_QTY.ci",

@@ -913,6 +913,24 @@ def _():
     assert next(f for f in files if f.name.startswith("draft")).read_text() == "S2/draft.pdf"
 
 
+@test("contract P/O numbers as printed: Excel cells under the number (any count, repeats), PDF list over two lines")
+def _():
+    po = lambda n: f"PR{n:012d}"
+
+    def edit(wb):
+        ws = wb["SC"]
+        ws["B5"], ws["A5"], ws["A6"], ws["B6"] = po(1), "No.", None, f" {po(2)}"
+        ws["B7"], ws["B8"], ws["B9"] = f"{po(1)}, {po(3)}", "", po(4)
+    sc = next(d for d in _book(edit) if d.kind == "SC")
+    assert [f.value for f in sc.lists["po_refs"]] == [po(1), po(2), po(1), po(3), po(4)], [f.value for f in sc.lists["po_refs"]]
+    assert all(f.line.text[f.start:f.end] == f.value for f in sc.lists["po_refs"])      # each boxed on its own text
+    cells = [(0, 200, 40, "Sales Contract"), (0, 40, 60, f"No. : {po(1)}/1, {po(2)}/4,"), (0, 450, 60, "01 November 2026"),
+             (0, 62, 72, f"{po(3)}/2, {po(1)}/1"), (0, 40, 90, "The Seller: ACME CO., LTD.")]
+    d = load(_pdf("sc_pos", cells))
+    assert [f.value for f in d.lists["po_refs"]] == [po(1), po(2), po(3), po(1)], [f.value for f in d.lists["po_refs"]]
+    assert d.f["pos"].value == [po(1), po(2)]          # the existing field is unchanged
+
+
 if __name__ == "__main__":
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     sys.exit(1 if FAILS else 0)

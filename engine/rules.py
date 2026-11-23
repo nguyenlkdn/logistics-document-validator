@@ -8,7 +8,7 @@ from pathlib import Path
 
 from . import master
 from .checks import CheckStatus, Group, Run, begin, current_run, has_text
-from .extract import Doc, Field
+from .extract import PO_RE, Doc, Field
 from .util import co_form, fmt_like, form_text, number_to_words, words_for, words_to_number
 
 SEVERITY = ["ERROR", "WARNING", "MINOR", "INFO"]
@@ -402,6 +402,47 @@ def r_po_coverage(scs, ci, out):
         ck.add(Finding("SC_PO_EXTRA", "WARNING", list(scs), dict(extra=", ".join(extra)), ", ".join(extra), "",
                        [x for s in scs for x in at(s, s.f.get("sc_no"))]))
     ck.end()
+
+
+def r_sc_po_numbers(scs, out):
+    """The P/O numbers of each Sales Contract on its own (a contract is one document): none twice, not more than
+    config "sc_max_pos" different ones. Both are warnings."""
+    limit = CONFIG["sc_max_pos"]
+    for s in scs:
+        by_po = {}
+        for f in s.lists.get("po_refs") or _sc_no_pos(s):
+            po = str(_v(f) or "").strip()                  # blanks around a number are not part of it; empty: no number
+            if po:
+                by_po.setdefault(po, []).append(f)
+        no = str(_v(s.f.get("sc_no")) or "").strip() or s.name
+        ck = begin("SC_DUPLICATE_PO_NUMBER", out, s)
+        ck.need(s, "sc_no")
+        if by_po:
+            ck.compared()
+        elif s.f.get("sc_no"):                             # a contract number without a readable P/O number
+            ck.need_list(s, "po_refs")
+        for po, fs in by_po.items():
+            if len(fs) > 1:                                # one warning per number, at every place it is printed
+                ck.add(Finding("SC_DUPLICATE_PO_NUMBER", "WARNING", [s], dict(sc=no, po=po, n=len(fs)),
+                               ", ".join([po] * len(fs)), po, [x for f in fs for x in at(s, f)]))
+        ck.end()
+        ck = begin("SC_PO_COUNT_EXCEEDED", out, s)
+        ck.need(s, "sc_no")
+        if by_po:
+            ck.compared()
+        elif s.f.get("sc_no"):                             # a contract number without a readable P/O number
+            ck.need_list(s, "po_refs")
+        if len(by_po) > limit:
+            ck.add(Finding("SC_PO_COUNT_EXCEEDED", "WARNING", [s], dict(sc=no, n=len(by_po), max=limit),
+                           ", ".join(by_po), "", [x for fs in by_po.values() for x in at(s, fs[0])]))
+        ck.end()
+
+
+def _sc_no_pos(s: Doc) -> list:
+    """P/O numbers in the contract number, when the reader gives no separate list."""
+    f = s.f.get("sc_no")
+    return [Field(m[0], m[0], f.line, f.start + m.start(), f.start + m.end())
+            for m in re.finditer(PO_RE, f.raw or "")] if f else []
 
 
 def r_sc_vs_ci(scs, ci, out):
@@ -1924,6 +1965,7 @@ def _validate_group(docs: list[Doc]) -> list[Finding]:
     _call(r_bl_vs_pl, ci, bl, out)
     _call(r_incoterm, docs, ci, bl, out)
     _call(r_po_coverage, scs, ci, out)
+    _call(r_sc_po_numbers, scs, out)
     _call(r_sc_vs_ci, scs, ci, out)
     _call(r_dates, scs, ci, co, out)
     _call(r_vessel, ci, bl, co, out)
