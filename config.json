@@ -120,7 +120,24 @@
     },
     "CO": {
       "en": "Certificate of Origin (Form D / Form E)",
-      "vi": "C/O (mẫu D / mẫu E)"
+      "vi": "C/O (mẫu D / mẫu E)",
+      "forms": {
+        "D": {
+          "en": "Certificate of Origin (Form D)",
+          "vi": "C/O mẫu D",
+          "short": "Form D"
+        },
+        "E": {
+          "en": "Certificate of Origin (Form E)",
+          "vi": "C/O mẫu E",
+          "short": "Form E"
+        },
+        "D/E": {
+          "en": "Certificate of Origin (Form D / Form E)",
+          "vi": "C/O (mẫu D / mẫu E)",
+          "short": "Form D/E"
+        }
+      }
     }
   },
   "severity": {
@@ -419,8 +436,8 @@
     "HS_MASTER_MISSING": {
       "en": "Model {model} is not in the HS master list",
       "vi": "Model {model} chưa có trong danh mục mã HS",
-      "note_en": "Add it to the HS master Excel so its HS code can be checked",
-      "note_vi": "Thêm model vào file Excel mã HS để kiểm tra được mã HS"
+      "note_en": "Add it to the HS master Excel, or on the Reference data page (suggestions from the checked documents), so its HS code can be checked",
+      "note_vi": "Thêm model vào file Excel mã HS, hoặc ở trang Dữ liệu tham chiếu (gợi ý từ chứng từ đã kiểm tra), để kiểm tra được mã HS"
     },
     "HS_CODE": {
       "en": "Form D item {no}: HS {hs} is not under B/L HS {hs_bl}",
@@ -547,6 +564,34 @@
       "vi": "Container {no} ({type}): {cbm} CBM vượt sức chứa (tối đa khoảng {cap} CBM)",
       "note_en": "Check the container type or the attach sheet",
       "note_vi": "Kiểm tra loại container hoặc bảng kê kèm theo"
+    },
+    "SC_CHARGES_TWICE": {
+      "en": "{charge} is billed again on {here}: already on {other} (contracts {total}, invoice {ref})",
+      "vi": "{charge} bị tính lại trên {here}: đã có trên {other} (các hợp đồng {total}, hóa đơn {ref})",
+      "note_en": "The invoice bills it once. Keep it on one contract only: check which of the two should carry it, and correct the total and the amount in words of the other.",
+      "note_vi": "Hóa đơn chỉ tính một lần. Chỉ giữ trên một hợp đồng: kiểm tra hợp đồng nào phải ghi, và sửa tổng tiền cùng số tiền bằng chữ của hợp đồng kia."
+    },
+    "SC_CHARGES": {
+      "en": "{charge} on the Sales Contract(s) ≠ invoice",
+      "vi": "{charge} trên Hợp đồng ≠ hóa đơn",
+      "note_en": "All contracts of the invoice together should bill the freight / insurance once, as the invoice does.",
+      "note_vi": "Tất cả hợp đồng của hóa đơn cộng lại chỉ tính cước / bảo hiểm một lần, như trên hóa đơn."
+    },
+    "CNTR_NO": {
+      "en": "B/L container {no} is not in the packing list",
+      "vi": "Container {no} trên B/L không có trong phiếu đóng gói"
+    },
+    "CNTR_NO_MISSING": {
+      "en": "Packing list container {no} is not on the B/L",
+      "vi": "Container {no} của phiếu đóng gói không có trên B/L"
+    },
+    "CNTR_LOAD_UNREAD": {
+      "en": "B/L container {no}: {label} is printed but is not a readable number",
+      "vi": "Container {no} trên B/L: {label} có in nhưng không đọc được thành số"
+    },
+    "CNTR_LOAD": {
+      "en": "B/L container {no}: {label} ≠ packing list",
+      "vi": "Container {no} trên B/L: {label} ≠ phiếu đóng gói"
     },
     "CNTR_ATTACH_SUM": {
       "en": "B/L attach sheet: containers' {label} do not add up to the B/L total",
@@ -1327,6 +1372,14 @@
     "CNTR_CAPACITY": {
       "en": "Each container can hold its load (CBM)",
       "vi": "Mỗi container chứa được khối lượng (CBM) khai báo"
+    },
+    "SC_CHARGES": {
+      "en": "Freight / insurance: contract(s) = invoice",
+      "vi": "Cước / bảo hiểm: (các) hợp đồng = hóa đơn"
+    },
+    "CNTR_VS_PL": {
+      "en": "B/L containers = packing list (numbers, cartons, weight, volume)",
+      "vi": "Container trên B/L = phiếu đóng gói (số container, số kiện, trọng lượng, thể tích)"
     },
     "CNTR_ATTACH_SUM": {
       "en": "B/L attach sheet rows = B/L totals",

@@ -306,7 +306,7 @@ def split(path: Path, outdir: Path) -> list:
 # --------------------------------------------------------------------------------------------- reading the cells
 
 _MODEL_CELL = re.compile(r"^[A-Z][A-Za-z0-9]*-[A-Za-z0-9\-]+(?:\([A-Za-z0-9]+\)[A-Za-z0-9]*)?(?:-[A-Za-z0-9]+)*$")
-_CONTAINER = re.compile(r"\b([A-Z]{4}\d{7})\b")
+_CONTAINER = re.compile(r"\b([A-Za-z]{4}\d{7})\b")
 _CNTR_TYPE = re.compile(r"\b(\d{2})\s*'?\s*(HQ|HC|GP|DC|RF|OT|FR)\b", re.I)
 
 
@@ -410,8 +410,21 @@ def _items(sh, qty_col, model_col, start_row, extra: dict):
             it[k] = _f(c, _number(c)) if c is not None and _number(c) is not None else None
         po = next((re.search(PO_RE, c.text) for c in sh.row(r) if re.search(PO_RE, c.text)), None)
         it["po"] = po[0] if po else None
+        d = next((c for c in sh.row(r) if model_col < c.col < qty_col and _number(c) is None
+                  and re.search(r"[A-Za-z]{3}", c.text)), None)
+        it["desc"] = _f(d, d.text.strip()) if d is not None else None    # goods name printed beside the model
         rows.append(it)
     return rows
+
+
+def _row_goods(items):
+    """No goods heading, but a goods name beside each model: all different names ('ACME FAN AND ACME HEATER')."""
+    from .extract import Field
+    names = list(dict.fromkeys(re.sub(r"\s+", " ", it["desc"].value) for it in items if it.get("desc")))
+    if not names or not all(it.get("desc") for it in items):
+        return None
+    f0 = next(it["desc"] for it in items if it.get("desc"))
+    return Field(" AND ".join(names), f0.raw, f0.line, f0.start, f0.end)
 
 
 def _goods_heading(sh, r_head, model_row):
@@ -419,6 +432,7 @@ def _goods_heading(sh, r_head, model_row):
     for c in sorted(sh.cells, key=lambda c: (c.row, c.col)):
         if r_head < c.row <= model_row and len(c.text) > 8 and re.search(r"[A-Za-z]{3}", c.text) \
                 and not re.match(r"\s*(MODEL|CONTAINER|N/?M\b|PR NO)", c.text, re.I) \
+                and not _MODEL_CELL.match(c.text.strip()) \
                 and not re.match(r"\s*(FOB|CIF|CFR|CIP|CPT|EXW|FCA|DAP|DDP)\b", c.text):
             return c
     return None
@@ -503,12 +517,13 @@ def read_ci(d, sheets):
             mcol, mrow = _model_col(inv, r_head, set(cols.values()))
             if mcol:
                 for it in _items(inv, cols["qty"], mcol, mrow, dict(price=cols["price"], amount=cols["amount"])):
-                    it["desc"] = None
                     d.items.append(it)
             g = _goods_heading(inv, r_head, mrow if mcol else r_head + 3)
             if g:
                 d.f["goods"] = _f(g, g.text.strip())
                 d.f["goods_full"] = d.f["goods"]
+            elif _row_goods(d.items):
+                d.f["goods"] = d.f["goods_full"] = _row_goods(d.items)
             inc, port, term = _incoterm(inv, r_head)
             if inc:
                 d.f["incoterm"] = inc
@@ -553,7 +568,7 @@ def read_ci(d, sheets):
                     ctn = it["ctn"]
                     d.pl_items.append(dict(model=it["model"], model_f=it["model_f"], qty=it["qty"],
                                            ctn=ctn.value if ctn else None, ctn_f=ctn, nw=it["nw"], gw=it["gw"],
-                                           cbm=it["cbm"], desc=None, rng=None, po=it["po"], no=None,
+                                           cbm=it["cbm"], desc=it["desc"], rng=None, po=it["po"], no=None,
                                            container=cntr["no"].value if cntr else None))
             for c in pl.cells:
                 if c.row > r_head and re.match(r"\s*(TOTAL|TTL)\s*[:：]?\s*$", c.text, re.I):
@@ -563,6 +578,8 @@ def read_ci(d, sheets):
             g = _goods_heading(pl, r_head, mrow if mcol else r_head + 3)
             if g:
                 d.f["pl_goods_full"] = _f(g, g.text.strip())
+            elif _row_goods(d.pl_items):
+                d.f["pl_goods_full"] = _row_goods(d.pl_items)
             w = next(iter(pl.find(r"TOTAL PACKED IN")), None)
             if w is not None:
                 m = re.search(r"IN\s+(.+?)\s*\(\s*([\d,]+)\s*\)\s*(CARTONS?|CTNS?|PACKAGES?|PALLETS?)", w.text, re.I)
@@ -660,10 +677,12 @@ def read_sc(d, sheets):
                 noc = sh.at.get((it["row"], cols["no"]))
                 it["no"] = _f(noc, int(_number(noc))) if noc is not None and _number(noc) is not None else None
                 d.items.append(it)
-        g = _goods_heading(sh, r_head, r_head + 3)
+        g = _goods_heading(sh, r_head, min([r_head + 3] + [it["row"] - 1 for it in d.items]))
         if g:
             d.f["goods_full"] = _f(g, g.text.strip())
             d.f["goods"] = d.f["goods_full"]
+        elif _row_goods(d.items):
+            d.f["goods"] = d.f["goods_full"] = _row_goods(d.items)
         inc, port, term = _incoterm(sh, r_head)
         if inc:
             d.f["incoterm"] = inc

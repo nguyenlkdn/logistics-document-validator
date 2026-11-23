@@ -162,7 +162,7 @@ def render():
             counts = " ".join(f"{ui.ICON[x]}{n[x]}" for x in SEVERITY if n[x]) or "✓"
             pages = f" · {r['pages']} {t1('pages') if (r['pages'] or 0) > 1 else t1('page')}" if r["pages"] else ""
             mine = " ✎" if next((d for d in s["docs"] if d["name"] == r["name"]), {}).get("kind_set_by_user") else ""
-            st.button(f"**{r['name']}**  \n{kind_label(r['kind'], short=True)}{mine}{pages} · {counts}", key=f"docbtn_{i}",
+            st.button(f"**{r['name']}**  \n{kind_label(r['kind'], short=True, form=r.get('form', ''))}{mine}{pages} · {counts}", key=f"docbtn_{i}",
                       type="primary" if doc == r["name"] else "secondary", on_click=_pick_doc, args=(r["name"],),
                       width="stretch")
         if s.get("unrecognised"):
@@ -281,7 +281,7 @@ def finding_panel(s, sel, listed, base, mk, cid, doc, scope):
             badge = "" if m == "open" else f" · _{status_label(m)}_"
             label = f"{ui.ICON[f['severity']]} **#{f['no']}** {'~~' + text + '~~' if m in state.DONE else text}{badge}"
             if scope == "all" and f["doc"] != doc:
-                label += f"  \n_{kind_label(f['doc_kind'], short=True)} · {f['doc']}_"
+                label += f"  \n_{kind_label(f['doc_kind'], short=True, form=f.get('doc_form', ''))} · {f['doc']}_"
             st.button(label, key=f"fbtn_{f['no']}", on_click=_select, args=(f["no"], s), width="stretch",
                       type="primary" if sel and sel["no"] == f["no"] else "secondary")
 

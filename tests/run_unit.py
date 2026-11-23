@@ -34,7 +34,7 @@ FIELD_RULES = {
     "incoterm": {"INCOTERM", "PL_HEADER"},
     "hs": {"BL_HS_CODE", "BL_HS_MASTER", "CO_HS_MASTER", "HS_CODE"},
     "qty": {"BL_BLOCK", "BL_DESC_QTY", "BL_INVOICE_EXTRA", "BL_QTY", "CI_PL_QTY", "CO_QTY", "CO_SUM", "CO_TOTAL", "LINE_COUNT", "PL_TOTAL", "SC_VS_CI", "TOTAL_QTY"},
-    "amount": {"CI_COVER_TOTAL", "CO_TOTAL", "SC_VS_CI", "TOTAL_AMOUNT"},
+    "amount": {"CI_COVER_TOTAL", "CO_TOTAL", "SC_VS_CI", "SC_CHARGES", "SC_CHARGES_TWICE", "TOTAL_AMOUNT"},
     "gw": {"BL_INVOICE_EXTRA", "BL_VS_PL", "PL_TOTAL"},
     "nw": {"PL_TOTAL"},
     "cbm": {"BL_INVOICE_EXTRA", "BL_VS_PL", "PL_TOTAL"},
@@ -199,6 +199,8 @@ def main():
                 for x in d.lists.get("cntr_load_parts", []):
                     seen += 1
                     for k, unit in (("ctn", "CARTON"), ("gw", "KGS"), ("cbm", "CBM")):
+                        if x[k] is None and k not in x.get("printed", (k,)):
+                            continue                  # this B/L prints cartons only
                         t = x[k].line.text[x[k].start:x[k].end]
                         assert unit in t and x[k].raw == t, f"{d.path.name} {x['no']} {k}: boxed '{t}'"
         assert seen, "no attach sheet in the test sets"
@@ -211,6 +213,37 @@ def main():
             f = Finding("PL_LINE", "ERROR", [], dict(no=3, what=what), "", "")
             assert want in f.text("en"), f.text("en")
             assert "@" not in f.text("vi"), f.text("vi")
+
+    @test("amount in words: the expected sentence keeps the document's wording, only the wrong words change")
+    def _():
+        from engine.util import words_for, words_to_number
+        for text, v, want in (
+                ("SAY TOTAL U.S. DOLLARS ELEVEN THOUSAND AND TWO HUNDRED NINETY  AND CENTS FORTY SIX ONLY.", 11209.46,
+                 "SAY TOTAL U.S. DOLLARS ELEVEN THOUSAND AND TWO HUNDRED NINE AND CENTS FORTY SIX ONLY."),
+                ("U.S Dollars :One hundred five thousand, two hundred sixty and ten cents.", 105267.10,
+                 "U.S Dollars :One hundred five thousand, two hundred sixty seven and ten cents."),
+                ("SAY: TWO THOUSAND THREE HUNDRED TWENTY-FIVE ONLY", 2320, "SAY: TWO THOUSAND THREE HUNDRED TWENTY ONLY"),
+                ("SAY ONE HUNDRED AND FIVE AND CENTS SIX ONLY", 105.07, "SAY ONE HUNDRED AND FIVE AND CENTS SEVEN ONLY")):
+            got = words_for(text, v)
+            assert got == want, got
+            assert abs(words_to_number(got) - v) < 0.005
+        assert words_for("SAY ONE HUNDRED ONLY", 100.50) is None          # no cents in the sentence: not guessed
+
+    @test("report labels: a C/O is named Form D or Form E (document type, check names, cross-check column)")
+    def _():
+        from engine.checks import check_name, kind_name
+        from engine.compare import compare
+        from engine.util import co_form
+        e = [dict(name="a.pdf", kind="CI"), dict(name="b.pdf", kind="CO", form="E", fields={})]
+        d = [dict(name="c.pdf", kind="CO", form="D", fields={})]
+        assert co_form(e) == "E" and co_form(d) == "D" and co_form(e + d) == "D/E" and co_form([e[0]]) == ""
+        assert kind_name("CO", "en", "E") == "Certificate of Origin (Form E)", kind_name("CO", "en", "E")
+        assert kind_name("CO", "vi", "D") == "C/O mẫu D" and kind_name("CO", "en", "E", short=True) == "Form E"
+        assert kind_name("CO", "en") == "Certificate of Origin (Form D / Form E)"     # form not known
+        assert check_name("DEPARTURE_DATE", "en", "E").startswith("Form E"), check_name("DEPARTURE_DATE", "en", "E")
+        assert check_name("DEPARTURE_DATE", "vi", "D") == check_name("DEPARTURE_DATE", "vi")
+        col = lambda s: next(c for c in compare(s)["columns"] if c["kind"] == "CO")
+        assert col(dict(docs=e, findings=[]))["en"] == "Form E" and col(dict(docs=d, findings=[]))["en"] == "Form D"
 
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     return 1 if FAILS else 0

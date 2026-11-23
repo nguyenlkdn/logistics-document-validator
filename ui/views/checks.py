@@ -6,6 +6,7 @@ a finding closed by the reviewer is shown in the Findings / Review pages, not by
 import streamlit as st
 
 from engine.checks import CheckStatus, check_name, reason_text
+from engine.util import co_form
 from engine.report import check_rows
 
 from .. import components as ui
@@ -32,6 +33,7 @@ def render():
         return
     dashboard_verdict(s)
     rows = check_rows(s["checks"])
+    form = co_form(s.get("docs", []))             # checks written for the Form D are named for this set's C/O
     with st.container(horizontal=True, gap="medium", vertical_alignment="bottom"):
         default = st.session_state.pop("ck_preset", None)
         if default is not None:
@@ -47,9 +49,9 @@ def render():
         st.info(t("ck_none"))
         return
     table = [{"st": f"{ICON[r['status']]} {t1('cks_' + r['status'])}", "core": "✔" if r["core"] else "",
-              "check": _both(lambda l: check_name(r["id"], l)), "id": r["id"],
+              "check": _both(lambda l: check_name(r["id"], l, form)), "id": r["id"],
               "group": r.get("group_label") or r["group"], "doc": r.get("doc") or "",
-              "reason": _both(lambda l: reason_text(r, l)) if reason_text(r, "en") else "",
+              "reason": _both(lambda l: reason_text(r, l, form)) if reason_text(r, "en") else "",
               "findings": ", ".join(f"#{n}" for n in r["findings"])} for r in keep]
     ev = st.dataframe(table, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",
                       key=f"ck_tab_{state.check_id()}",
@@ -64,10 +66,10 @@ def render():
     if ev and ev.selection and ev.selection.rows:
         r = keep[ev.selection.rows[0]]
         with st.container(border=True):
-            st.markdown(f"**{ui.esc(_both(lambda l: check_name(r['id'], l)))}** · `{r['id']}` · "
+            st.markdown(f"**{ui.esc(_both(lambda l: check_name(r['id'], l, form)))}** · `{r['id']}` · "
                         + ui.chip(t1("cks_" + r["status"]), COLOR[r["status"]]), unsafe_allow_html=True)
             if reason_text(r, "en"):
-                st.write(_both(lambda l: reason_text(r, l)))
+                st.write(_both(lambda l: reason_text(r, l, form)))
             if r.get("inputs"):
                 ui.label(t1("ck_col_inputs"))
                 st.markdown("\n".join(f"- `{x['kind']}.{x['name']}` — {ui.esc(x['doc'])}: **{x['status']}**"

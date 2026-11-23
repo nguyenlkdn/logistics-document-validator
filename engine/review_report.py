@@ -106,9 +106,9 @@ class _L:
     def sev(self, s):
         return self.pick(CONFIG["severity"][s]["en"], CONFIG["severity"][s]["vi"])
 
-    def kind(self, k):
-        d = CONFIG["doc_kinds"].get(k)
-        return self.pick(d["en"], d["vi"]) if d else "—"
+    def kind(self, k, form=""):
+        from .checks import kind_name
+        return self.pick(kind_name(k, "en", form), kind_name(k, "vi", form)) if k in CONFIG["doc_kinds"] else "—"
 
     def status(self, k):
         return self.pick(*STATUS.get(k, (k, k)))
@@ -193,7 +193,7 @@ def build_html(s: dict, marks: dict, trails: dict, cmp: dict | None, signoff: di
         if d.get("is_draft") is False and d["kind"] not in ("CI", "SC"):
             flags.append(L("not_draft"))
         n = sum(f["doc"] == d["name"] for f in s["findings"])
-        a(f"<tr><td>{_e(d['name'])}</td><td>{_e(L.kind(d['kind']))}</td><td>{_e(d.get('pages') or '')}</td>"
+        a(f"<tr><td>{_e(d['name'])}</td><td>{_e(L.kind(d['kind'], d.get('form', '')))}</td><td>{_e(d.get('pages') or '')}</td>"
           f"<td>{_e(', '.join(flags))}</td><td>{n}</td></tr>")
     for name in s.get("skipped", []):
         a(f"<tr><td>{_e(name)}</td><td>—</td><td></td><td>{_e(L('not_checked'))}</td><td></td></tr>")
@@ -433,7 +433,7 @@ def to_xlsx(s: dict, marks: dict, trails: dict, cmp: dict | None, signoff: dict 
     ws.append([L("file"), L("type"), L("pages"), L("findings")])
     head(ws)
     for d in s["docs"]:
-        ws.append([d["name"], L.kind(d["kind"]), d.get("pages"), sum(f["doc"] == d["name"] for f in s["findings"])])
+        ws.append([d["name"], L.kind(d["kind"], d.get("form", "")), d.get("pages"), sum(f["doc"] == d["name"] for f in s["findings"])])
     for col, w in zip("ABCD", (50, 36, 8, 10)):
         ws.column_dimensions[col].width = w
 

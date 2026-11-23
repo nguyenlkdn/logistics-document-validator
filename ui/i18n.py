@@ -444,6 +444,35 @@ T = {
     "hs_confirm": ("Replace the current HS master list with this file", "Thay danh mục mã HS hiện tại bằng file này"),
     "hs_import": ("Import", "Nhập"),
     "hs_done": ("Imported {n} models: {a} added, {r} removed, {c} changed", "Đã nhập {n} model: thêm {a}, bỏ {r}, đổi {c}"),
+    "hs_sug": ("Suggested from checked documents", "Gợi ý từ chứng từ đã kiểm tra"),
+    "hs_sug_intro": ("Invoice models that are not in the HS master list, with the HS code printed on their Form D / Form E. "
+                     "Check each code, correct it if needed, tick it and add it. Nothing is added by itself. "
+                     "A Form E prints 6 digits only: type the full 8-digit code if you know it.",
+                     "Các model trên hóa đơn chưa có trong danh mục mã HS, kèm mã HS in trên C/O mẫu D / mẫu E. "
+                     "Kiểm tra từng mã, sửa nếu cần, đánh dấu rồi thêm. LDV không tự thêm. "
+                     "C/O mẫu E chỉ in 6 số: nhập đủ 8 số nếu bạn biết."),
+    "hs_sug_none": ("Every model of the checked documents is in the list.", "Mọi model của chứng từ đã kiểm tra đều có trong danh mục."),
+    "hs_sug_need": ("Import the HS master list first; then the missing models are listed here.",
+                    "Hãy nhập danh mục mã HS trước; sau đó các model còn thiếu sẽ hiện ở đây."),
+    "hs_sug_pick": ("Add", "Thêm"), "hs_sug_state": ("Check", "Kiểm tra"),
+    "hs_sug_docs": ("Printed on", "In trên"), "hs_sug_why": ("Evidence", "Căn cứ"),
+    "hs_sug_ok": ("Consistent", "Khớp"), "hs_sug_check": ("Check first", "Cần kiểm tra"), "hs_sug_single": ("One source", "Một nguồn"), "hs_sug_nocode": ("No code found", "Chưa có mã"),
+    "hs_sug_add": ("Add {n} model(s) to the list", "Thêm {n} model vào danh mục"),
+    "hs_sug_done": ("Added {n} model(s). Check the documents again to use them: saved reviews do not change.",
+                    "Đã thêm {n} model. Hãy kiểm tra lại chứng từ để áp dụng: kết quả đã lưu không thay đổi."),
+    "hs_sug_bad": ("Not added, the HS code must have 6, 8 or 10 digits: {m}", "Chưa thêm, mã HS phải có 6, 8 hoặc 10 số: {m}"),
+    "hs_sug_f6": ("6 digits only", "chỉ có 6 số"), "hs_sug_bl": ("B/L heading agrees", "khớp nhóm HS trên B/L"),
+    "hs_sug_blno": ("B/L heading differs", "khác nhóm HS trên B/L"), "hs_sug_conf": ("documents differ: {c}", "chứng từ khác nhau: {c}"),
+    "hs_sug_series": ("8 digits from the same series in the list", "8 số lấy từ cùng dòng model trong danh mục"),
+    "hs_sug_sdiff": ("same series in the list has {c}", "cùng dòng model trong danh mục là {c}"),
+    "hs_sug_typo": ("maybe a typo of {m}", "có thể gõ nhầm của {m}"),
+    "hs_sug_noco": ("on the invoice only", "chỉ có trên hóa đơn"),
+    "hs_add_title": ("Added from documents ({n})", "Đã thêm từ chứng từ ({n})"),
+    "hs_add_note": ("LDV uses these until your Excel lists the model (the Excel always wins). Download them and copy the rows "
+                    "into your Excel.", "LDV dùng các mã này cho đến khi file Excel có model đó (Excel luôn được ưu tiên). "
+                    "Tải về và chép các dòng vào file Excel của bạn."),
+    "hs_add_dl": ("Download as Excel", "Tải về Excel"), "hs_add_rm": ("Remove from the list", "Bỏ khỏi danh mục"),
+    "hs_add_at": ("Added", "Thêm lúc"), "hs_add_by": ("By", "Người thêm"),
     "hs_browse": ("Current list", "Danh mục hiện tại"),
     "hs_filter": ("Find model or HS code", "Tìm model hoặc mã HS"),
     "hs_col_model": ("Model", "Model"),
@@ -492,12 +521,14 @@ def sev_short(s: str) -> str:
     return CONFIG["severity"][s]["vi" if lang() == "vi" else "en"]
 
 
-def kind_label(k: str, short: bool = False) -> str:
+def kind_label(k: str, short: bool = False, form: str = "") -> str:
+    """form: a C/O's 'D' / 'E' (session doc 'form', finding 'doc_form'); empty = not known (generic name)."""
+    from engine.checks import kind_name
     if k not in CONFIG["doc_kinds"]:
         return "—"
     if short:
-        return {"CI": "CI / PL", "SC": "S/C", "BL": "B/L", "CO": "Form D"}.get(k, k)
-    return " / ".join(CONFIG["doc_kinds"][k][l] for l in langs())
+        return kind_name(k, "en", form, short=True)
+    return " / ".join(kind_name(k, l, form) for l in langs())
 
 
 def msg(f: dict) -> str:

@@ -9,7 +9,7 @@ from pathlib import Path
 from . import master
 from .checks import CheckStatus, Group, Run, begin, current_run, has_text
 from .extract import Doc, Field
-from .util import fmt_like, number_to_words, words_to_number
+from .util import co_form, fmt_like, form_text, number_to_words, words_for, words_to_number
 
 SEVERITY = ["ERROR", "WARNING", "MINOR", "INFO"]
 CONFIG = json.loads((Path(__file__).resolve().parent.parent / "config.json").read_text(encoding="utf-8"))
@@ -51,15 +51,12 @@ class Finding:
     def text(self, lang: str) -> str:
         p = {k: _label_refs(v, lang) for k, v in self.params.items()}
         t = CONFIG["messages"][self.key][lang].format(**p)
-        if any(getattr(d, "form", "D") == "E" for d in self.docs if getattr(d, "kind", "") == "CO"):
-            t = t.replace("Form D", "Form E").replace("mẫu D", "mẫu E")     # the certificate is a Form E
+        t = form_text(t, co_form(self.docs))                        # the certificate may be a Form E
         return t[:1].upper() + t[1:]
 
     def note(self, lang: str) -> str:
         n = CONFIG["messages"][self.key].get(f"note_{lang}", "")
-        if any(getattr(d, "form", "D") == "E" for d in self.docs if getattr(d, "kind", "") == "CO"):
-            n = n.replace("Form D", "Form E").replace("mẫu D", "mẫu E")
-        return n
+        return form_text(n, co_form(self.docs))
 
     @property
     def doc_names(self):
@@ -315,8 +312,8 @@ def r_bl_vs_pl(ci, bl, out):
         if b and p:
             ck.compared()
         if b and p and not _close(b.value, p.value, 0.0005):
-            rows = [x["ctn" if k == "ctn" else k] for x in bl.lists.get("cntr_load_parts", [])]
-            agree = rows and _close(sum(r.value for r in rows), p.value, 0.0005)   # the B/L attach sheet agrees with the PL
+            rows = [x[k] for x in bl.lists.get("cntr_load_parts", [])]
+            agree = rows and all(rows) and _close(sum(r.value for r in rows), p.value, 0.0005)   # the B/L attach sheet agrees with the PL
             ck.add(Finding("BL_VS_PL", "ERROR", [bl, ci], dict(label=f"@{k}"), b.raw, fmt_like(p.value, b.raw),
                            at(bl, b) + at(ci, p, "ref") + ([x for r in rows for x in at(bl, r, "ref")] if agree else [])))
         ck.end()
@@ -424,16 +421,51 @@ def r_sc_vs_ci(scs, ci, out):
         locs = [x for s in scs for it in s.items if key(it) in (b - a) for x in at_line(s, it["qty"].line)]
         ck.add(Finding("SC_VS_CI", "ERROR", list(scs) + [ci], {}, fmt(b - a), fmt(a - b), locs))
     ck.end()
+    # freight / insurance billed on their own rows: all contracts together bill what the invoice bills
+    ck = begin("SC_CHARGES", out)
+    kinds = list(dict.fromkeys(c["name"] for d in [ci] + list(scs) for c in d.lists.get("charges", [])))
+    if not kinds:
+        ck.na(evidence="not_printed", field="charges", doc=ci.name)
+    for k in kinds:
+        mine = [c for c in ci.lists.get("charges", []) if c["name"] == k]
+        theirs = [(s, c) for s in scs for c in s.lists.get("charges", []) if c["name"] == k]
+        a, b = sum(c["amount"].value for c in mine), sum(c["amount"].value for _, c in theirs)
+        ck.compared()
+        if not _close(a, b, 0.006):
+            f0 = (theirs[0][1] if theirs else mine[0])["amount"]
+            tag = lambda s: (re.search(r"\[([^\]]+)\]\.pdf$", s.name) or [0, s.name])[1]   # '[Contract 2]' or the file name
+            refs = [x for c in mine for x in at(ci, c["amount"], "ref")]
+            same = [(s, c) for s, c in theirs if mine and _close(c["amount"].value, a, 0.006)]
+            if len(same) > 1 and len(same) == len(theirs):
+                # the whole charge on each of several contracts: the first one carries it, every further contract
+                # bills it again. One finding per repeat, on the page that prints it; the others are the reference.
+                s1, c1 = same[0]
+                for s2, c2 in same[1:]:
+                    ck.add(Finding("SC_CHARGES_TWICE", "ERROR", [s2, s1, ci],
+                                   dict(charge=k.capitalize(), here=tag(s2), other=tag(s1), total=fmt_like(b, f0.raw),
+                                        ref=fmt_like(a, f0.raw)), c2["amount"].raw, "",
+                                   at(s2, c2["amount"]) + at(s1, c1["amount"], "ref") + refs))
+                continue
+            docs = [s for s in scs if any(s is x for x, _ in theirs)] or list(scs)
+            found = " + ".join(f"{c['amount'].raw} ({tag(s)}, p. {c['amount'].line.page + 1})" for s, c in theirs)
+            ck.add(Finding("SC_CHARGES", "ERROR", docs + [ci], dict(charge=k.capitalize()),
+                           found if len(theirs) > 1 else theirs[0][1]["amount"].raw if theirs else "—",
+                           fmt_like(a, f0.raw) if mine else "—",
+                           [x for s, c in theirs for x in at(s, c["amount"])] + refs))
+    ck.end()
     for s in scs:
         ck = begin("SC_NUMBERING", out, s)
         ck.need_items(s)
-        nums = [it["no"] for it in s.items]
-        if nums:
+        nums = [it.get("no") for it in s.items]
+        if any(nums):
             ck.compared()
-        if [n.value for n in nums] != list(range(1, len(nums) + 1)):
-            ck.add(Finding("SC_NUMBERING", "MINOR", [s], {}, ",".join(n.raw for n in nums),
+        if nums and not any(nums):                     # the contract does not number its lines
+            ck.na(evidence="not_printed", field="no", doc=s.name)
+        elif [_v(n) for n in nums] != list(range(1, len(nums) + 1)):
+            ck.add(Finding("SC_NUMBERING", "MINOR", [s], {}, ",".join(n.raw if n else "—" for n in nums),
                            ",".join(str(i) for i in range(1, len(nums) + 1)),
-                           [x for i, n in enumerate(nums, 1) if n.value != i for x in at(s, n)]))
+                           [x for i, (n, it) in enumerate(zip(nums, s.items), 1) if _v(n) != i
+                            for x in at(s, n or it["qty"])]))
         ck.end()
 
 
@@ -771,7 +803,7 @@ def r_hs(ci, co, bl, out):
         loc = at(co, it.get("hs_f")) or at_line(co, it["qty"].line)
         if ref:
             ck.compared()
-            if master.digits(it["hs"]) != ref:
+            if not master.agrees(it["hs"], ref, m, getattr(co, "form", "D")):
                 ck.add(Finding("CO_HS_MASTER", "ERROR", [co], dict(no=it["no"], model=m, ref=master.fmt(ref)),
                                it["hs"], master.fmt(ref), loc))
         elif hs_bl:
@@ -804,7 +836,8 @@ def r_hs(ci, co, bl, out):
             ck.master_missing(m)
     if hs_bl and refs:
         ck.compared()
-    if hs_bl and refs and not any(h.startswith(x) for h in refs for x in bl_heads):
+    short = {h for m, h in known.items() if h and len(h) == 6 and master.key(m) in master.added()}   # 6 digits known
+    if hs_bl and refs and not any(h.startswith(x) or (h in short and x.startswith(h)) for h in refs for x in bl_heads):
         heads = Counter(h[:len(hs_bl)] for h in refs)
         ck.add(Finding("BL_HS_MASTER", "ERROR", [bl], dict(hs=_v(hs_bl_f), ref=", ".join(sorted(heads))),
                        _v(hs_bl_f), heads.most_common(1)[0][0], at(bl, hs_bl_f)))
@@ -886,9 +919,9 @@ def r_containers(ci, bl, out):
                     missing[sug] -= 1
                 ld = loads.get(x.value[0])
                 cap = CNTR_CBM.get(t)
-                over = bool(ld and cap and ld.value[3] > cap)
+                over = bool(ld and cap and ld.value[3] and ld.value[3] > cap)
                 ck.add(Finding("CNTR_TYPE_CBM" if over else "CNTR_TYPE", "ERROR", [bl] + ([ci] if ci_types else []),
-                               dict(no=x.value[0], ref=expect_txt, src=src, cbm=f"{ld.value[3]:,.2f}" if ld else "",
+                               dict(no=x.value[0], ref=expect_txt, src=src, cbm=f"{ld.value[3]:,.2f}" if ld and ld.value[3] else "",
                                     cap=f"{cap:g}" if cap else "", size=t[0]), x.value[1],
                                (sug[0] + sug[1]) if sug else "", at(bl, x) + (at(ci, ci_types[0], "ref") if ci_types else [])))
     ck.end()
@@ -908,12 +941,16 @@ def r_containers(ci, bl, out):
     for x in lines:                                   # a container that cannot hold what the attach sheet says
         t, ld = _cntr(x.value[1]), loads.get(x.value[0])
         cap = CNTR_CBM.get(t)
+        if ld and ld.value[3] is None:             # the container rows print cartons only
+            continue
         if ld and cap:
             ck.compared()
         if ld and cap and ld.value[3] > cap and x.value[0] not in flagged:
             ck.add(Finding("CNTR_CAPACITY", "WARNING", [bl], dict(no=x.value[0], type=x.value[1], cbm=f"{ld.value[3]:,.2f}",
                                                                     cap=f"{cap:g}"), x.value[1], "", at(bl, x) + at(bl, ld, "ref")))
-    if loads and lines and not ck.n_compared:
+    if loads and all(x.value[3] is None for x in loads.values()):
+        ck.na(evidence="not_printed", field="cbm", doc=bl.name)
+    elif loads and lines and not ck.n_compared:
         ck.not_run("items_not_comparable", what="container_type")   # no known capacity for these container types
     ck.end()
     parts = {x["no"]: x for x in bl.lists.get("cntr_load_parts", [])}
@@ -921,6 +958,10 @@ def r_containers(ci, bl, out):
     ck.need_list(bl, "cntr_load", trace=r"//")
     if loads:
         for k, i, label in (("ctn", 1, "@ctn"), ("gw", 2, "@gw"), ("cbm", 3, "@cbm")):
+            if any(x.value[i] is None for x in loads.values()):
+                if any(x.value[i] is not None for x in loads.values()):      # printed for some containers only
+                    ck._input(bl, f"cntr_load[{k}]", "NOT_FOUND")
+                continue                              # this figure is not printed per container
             tot = bl.f.get(k)
             ck.need(bl, k)
             s_ = sum(x.value[i] for x in loads.values())
@@ -936,6 +977,66 @@ def r_containers(ci, bl, out):
             rows = [x for no, ld in loads.items() for x in at(bl, parts[no][k] if no in parts else ld)]
             ck.add(Finding("CNTR_ATTACH_SUM", "ERROR", [bl], dict(label=label), f"{s_:,.2f}".rstrip("0").rstrip("."),
                            tot.raw, at(bl, tot, "ref") + rows))
+    ck.end()
+
+
+def r_cntr_vs_pl(cis, bl, out):
+    """The B/L's containers against packing lists written container by container: the same container numbers, and for
+    each container the cartons, gross weight and volume the B/L prints (one container may hold several invoices)."""
+    ck = begin("CNTR_VS_PL", out)
+    if not bl or not cis:
+        ck.end()
+        return
+    split = [c for c in cis if c.lists.get("pl_containers")]
+    if len(split) != len(cis):
+        ck.na(evidence="not_printed", field="pl_containers", doc=", ".join(c.name for c in cis if c not in split))
+        ck.end()
+        return
+    ck.need_list(bl, "cntr", trace=_CNTR_NO)
+    have = {x.value[0]: x for x in bl.lists.get("cntr", [])}
+    want, load = {}, {}
+    for c in split:
+        for x in c.lists["pl_containers"]:
+            want.setdefault(x["no"].value.upper(), []).append((c, x["no"]))
+        for p in c.pl_items:
+            if p.get("container"):
+                load.setdefault(p["container"].upper(), []).append((c, p))
+    if have and want:
+        ck.compared()
+        extra, missing = [n for n in have if n not in want], [n for n in want if n not in have]
+        for n in extra:
+            near = difflib.get_close_matches(n, missing, n=1, cutoff=0.8)
+            if near:
+                missing.remove(near[0])
+            refs = [l for c, f in want.get(near[0], []) for l in at(c, f, "ref")] if near else []
+            f = have[n]
+            k = f.line.text.find(n)
+            own = Field(n, n, f.line, k, k + len(n)) if k >= 0 else f
+            ck.add(Finding("CNTR_NO", "ERROR", [bl] + split, dict(no=n), n, near[0] if near else "", at(bl, own) + refs))
+        for n in missing:
+            ck.add(Finding("CNTR_NO_MISSING", "ERROR", [bl] + split, dict(no=n), "", n,
+                           [l for c, f in want[n] for l in at(c, f, "ref")]))
+    parts = {x["no"]: x for x in bl.lists.get("cntr_load_parts", [])}
+    for n, x in parts.items():
+        rows = load.get(n, [])
+        for k in ("ctn", "gw", "cbm"):
+            if not x.get(k) and k in x.get("printed", ()):      # printed but not a number ('12.5O CBM')
+                ck._input(bl, f"cntr_load[{k}]", "NOT_FOUND")
+                ck.add(Finding("CNTR_LOAD_UNREAD", "WARNING", [bl], dict(no=n, label=f"@{k}"), "", "",
+                               at(bl, next(c for c in bl.lists["cntr"] if c.value[0] == n))))
+                continue
+            if not x.get(k) or not rows:
+                continue
+            vals = [p.get("ctn_f" if k == "ctn" else k) for _, p in rows]
+            if not all(vals):                          # one figure for several merged rows: the sum is not known
+                ck._input(rows[0][0], f"pl_items[{k}]", "NOT_FOUND")
+                continue
+            ck.compared()
+            ref = sum(v.value for v in vals)
+            if not _close(x[k].value, ref, 0.0005 if k == "ctn" else 0.006):
+                ck.add(Finding("CNTR_LOAD", "ERROR", [bl] + split, dict(no=n, label=f"@{k}"), x[k].raw,
+                               fmt_like(ref, re.match(r"[\d.,]+", x[k].raw)[0]),
+                               at(bl, x[k]) + [l for (c, _), v in zip(rows, vals) for l in at(c, v, "ref")]))
     ck.end()
 
 
@@ -1077,7 +1178,7 @@ def r_bl_cargo(ci, co, bl, out):
     ck.need(ci, "goods")
     if g and cg:
         ck.compared()
-    if g and cg and _norm_words(g.value) != _norm_words(cg.value):
+    if g and cg and not _same_goods(g.value, cg.value):
         ck.add(Finding("BL_GOODS_DESC", "ERROR", [bl, ci], {}, g.value, cg.value, at(bl, g) + at(ci, cg, "ref")))
     ck.end()
     fd = bl.f.get("final_dest")
@@ -1127,6 +1228,12 @@ def _first_unit(doc) -> str | None:
         if m:
             return m[1]
     return None
+
+
+def _same_goods(a: str, b: str) -> bool:
+    """The same goods named: letter by letter, or the same products in any order ('A AND B' = 'B & A')."""
+    parts = lambda t: Counter(_norm_words(x) for x in re.split(r"\s+AND\s+|\s*[&,;/]\s*", (t or "").upper()) if _norm_words(x))
+    return _norm_words(a) == _norm_words(b) or parts(a) == parts(b)
 
 
 def _norm_words(t: str) -> str:
@@ -1262,14 +1369,20 @@ def _heading_names(ci) -> list:
 
 
 def _goods_vs_heading(ci, co, it, goods, ck_g):
-    """Form D/E item goods name = one of the products of the packing list's goods heading."""
+    """Form D/E item goods name = one of the products of the packing list's goods heading (the product printed beside
+    the item's model, when the list names the goods model by model)."""
     names = _heading_names(ci)
+    own = [p for p in (ci.pl_items + ci.items) if p.get("desc") and it.get("model") and p.get("model")
+           and master.key(p["model"]) == master.key(it["model"])]
     g = ci.f.get("pl_goods_full") or ci.f.get("goods_full")
     ck_g._input(ci, "pl_goods_full", "READ")
     if not goods:
         return
     ck_g.compared()
     have = re.sub(r"\s+", " ", goods.value.upper().strip(' ."'))
+    if own:
+        names = list(dict.fromkeys(re.sub(r"\s+", " ", p["desc"].value.upper()).strip() for p in own))
+        g = own[0]["desc"]
     if not any(n == have or n.endswith(" " + have) or have.endswith(" " + n) for n in names):
         ck_g.add(Finding("CO_GOODS_DESC", "ERROR", [co, ci], dict(no=it["no"], model=it.get("model") or ""),
                          goods.value, " / ".join(names), at(co, goods) + at(ci, g, "ref")))
@@ -1469,8 +1582,18 @@ def r_words(docs, out):
                 continue                      # the whole phrase is already reported against the invoice / packing list
             w = words_to_number(words)
             if w is not None and not _close(w, n):
-                ck.add(Finding("WORDS_VS_FIGURES", "ERROR", [d], dict(what=what), f"{words.strip()} = {w:,}",
-                               f"{n:,}", locs))
+                want = f"{n:,}"
+                if aw and tot and words is aw.value:   # the amount in words: expected is the sentence for the total
+                    lines = sum(it["amount"].value for it in d.items if it.get("amount")) \
+                        + sum(c["amount"].value for c in d.lists.get("charges", []))
+                    if _close(w, lines, 0.006) and not _close(n, lines, 0.006):
+                        want = f"{w:,.2f}"             # words = the lines: the figure is the wrong one (TOTAL_AMOUNT)
+                    else:
+                        want = f"{words_for(words, n) or number_to_words(n)} = {n:,.2f}"
+                        if words_for(words, n) is None and round(n * 100) % 100:
+                            want = f"{n:,.2f}"         # cannot be reworded safely
+                ck.add(Finding("WORDS_VS_FIGURES", "ERROR", [d], dict(what=what), f"{words.strip()} = {w:,.2f}"
+                               if aw and words is aw.value else f"{words.strip()} = {w:,}", want, locs))
         ck.end()
 
 
@@ -1502,6 +1625,10 @@ def r_broken_wrap(docs, out):
                 frag = t.text.strip()
                 if not re.fullmatch(r"[A-Z]{1,2}", frag):
                     continue
+                if len(frag) == 1 and any(a.page == b.page and 0 < abs(a.y - b.y) < 14 and abs(x.bbox[0] - t.bbox[0]) < 5
+                                          and re.fullmatch(r"\s*[A-Z]\s*", x.text)
+                                          for a in d.lines[max(0, i - 8):i + 9] for x in a.spans):
+                    continue                          # a label printed downwards, one letter per line
                 # the line above in the SAME column (other columns' lines may sit in between)
                 above = [a for a in d.lines[max(0, i - 4):i] if a.page == b.page and 0 < b.y - a.y < 14]
                 s = next((s for a in reversed(above) for s in a.spans
@@ -1555,22 +1682,36 @@ def _label(ci: Doc | None, docs: list[Doc]) -> str:
 
 def validate_checks(docs: list[Doc]) -> tuple[list[Finding], list]:
     """Findings (exactly as validate() always gave them) + one CheckResult per check and group (engine/checks.py)."""
-    cis = [d for d in docs if d.kind == "CI"]
     with Run(docs) as run:
-        if len(cis) <= 1:
-            run.set_group(Group("inv1", "invoice", _label(next(iter(cis), None), docs), list(docs)))
-            out = _validate_group(docs)
-            run.close_group()
-            run.set_group(Group("shipment", "shipment", _label(next(iter(cis), None), docs), list(docs)))
-            ck = begin("DOC_PAIRING", out)
-            ck.na(evidence="one_invoice")
-            ck.end()
-            run.call(_bl_invoices, docs, cis, out)
-            run.call(r_bl_blocks, cis, next((d for d in docs if d.kind == "BL"), None), out)
-            _block_explains(out)
-            run.close_group()
-        else:
-            out = _validate_multi(docs, cis)
+        out, n_inv = [], 0
+        parts = _shipments(docs)
+        for n, (sdocs, bl) in enumerate(parts, 1):
+            cis = [d for d in sdocs if d.kind == "CI"]
+            run.part = len(run.results)                # the records of this shipment start here
+            sid = "shipment" if n == 1 else f"shipment{n}"
+            tail = f" · {bl.name}" if bl is not None else ""
+            if len(cis) <= 1:
+                label = _label(next(iter(cis), None), sdocs) + tail
+                run.set_group(Group(f"inv{n_inv + 1}", "invoice", label, list(sdocs)))
+                found = _validate_group(sdocs)
+                run.close_group()
+                run.set_group(Group(sid, "shipment", label, list(sdocs)))
+                ck = begin("DOC_PAIRING", found)
+                ck.na(evidence="one_invoice")
+                ck.end()
+                run.call(_bl_invoices, sdocs, cis, found)
+                run.call(r_bl_blocks, cis, next((d for d in sdocs if d.kind == "BL"), None), found)
+                run.call(r_cntr_vs_pl, cis, next((d for d in sdocs if d.kind == "BL"), None), found)
+                _block_explains(found)
+                run.close_group()
+            else:
+                found = _validate_multi(sdocs, cis, sid, n_inv, tail)
+            n_inv += max(len(cis), 1)
+            if len(parts) == 1:
+                out = found
+            else:                                      # a finding about a document two shipments share: once
+                seen = {_sig(f) for f in out}
+                out += [f for f in found if _sig(f) not in seen]
         out.sort(key=lambda f: SEVERITY.index(f.severity))
         results = run.finish(out)
     return out, results
@@ -1609,6 +1750,37 @@ def _sig(f: Finding):
             tuple((l.doc.name, l.page, l.clip, l.text, l.role) for l in f.locs))
 
 
+def _shipments(docs: list[Doc]) -> list:
+    """[(documents, B/L named in the label or None)]: the shipments of a package. One B/L, or B/Ls that do not say
+    which invoices they carry: one shipment, as always. Several B/Ls, each naming its invoices: one shipment per B/L
+    with its own invoices, contracts and certificates. Two B/Ls for the same invoices (a draft and the final one) are
+    each checked against them. Documents no B/L names form one last shipment."""
+    cis, bls = [d for d in docs if d.kind == "CI"], [d for d in docs if d.kind == "BL"]
+    by_no = {_v(c.f.get("invoice_no")): c for c in cis if _v(c.f.get("invoice_no"))}
+    own = {id(b): [by_no[f.value] for f in b.lists.get("invoice_nos", []) if f.value in by_no] for b in bls}
+    if len(bls) < 2 or not any(own.values()):
+        return [(list(docs), None)]
+    carried = [frozenset(id(c) for c in own[id(b)]) for b in bls if own[id(b)]]
+    if any(a & b and a != b for a in carried for b in carried):      # an invoice split over B/Ls in different ways
+        return [(list(docs), None)]
+    home = {}
+    for d in docs:
+        if d.kind in ("SC", "CO") and cis:
+            home[id(d)] = max(cis, key=lambda c: _pair_score(d, c)) if max(_pair_score(d, c) for c in cis) else None
+    of = lambda cs: [d for d in docs if d.kind in ("SC", "CO") and any(home.get(id(d)) is c for c in cs)]
+    out, used = [], set()
+    twice = Counter(carried)
+    for b in bls:
+        if not own[id(b)]:
+            continue
+        ids = frozenset(id(c) for c in own[id(b)])
+        member = {id(d) for d in [b] + own[id(b)] + of(own[id(b)])}
+        used |= member
+        out.append(([d for d in docs if id(d) in member], b if twice[ids] > 1 else None))
+    rest = [d for d in docs if id(d) not in used]
+    return out + ([(rest, None)] if rest else [])
+
+
 def _shipment_containers(cis):
     """Packing lists that name their containers (one container may hold goods of several invoices): every invoice's
     container mix is the shipment's, the distinct containers of all of them (compared with the one B/L)."""
@@ -1626,13 +1798,13 @@ def _shipment_containers(cis):
             c.lists["cntr_types"] = [Field(mix, f0.raw, f0.line, f0.start, f0.end)]
 
 
-def _validate_multi(docs: list[Doc], cis: list[Doc]) -> list[Finding]:
+def _validate_multi(docs: list[Doc], cis: list[Doc], sid: str = "shipment", n_inv: int = 0, tail: str = "") -> list[Finding]:
     run = current_run()
     groups = {id(c): [c] for c in cis}
     _shipment_containers(cis)
     shared = [d for d in docs if d.kind not in ("CI", "SC", "CO")]       # B/L: one for the whole shipment
     out: list[Finding] = []
-    ship = Group("shipment", "shipment", ", ".join(_label(c, docs) for c in cis), list(docs), multi=True)
+    ship = Group(sid, "shipment", ", ".join(_label(c, docs) for c in cis) + tail, list(docs), multi=True)
     if run is not None:
         run.set_group(ship)
     ck = begin("DOC_PAIRING", out)
@@ -1649,10 +1821,10 @@ def _validate_multi(docs: list[Doc], cis: list[Doc]) -> list[Finding]:
             ck.add(Finding("DOC_UNPAIRED", "WARNING", [d, best], dict(inv=_v(best.f.get("invoice_no")) or best.name)))
     ck.end()
     seen = set()
-    for n, c in enumerate(cis, 1):
+    for n, c in enumerate(cis, n_inv + 1):
         gdocs = groups[id(c)] + shared
         if run is not None:
-            run.set_group(Group(f"inv{n}", "invoice", _label(c, docs), gdocs, multi=True))
+            run.set_group(Group(f"inv{n}", "invoice", _label(c, docs) + tail, gdocs, multi=True))
         for f in _validate_group(gdocs):
             if f.key in _SHARED_TOTALS or _sig(f) in seen:   # same B/L finding from every invoice: once
                 continue
@@ -1665,6 +1837,7 @@ def _validate_multi(docs: list[Doc], cis: list[Doc]) -> list[Finding]:
     _call(_bl_invoices, docs, cis, out)
     _call(_multi_bl_totals, shared, cis, out)
     _call(r_bl_blocks, cis, next((d for d in shared if d.kind == "BL"), None), out)
+    _call(r_cntr_vs_pl, cis, next((d for d in shared if d.kind == "BL"), None), out)
     _block_explains(out)
     if run is not None:
         run.close_group()

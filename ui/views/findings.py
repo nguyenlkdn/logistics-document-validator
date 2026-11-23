@@ -75,7 +75,7 @@ def render():
 
     # ---- table (multi-row selection)
     table = [{"id": fid(r), "sev": f"{ui.ICON[r['severity']]} {sev_short(r['severity'])}", "status": status_label(r["status"]),
-              "msg": msg(r), "doc": r["doc"], "kind": kind_label(r["doc_kind"], short=True), "page": r["page"],
+              "msg": msg(r), "doc": r["doc"], "kind": kind_label(r["doc_kind"], short=True, form=r.get("doc_form", "")), "page": r["page"],
               "cur": r["current"], "sug": r["suggested"], "note": r["note"], "ts": r["ts"].replace("T", " ")[:16]}
              for r in rows]
     sig = hashlib.sha1(repr((scope, sev, stt, kinds, rules, lo, hi, q, len(rows))).encode()).hexdigest()[:10]

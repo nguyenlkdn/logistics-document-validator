@@ -101,7 +101,7 @@ def render():
         st.subheader(t("docs_status"))
         st.caption(t("docs_click"))
         rows = state.per_doc(s)
-        table = [{"doc": x["name"], "type": kind_label(x["kind"], short=True), "pages": x["pages"],
+        table = [{"doc": x["name"], "type": kind_label(x["kind"], short=True, form=x.get("form", "")), "pages": x["pages"],
                   **{sev: str(x[sev]) if x[sev] else "" for sev in SEVERITY}, "total": x["total"]} for x in rows]
         small = lambda lab: st.column_config.TextColumn(lab, width=44)
         ev = st.dataframe(table, hide_index=True, width="stretch", on_select="rerun", selection_mode="single-row",

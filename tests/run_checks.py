@@ -199,7 +199,7 @@ def _():
     assert not closure_errors(BASE_RES, package()), closure_errors(BASE_RES, package())
     ids = {r.check_id for r in BASE_RES}
     assert ids == set(REGISTRY) - {"DOC_PAIRING"} | {"DOC_PAIRING"}, set(REGISTRY) - ids   # every check id has a record
-    assert len(REGISTRY) == 101, len(REGISTRY)      # 2.7: + CO_ITEM_VALUE, CO_CRITERION (Form E)
+    assert len(REGISTRY) == 103, len(REGISTRY)      # 2.7: + CO_ITEM_VALUE, CO_CRITERION (Form E); 2.8: CNTR_VS_PL, SC_CHARGES
 
 
 @test("T4 declared vs used inputs: every input a check read is declared in CheckDef.needs")
@@ -941,6 +941,60 @@ if "--local" in sys.argv:
                 problems, n = blank_out(docs, z.name)
                 print(f"      {n} inputs removed")
                 assert not problems, problems[:20]
+
+@test("HS list: suggestions from checked documents (evidence for and against); nothing is used before it is added")
+def _():
+    from engine.hs_suggest import suggest
+    items = {"AB-X10(W1)": dict(model="AB-X10(W1)", hs="11112222"), "EF-O10": dict(model="EF-O10", hs="33334444")}
+    fld = lambda **k: {a: dict(value=v) for a, v in k.items()}
+    ci = dict(name="ci", kind="CI", fields={}, items=[dict(model=m, _page=1) for m in (
+        "AB-X10(W2)", "AB-X10(W1)", "CD-Y20", "GH-Z30", "IJ-Q40", "EF-010")])
+    co = lambda name, *rows: dict(name=name, kind="CO", form="E", fields={}, items=[
+        dict(model=m, hs=h, inv_ref="I1", _page=1) for m, h in rows])
+    bl = dict(name="bl", kind="BL", fields=fld(invoice_no="I1", hs_all="1111.22, 555566, 333344"), items=[])
+    s = dict(shipment="S1", docs=[ci, bl, co("co", ("AB-X10(W2)", "1111.22"), ("CD-Y20", "555566"), ("GH-Z30", "777788"),
+                                             ("EF-010", "333344"), ("CD-Y2O", "555566"))])
+    s2 = dict(shipment="S2", docs=[ci, co("co2", ("CD-Y20", "555577"))])
+    got = {r["model"]: r for r in suggest([s], items)}
+    assert set(got) == {"AB-X10(W2)", "CD-Y20", "GH-Z30", "IJ-Q40", "EF-010"}, set(got)      # not the one only the C/O names
+    assert (got["AB-X10(W2)"]["hs"], got["AB-X10(W2)"]["from_series"], got["AB-X10(W2)"]["state"]) == ("11112222", True, "ok")
+    assert (got["CD-Y20"]["hs"], got["CD-Y20"]["state"], got["CD-Y20"]["bl_ok"]) == ("555566", "ok", 1)
+    assert got["GH-Z30"]["state"] == "check" and got["GH-Z30"]["bl_no"] == 1
+    assert got["IJ-Q40"]["state"] == "none" and got["EF-010"]["typo_of"] == "EF-O10" and got["EF-010"]["state"] == "check"
+    got = {r["model"]: r for r in suggest([s, s2], items)}
+    assert got["CD-Y20"]["conflict"] == ["555566", "555577"] and got["CD-Y20"]["hs"] == "" and got["CD-Y20"]["state"] == "check"
+
+
+@test("HS list: added models are used, the Excel wins, wrong codes are refused; the added list reads back as a master Excel")
+def _():
+    assert master.hs_for("NEW-M1") is None
+    for bad in ("12345", "ABC", "", "8516.60.1O"):
+        try:
+            master.add("NEW-M1", bad)
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+    master.add("New-M1", "9999.88", ["co.pdf"], "someone")
+    try:
+        assert master.hs_for("NEW-M1") == "999988"
+        p = Path(tempfile.mkdtemp()) / "added.xlsx"
+        p.write_bytes(master.added_xlsx())
+        assert master.read_xlsx(p)[0]["NEW-M1"]["hs"] == "999988"
+        try:
+            master.add(MODEL, "999988")
+            raise AssertionError("the Excel has this model")
+        except ValueError:
+            pass
+        # a 6-digit code from a Form E: compared on its digits; another code is still an error
+        assert master.agrees("9999.88.10", "999988", "NEW-M1", "D") and not master.agrees("9999.77.10", "999988", "NEW-M1", "D")
+        # Form E prints 6 digits of the 8-digit master code; a Form D must print the code itself
+        assert master.agrees("1111.22", "11112222", MODEL, "E") and not master.agrees("1111.33", "11112222", MODEL, "E")
+        assert not master.agrees("1111.22", "11112222", MODEL, "D") and not master.agrees("1111", "11112222", MODEL, "E")
+        assert not master.agrees("11112222", "111122", MODEL, "D")            # a 6-digit code of the Excel: exact as before
+    finally:
+        master.remove("NEW-M1")
+    assert master.hs_for("NEW-M1") is None
+
 
 print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
 sys.exit(1 if FAILS else 0)

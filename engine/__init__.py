@@ -5,6 +5,7 @@ import re
 import shutil
 import tempfile
 import zipfile
+from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -58,7 +59,19 @@ def collect(inputs: list[Path], workdir: Path) -> list[Path]:
         else:
             shutil.copy2(p, workdir / p.name)
     junk = lambda x: x.name.startswith(".") or x.name.lower() == "thumbs.db" or "__MACOSX" in x.parts
-    return sorted(x for x in workdir.rglob("*") if x.is_file() and not junk(x))
+    files = sorted(x for x in workdir.rglob("*") if x.is_file() and not junk(x))
+    same = Counter(x.name.lower() for x in files)  # 'DRAFT.pdf' in several folders: 'DRAFT (folder).pdf', because
+    out, used = [], set()                          # documents are known by their file name in the whole review
+    for x in files:
+        if same[x.name.lower()] > 1:
+            n, new = 1, x.with_name(f"{x.stem} ({x.parent.name}){x.suffix}")
+            while new.name.lower() in used or new.exists():
+                n += 1
+                new = x.with_name(f"{x.stem} ({x.parent.name} {n}){x.suffix}")
+            x = x.rename(new)
+        used.add(x.name.lower())
+        out.append(x)
+    return sorted(out)
 
 
 def check(inputs: list[Path], name: str | None = None, out_root: Path | None = None,

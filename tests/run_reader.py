@@ -14,7 +14,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 import pymupdf                                                        # noqa: E402
-from engine.extract import _vessel, column_models, load              # noqa: E402
+from engine.extract import _vessel, column_models, load, load_excel              # noqa: E402
 from engine.pdftext import Line, Span                                 # noqa: E402
 from engine.util import parse_date                                    # noqa: E402
 
@@ -707,6 +707,210 @@ def _():
     assert f["cntr_summary"].value == "2X40HC" and f["invoice_no"].value == "ACME26110001X"
     assert f["goods"].value == "ACME FAN AND ACME HEATER" and f["hs_all"].value == "345678, 456789"
     assert f["freight"].value == "PREPAID"
+
+
+def _pdf(name, cells, size=7, font="helv"):
+    """An invented PDF from (page, x, y, text) cells."""
+    doc = pymupdf.open()
+    for _ in range(max(c[0] for c in cells) + 1):
+        doc.new_page(width=595, height=842)
+    for p, x, y, t in cells:
+        doc[p].insert_text((x, y), t, fontsize=size, fontname=font)
+    path = Path(tempfile.mkdtemp()) / f"{name}.pdf"
+    doc.save(path)
+    return path
+
+
+_BOXES = [(0, 23, 56, "SHIPPER/EXPORTER (COMPLETE NAME AND ADDRESS)"), (0, 23, 66, "ACME MAKER APPLIANCES"),
+          (0, 23, 76, "MANUFACTURING CO.,LTD"), (0, 23, 126, "CONSIGNEE (COMPLETE NAME AND ADDRESS)"),
+          (0, 23, 136, "BUYER VIETNAM CO.,LTD."), (0, 23, 198, "NOTIFY PARTY (COMPLETE NAME AND ADDRESS)"),
+          (0, 23, 210, "NOTIFY LOGISTICS CO., LTD."), (0, 23, 279, "PRE-CARRIAGE BY"), (0, 196, 279, "PLACE OF RECEIPT"),
+          (0, 196, 288, "PORT BETA,NOWHERE"), (0, 23, 297, "VESSEL/VOYAGE/FLAG"), (0, 196, 297, "PORT OF LOADING"),
+          (0, 196, 306, "PORT BETA,NOWHERE"), (0, 23, 316, "PORT OF DISCHARGE"), (0, 196, 316, "PLACE OF DELIVERY")]
+
+
+def _waybill(name="waybill", inv="ACME26110001X", cntr2="ABCU7654321", ctn2=50, no="ACMU0012345"):
+    """A typed (monospaced) sea waybill: footnotes complete the boxes, the description goes on on page 2."""
+    pad = " " * 29
+    rows = ["ABCU1234567  /SEAL0001   /    130 CARTONS       /FCL/FCL /40HQ/",
+            f"{cntr2}  /SEAL0002   /    {ctn2:3d} CARTONS       /FCL/FCL /40HQ/", "-" * 93,
+            "N/M                      180 ACME FAN AND                           450.000KGS    18.000CBM",
+            "                     CARTONS ACME HEATER", pad + "180CTNS=180SETS", pad + "HS CODE:345678 / 456789",
+            "                       **  TO BE CONTINUED ON ATTACHED LIST  **"]
+    cells = _BOXES + [(0, 444, 52, "SEA WAYBILL NO."), (0, 444, 64, no), (0, 23, 306, "ACME STAR 012S"),
+                      (0, 23, 326, "PORT ALPHA,++"), (0, 196, 326, "PORT ALPHA,++")]
+    cells += [(0, 18, 365 + 8 * i, r) for i, r in enumerate(rows)]
+    cells += [(1, 18, 47, "PAGE: 2 OF 2"), (1, 18, 98, pad + f"INVOICE NO.: {inv}"), (1, 18, 106, pad + "++VIETNAM"),
+              (1, 18, 123, "TOTAL:                   180                                     450.000KGS    18.000CBM"),
+              (1, 18, 148, "OCEAN FREIGHT PREPAID"),
+              (1, 18, 165, "|CALCULATION OF PACKAGE LIMITATION (IF APPLICABLE):    2 CONTAINER(S)/PACKAGE(S)  |")]
+    return _pdf(name, cells, size=6, font="cour")
+
+
+@test("waybill with labelled boxes, typed cargo: boxes, footnote country, description over two pages, container rows")
+def _():
+    d = load(_waybill())
+    f = d.f
+    assert d.kind == "BL" and f["bl_no"].value == "ACMU0012345", f
+    assert f["shipper"].value == "ACME MAKER APPLIANCES MANUFACTURING CO.,LTD" and f["consignee"].value == "BUYER VIETNAM CO.,LTD."
+    assert f["notify"].value == "NOTIFY LOGISTICS CO., LTD." and f["vessel"].value == ("ACME STAR", "012S")
+    assert (f["receipt"].value, f["pol"].value, f["pod"].value, f["dest_country"].value) == (
+        "PORT BETA", "PORT BETA", "PORT ALPHA", "VIETNAM")
+    assert (f["ctn"].value, f["gw"].value, f["cbm"].value, f["bl_qty"].value, f["containers"].value) == (180, 450, 18, 180, 2)
+    assert f["goods"].value == "ACME FAN AND ACME HEATER" and f["hs_all"].value == "345678, 456789"
+    assert f["invoice_no"].value == "ACME26110001X" and f["freight"].value == "PREPAID"
+    assert [x.value for x in d.lists["cntr_load"]] == [("ABCU1234567", 130, None, None), ("ABCU7654321", 50, None, None)]
+
+
+@test("carrier B/L with numbered boxes and columns; an empty vessel box is reported as empty")
+def _():
+    cells = [(0, 311, 89, "BILL OF LADING"), (0, 357, 89, "NO."), (0, 419, 95, "ACMEBL0012345"),
+             (0, 33, 89, "1. SHIPPER Insert Name, Address and Phone"), (0, 33, 98, "ACME MAKER MANUFACTURING CO.,LTD"),
+             (0, 33, 150, "2. CONSIGNEE Insert name, Address and Phone"), (0, 33, 159, "BUYER VIETNAM CO.,LTD."),
+             (0, 33, 211, "3. NOTIFY PARTY Insert Name, Address and Phone"), (0, 33, 222, "NOTIFY LOGISTICS CO., LTD."),
+             (0, 323, 232, "the place of receipt or the port of loading"),
+             (0, 33, 273, "4. PRE-CARRIAGE BY"), (0, 196, 273, "5. PLACE OF RECEIPT"), (0, 194, 284, "PORT BETA,NOWHERE"),
+             (0, 33, 297, "6. OCEAN VESSEL/VOY NO."), (0, 196, 297, "7. PORT OF LOADING"), (0, 194, 306, "PORT BETA,NOWHERE"),
+             (0, 33, 322, "8. PORT OF DISCHARGE"), (0, 196, 322, "9. PLACE OF DELIVERY"),
+             (0, 34, 332, "PORT ALPHA,VIET NAM"), (0, 193, 332, "PORT ALPHA,VIET NAM"),
+             (0, 137, 366, "180CARTONS"), (0, 201, 366, "SHIPPER'S LOAD, COUNT & SEAL"), (0, 441, 366, "450.00 KGS"),
+             (0, 520, 366, "18.00"), (0, 28, 371, "ABCU1234567/S0001 40HC"), (0, 28, 380, "ABCU7654321/S0002 20GP"),
+             (0, 201, 374, "SAID TO CONTAIN"), (0, 520, 374, "CBM"), (0, 201, 392, "ACME FAN & ACME HEATER"),
+             (0, 201, 400, "180CTNS=180SETS"), (0, 201, 409, "HS CODE:345678"), (0, 201, 417, "INVOICE NO.: ACME26110001X"),
+             (0, 201, 504, "1x40HC,1x20GP FCL"), (0, 201, 521, "CY/CY"), (0, 201, 547, "FREIGHT COLLECT"),
+             (0, 146, 584, "SAY TOTAL TWO (2) CONTAINERS ONLY"), (0, 290, 692, "T"), (0, 290, 701, "O"), (0, 290, 710, "T")]
+    d = load(_pdf("boxes", cells))
+    f = d.f
+    assert f["bl_no"].value == "ACMEBL0012345" and f["blank:vessel"] and not f.get("vessel"), f
+    assert (f["receipt"].value, f["pol"].value, f["pod"].value, f["dest_country"].value) == (
+        "PORT BETA", "PORT BETA", "PORT ALPHA", "VIET NAM")
+    assert (f["ctn"].value, f["gw"].value, f["cbm"].value, f["bl_qty"].value) == (180, 450, 18, 180)
+    assert f["goods"].value == "ACME FAN & ACME HEATER" and f["cntr_summary"].value == "1X40HC,1X20GP"
+    assert f["cntr_words"].value == "TWO" and f["cntr_words_n"].value == 2 and f["freight"].value == "COLLECT"
+    from engine.rules import r_broken_wrap
+    out = []
+    r_broken_wrap([d], out)
+    assert not out, [x.current for x in out]          # 'T / O / T' printed downwards is not a broken word
+
+
+@test("plain B/L with containers written with slashes, description on the attached sheet, tax code before the name")
+def _():
+    cells = [(0, 20, 21, "ACME MAKER MANUFACTURING"), (0, 448, 21, "ACMEBL0099999"), (0, 20, 31, "CO.,LTD"),
+             (0, 20, 41, "1 ACME ROAD"), (0, 20, 97, "TAX CODE:0000000001"), (0, 20, 107, "BUYER VIETNAM CO.,LTD."),
+             (0, 20, 117, "2 BUYER STREET"), (0, 20, 183, "NOTIFY LOGISTICS CO., LTD."), (0, 20, 193, "3 NOTIFY STREET"),
+             (0, 20, 283, "ACME STAR 012S"), (0, 166, 283, "PORT BETA,NOWHERE"), (0, 239, 295, "PORT ALPHA,VIETNAM"),
+             (0, 20, 303, "PORT ALPHA,VIETNAM"), (0, 458, 344, "1,450.500"), (0, 546, 344, "18.000"),
+             (0, 146, 360, "180"), (0, 200, 360, "SEE ATTACH"), (0, 478, 360, "KGS"), (0, 554, 360, "CBM"),
+             (0, 146, 374, "CARTONS"), (0, 20, 564, "ABCU1234567/S0001/40'HC/130 CARTONS/G.W.1,325.500 KGS/13.000 CBM"),
+             (0, 346, 564, "CY-CY"), (0, 436, 575, "2*40HC FCL"), (0, 346, 585, "FREIGHT PREPAID"),
+             (0, 212, 624, "SAY TOTAL TWO (2)CONTAINERS ONLY"), (1, 13, 63, "ATTACHED SHEET"), (1, 242, 90, "DESCRIPTION OF GOODS"),
+             (1, 242, 103, "ACME FAN"), (1, 242, 117, "180CTNS=180SETS"), (1, 242, 132, "HS CODE:345678"),
+             (1, 242, 146, "INVOICE NO.: ACME26110001X"), (1, 13, 288, "ABCU7654321/S0002/40'HC/50 CARTONS/G.W.125.000 KGS/5.000 CBM")]
+    d = load(_pdf("slashes", cells))
+    f = d.f
+    assert d.kind == "BL" and f["consignee"].value == "BUYER VIETNAM CO.,LTD.", f
+    assert (f["vessel"].value, f["pod"].value, f["delivery"].value) == (("ACME STAR", "012S"), "PORT ALPHA", "PORT ALPHA")
+    assert (f["ctn"].value, f["gw"].value, f["cbm"].value, f["goods"].value) == (180, 1450.5, 18, "ACME FAN")
+    assert [x.value for x in d.lists["cntr_load"]] == [("ABCU1234567", 130, 1325.5, 13), ("ABCU7654321", 50, 125, 5)]
+
+
+def _book(edit=None, name="book", **kw):
+    import openpyxl
+    path = Path(tempfile.mkdtemp()) / f"{name}.xlsx"
+    _workbook(path, **kw)
+    if edit:
+        wb = openpyxl.load_workbook(path)
+        edit(wb)
+        wb.save(path)
+    return load_excel(path, path.parent)
+
+
+@test("Excel: goods name beside each model (no heading): read per line, the model is never taken as the goods name")
+def _():
+    def edit(wb):
+        for ws, head, col, first in (("Inv.", "B16", "C", 19), ("PL", "B15", "D", 19), ("SC", "B27", "E", 29)):
+            wb[ws][head] = None
+            for i, g in enumerate(("ACME FAN", "ACME HEATER", "ACME FAN")):
+                wb[ws][f"{col}{first + i}"] = g
+    docs = _book(edit)
+    for d in docs:
+        assert d.f["goods_full"].value == "ACME FAN AND ACME HEATER", d.f["goods_full"].value
+    assert docs[0].items[1]["desc"].value == "ACME HEATER" and docs[0].pl_items[1]["desc"].value == "ACME HEATER"
+
+
+@test("Excel: freight on two contracts is one charge too many; a contract without line numbers is not a crash")
+def _():
+    from engine.rules import r_sc_vs_ci
+
+    def edit(wb, both=False):
+        def charge(ws):
+            ws["B32"], ws["J32"], ws["B33"], ws["J33"] = "Freight", 100, "Insurance", 25.5
+        charge(wb["SC"])
+        for r in (30, 31):
+            wb["SC"][f"A{r}"] = None
+        if both:
+            charge(wb.copy_worksheet(wb["SC"]))
+    for both in (False, True):
+        docs = _book(lambda wb: edit(wb, both))
+        ci, scs, out = docs[0], docs[1:], []
+        r_sc_vs_ci(scs, ci, out)
+        assert len(scs) == 1 + both
+        got = [f for f in out if f.key.startswith("SC_CHARGES")]
+        if both:                                    
+            f = got[0]                                 # on the page that prints the repeat; 'found' is what is printed there
+            assert f.key == "SC_CHARGES_TWICE" and f.docs[0] is scs[1] and f.current == "100", (f.key, f.current)
+            assert [(l.doc.name, l.role) for l in f.locs] == [(scs[1].name, "wrong"), (scs[0].name, "ref"), (ci.name, "ref")]
+            assert "Contract 2" in f.text("en") and "200" in f.text("en"), f.text("en")
+        assert len(got) == (2 if both else 0), [(f.key, f.current) for f in out]
+        assert any(f.key == "SC_NUMBERING" and f.current == "1,—,—" for f in out)
+
+
+@test("several B/Ls: each is checked with its own invoice; a wrong container no. / load is found; draft + final count once")
+def _():
+    from engine.rules import validate_checks, _shipments
+    one = _book(name="one")
+    def second(wb):
+        for ws in ("Inv.", "PL"):
+            for row in wb[ws].iter_rows():
+                for c in row:
+                    if c.value == "ACME26110001X":
+                        c.value = "ACME26110002Y"
+        wb["SC"]["B6"] = "AC000000000002"
+        wb["PL"]["B21"] = "2.ABCU7654322/40HQ"
+    two = _book(second, name="two ACME26110002Y")
+    for d in two:
+        if d.kind == "SC":
+            assert "ACME26110002Y" in d.name
+    b1, b2 = load(_waybill("bl1")), load(_waybill("bl2", inv="ACME26110002Y", cntr2="ABCU7654323", ctn2=49, no="ACMU0099999"))
+    parts = _shipments(one + two + [b1, b2])
+    assert len(parts) == 2 and [x.name for x in parts[0][0] if x.kind == "BL"] == ["bl1.pdf"]
+    finds, checks = validate_checks(one + two + [b1, b2])
+    keys = {(f.key, f.docs[0].name) for f in finds}
+    assert ("CNTR_NO", "bl2.pdf") in keys and ("CNTR_NO", "bl1.pdf") not in keys, keys
+    assert not {k for k in keys if k[0] in ("BL_VS_PL", "BL_INVOICE_MISSING", "VESSEL", "BL_INVOICE_EXTRA")}, keys
+    assert [f.suggested for f in finds if f.key == "CNTR_NO"] == ["ABCU7654322"]
+    assert not [c for c in checks if c.reason == "internal_error"]
+    st = {c.group_id: c.status for c in checks if c.check_id == "CNTR_VS_PL"}
+    assert st == {"shipment": "PASS", "shipment2": "FAIL"}, st
+    again = load(_waybill("bl1 final", ctn2=48))            # the final B/L of invoice 1 has another carton count
+    assert len(_shipments(one + [b1, again])) == 2
+    finds, _c = validate_checks(one + [b1, again])
+    assert ("CNTR_LOAD", "bl1 final.pdf") in {(f.key, f.docs[0].name) for f in finds}
+    assert ("CNTR_LOAD", "bl1.pdf") not in {(f.key, f.docs[0].name) for f in finds}
+
+
+@test("files with the same name in several folders of a zip stay apart")
+def _():
+    import zipfile
+    from engine import collect
+    t = Path(tempfile.mkdtemp())
+    with zipfile.ZipFile(t / "a.zip", "w") as z:
+        for n in ("S1/DRAFT.pdf", "S2/draft.pdf", "S2/other.pdf"):
+            z.writestr(n, n)
+    (t / "w").mkdir()
+    files = collect([t / "a.zip"], t / "w")
+    assert sorted(f.name for f in files) == ["DRAFT (S1).pdf", "draft (S2).pdf", "other.pdf"], files
+    assert next(f for f in files if f.name.startswith("draft")).read_text() == "S2/draft.pdf"
 
 
 if __name__ == "__main__":

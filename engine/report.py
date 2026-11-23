@@ -5,7 +5,9 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 
 from .extract import Field
+from .checks import kind_name
 from .rules import CONFIG, SEVERITY
+from .util import co_form
 
 FILL = dict(ERROR="F8D7DA", WARNING="FFE5B4", MINOR="FFF3CD", INFO="DCEBFA")
 CHECK_FILL = dict(FAIL="F8D7DA", REVIEW_REQUIRED="FFE5B4", NOT_RUN="FFF3CD", NOT_APPLICABLE="EEEEEE", PASS="E6F4EA")
@@ -86,9 +88,10 @@ def excel(res, path: Path):
     ws0 = wb.create_sheet("By file - Theo file", 0)
     _sheet(ws0, ["Document / Chứng từ", "Type / Loại"] + [f"{s} / {sev(s, 'vi')}" for s in SEVERITY]
            + ["Total / Tổng"], [50, 30, 12, 14, 12, 14, 12])
+    forms = {d.name: d.form for d in res.docs if d.kind == "CO"}
     for r in per_file(res):
-        k = CONFIG["doc_kinds"][r["kind"]]
-        ws0.append([r["file"], f"{k['en']} / {k['vi']}"] + [r[s] for s in SEVERITY] + [r["total"]])
+        f = forms.get(r["file"], "")
+        ws0.append([r["file"], f"{kind_name(r['kind'], 'en', f)} / {kind_name(r['kind'], 'vi', f)}"] + [r[s] for s in SEVERITY] + [r["total"]])
         row = ws0[ws0.max_row]
         worst = next((s for s in SEVERITY if r[s]), None)
         for c in row:
@@ -105,7 +108,7 @@ def excel(res, path: Path):
     _sheet(ws2, ["Document / Chứng từ", "Type / Loại", "Field / Trường", "Value / Giá trị", "Page / Trang"],
            [45, 26, 20, 90, 7])
     for d in res.docs:
-        kind = CONFIG["doc_kinds"][d.kind]["en"]
+        kind = kind_name(d.kind, "en", d.form if d.kind == "CO" else "")
         for k, v in d.f.items():
             pg = v.page + 1 if isinstance(v, Field) and v.end > v.start else ""
             ws2.append([d.name, kind, k, plain(v), pg])
@@ -129,6 +132,7 @@ def excel(res, path: Path):
 def _checks_sheet(wb, res):
     """Every check and its execution status (new in LDV 2.3; the other sheets are unchanged)."""
     from .checks import check_name, reason_text
+    form = co_form(res.docs)
     ws = wb.create_sheet("Checks - Kiem tra")
     v = res.verdict or {}
     en, vi = VERDICT_TXT.get(v.get("state"), ("—", "—"))
@@ -152,9 +156,9 @@ def _checks_sheet(wb, res):
     wrap = Alignment(wrap_text=True, vertical="top")
     for r in check_rows([c.to_dict() for c in res.checks]):
         st_en, st_vi = CHECK_ST[r["status"]]
-        ws.append([r["id"], check_name(r["id"], "en"), check_name(r["id"], "vi"), "✔" if r["core"] else "",
+        ws.append([r["id"], check_name(r["id"], "en", form), check_name(r["id"], "vi", form), "✔" if r["core"] else "",
                    f"{r['group']} ({r['group_label']})", r.get("doc") or "", f"{st_en} / {st_vi}",
-                   reason_text(r, "en"), reason_text(r, "vi"), ", ".join(map(str, r["findings"]))])
+                   reason_text(r, "en", form), reason_text(r, "vi", form), ", ".join(map(str, r["findings"]))])
         row = ws[ws.max_row]                       # styles are slow in openpyxl: colour the status, wrap the texts
         row[6].fill = fills[r["status"]]
         row[7].alignment = row[8].alignment = wrap      # the reasons can be long
@@ -165,8 +169,8 @@ def markdown(res) -> str:
     out = [f"# Shipment check / Kiểm tra bộ chứng từ — {res.name}", "",
            "## Documents / Chứng từ", ""]
     for d in res.docs:
-        k = CONFIG["doc_kinds"][d.kind]
-        out.append(f"- **{k['en']} / {k['vi']}**: {d.name}{'' if d.is_draft or d.kind in ('CI', 'SC') else ' (not DRAFT)'}")
+        f = d.form if d.kind == "CO" else ""
+        out.append(f"- **{kind_name(d.kind, 'en', f)} / {kind_name(d.kind, 'vi', f)}**: {d.name}{'' if d.is_draft or d.kind in ('CI', 'SC') else ' (not DRAFT)'}")
     v = res.verdict or {}
     if v:
         from .checks import check_name, reason_text
@@ -177,8 +181,8 @@ def markdown(res) -> str:
         gaps = [r for r in check_rows([c.to_dict() for c in res.checks]) if r["status"] == "NOT_RUN"]
         if gaps:
             out += ["| Check | Core | Group | Reason / Lý do |", "|---|---|---|---|"]
-            out += [f"| {check_name(r['id'], 'en')} | {'✔' if r['core'] else ''} | {r['group_label']} | "
-                    f"{reason_text(r, 'en')}<br>_{reason_text(r, 'vi')}_ |" for r in gaps]
+            out += [f"| {check_name(r['id'], 'en', co_form(res.docs))} | {'✔' if r['core'] else ''} | {r['group_label']} | "
+                    f"{reason_text(r, 'en', co_form(res.docs))}<br>_{reason_text(r, 'vi', co_form(res.docs))}_ |" for r in gaps]
     out += ["", "## Findings / Kết quả  " + "  ".join(f"{ICON[s]} {sev(s, 'en')}/{sev(s, 'vi')}: {n}"
                                                         for s, n in counts.items()), ""]
     out += ["### By file / Theo file", "",

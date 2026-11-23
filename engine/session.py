@@ -10,6 +10,7 @@ The reviewer's decisions (status, note) stay in history.db, so automated results
 are never mixed and the analysis result is never overwritten.
 """
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -55,7 +56,7 @@ def build(res) -> dict:
         except Exception:
             pages = None
         docs.append(dict(
-            name=d.name, kind=d.kind, kind_set_by_user=d.name in (res.kinds or {}), pages=pages, is_draft=d.is_draft,
+            name=d.name, kind=d.kind, form=d.form if d.kind == "CO" else "", kind_set_by_user=d.name in (res.kinds or {}), pages=pages, is_draft=d.is_draft,
             file=rel(copy) if copy else None,
             fields={k: dict(value=_plain(v), page=_page(v)) for k, v in d.f.items()},
             items=[_item(it) for it in d.items], pl_items=[_item(it) for it in d.pl_items]))
@@ -64,6 +65,7 @@ def build(res) -> dict:
         findings.append(dict(
             no=i, sig=sig, key=f.key, severity=f.severity,
             doc=f.doc_names[0] if f.docs else "", doc_kind=f.docs[0].kind if f.docs else "",
+            doc_form=f.docs[0].form if f.docs and f.docs[0].kind == "CO" else "",
             related=f.doc_names[1:], current=f.current, suggested=f.suggested,
             # a value found by text search on the page (no position from the reader): its page from where it was found
             page=f.page or next((l["page"] + 1 for l in locs[i - 1] if l.get("role") == "wrong" and l.get("page") is not None),
@@ -98,8 +100,11 @@ def load(out_dir) -> dict | None:
 
 def _resolve(s: dict, out: Path) -> dict:
     s["out_dir"] = str(out)
+    v = tuple(int(x) for x in re.findall(r"\d+", str(s.get("version") or ""))[:2])
     for d in s["docs"]:
         d["path"] = str(out / d["file"]) if d.get("file") else None
+        if d.get("kind") == "CO" and "form" not in d and v and v < (2, 7):
+            d["form"] = "D"                        # LDV before 2.7 read Form D only; 2.7 did not store the form
     for f in s["findings"]:
         f["evidence_paths"] = [str(out / p) for p in f.get("evidence", [])]
     s["excel_path"] = str(out / s["excel"]) if s.get("excel") else None

@@ -1,11 +1,13 @@
 """Reference data: the HS master list (company Excel). Preview and validate before replacing the current list."""
+import json
 from pathlib import Path
 
 import streamlit as st
 
-from engine import master
+from engine import hs_suggest, master
 
 from .. import components as ui
+from .. import state
 from ..i18n import t, t1
 
 
@@ -55,6 +57,8 @@ def render():
         if pv and pv == path:
             preview_import(Path(pv), hs)
 
+    suggestions(hs)
+
     # ---- current list
     if hs["loaded"]:
         st.subheader(t("hs_browse"))
@@ -67,6 +71,111 @@ def render():
         if hs["skipped"]:
             with st.expander(f"{t1('hs_skipped_n')} ({len(hs['skipped'])})"):
                 skipped_table(hs["skipped"])
+
+
+@st.cache_data(show_spinner=False, max_entries=4)
+def _reviews(files: tuple) -> list:
+    """The newest review of every shipment (review.json). files: ((path, modification time), …)."""
+    out = []
+    for p, _m in files:
+        try:
+            out.append(json.loads(Path(p).read_text(encoding="utf-8")))
+        except (OSError, ValueError):
+            continue
+    return out
+
+
+def _review_files() -> tuple:
+    latest = {}
+    for c in state.HIST.checks(limit=2000):                # newest first
+        latest.setdefault(c["shipment"], Path(c["out_dir"] or "") / "review.json")
+    return tuple((str(p), p.stat().st_mtime) for p in latest.values() if p.is_file())
+
+
+def _evidence(r: dict) -> str:
+    e = []
+    if r["typo_of"]:
+        e.append(t1("hs_sug_typo", m=r["typo_of"]))
+    if r["conflict"]:
+        e.append(t1("hs_sug_conf", c=" / ".join(master.fmt(c) for c in r["conflict"])))
+    if r["series_differs"]:
+        e.append(t1("hs_sug_sdiff", c=", ".join(master.fmt(c) for c in r["series"])))
+    if r["bl_no"]:
+        e.append(t1("hs_sug_blno"))
+    if r["bl_ok"]:
+        e.append(t1("hs_sug_bl"))
+    if r["from_series"]:
+        e.append(t1("hs_sug_series"))
+    elif len(r["hs"]) == 6:
+        e.append(t1("hs_sug_f6"))
+    if not r["codes"]:
+        e.append(t1("hs_sug_noco"))
+    return " · ".join(e)
+
+
+def suggestions(hs: dict):
+    """Models of the checked documents that the list does not have; the user confirms what is added."""
+    st.subheader(t("hs_sug"))
+    if not hs["loaded"]:
+        st.info(t("hs_sug_need"))
+        return
+    for kind, text in st.session_state.pop("hs_sug_msg", []):
+        (st.success if kind == "ok" else st.error)(text)
+    known = {**master.added(), **master.load()["items"]}
+    rows = hs_suggest.suggest(_reviews(_review_files()), known)
+    if not rows:
+        st.caption(t("hs_sug_none"))
+    else:
+        st.caption(t("hs_sug_intro"))
+        label = {"ok": t1("hs_sug_ok"), "check": t1("hs_sug_check"), "none": t1("hs_sug_nocode"),
+                 "single": t1("hs_sug_single")}
+        table = [dict(pick=False, model=r["model"], hs=master.fmt(r["hs"]), state=label[r["state"]], why=_evidence(r),
+                      docs=", ".join(dict.fromkeys(d for c in r["codes"].values() for _s, d, _p in c["docs"]))
+                      or ", ".join(dict.fromkeys(d for d, _p in r["invoices"]))) for r in rows]
+        # a new key when the rows change, so ticks never land on another model
+        ed = st.data_editor(table, hide_index=True, width="stretch", height=min(38 + 35 * len(table), 460),
+                            key=f"hs_sug_{hash(tuple(r['key'] for r in rows))}", disabled=["model", "state", "why", "docs"],
+                            column_config={"pick": st.column_config.CheckboxColumn(t1("hs_sug_pick"), width=60),
+                                           "model": st.column_config.TextColumn(t1("hs_col_model"), width=170),
+                                           "hs": st.column_config.TextColumn(t1("hs_col_hs"), width=120),
+                                           "state": st.column_config.TextColumn(t1("hs_sug_state"), width=120),
+                                           "why": st.column_config.TextColumn(t1("hs_sug_why"), width="large"),
+                                           "docs": st.column_config.TextColumn(t1("hs_sug_docs"), width="large")})
+        picked = [(r, e) for r, e in zip(rows, ed) if e["pick"]]
+        if st.button(t1("hs_sug_add", n=len(picked)), type="primary", icon=":material/playlist_add:", disabled=not picked,
+                     key="hs_sug_btn"):
+            n, bad = add_picked([(r, e["hs"]) for r, e in picked], state.reviewer())
+            st.session_state["hs_sug_msg"] = ([("ok", t("hs_sug_done", n=n))] if n else []) + (
+                [("bad", t("hs_sug_bad", m=", ".join(bad)))] if bad else [])
+            st.rerun()
+    mine = master.added()
+    if mine:
+        with st.expander(t("hs_add_title", n=len(mine)), expanded=False):
+            st.caption(t("hs_add_note"))
+            st.dataframe([{t1("hs_col_model"): v["model"], t1("hs_col_hs"): master.fmt(v["hs"]),
+                           t1("hs_add_at"): v["added_at"].replace("T", " "), t1("hs_add_by"): v.get("by", ""),
+                           t1("hs_sug_docs"): ", ".join(v.get("docs", []))} for v in mine.values()],
+                         hide_index=True, width="stretch")
+            st.download_button(t1("hs_add_dl"), master.added_xlsx(), "HS_added.xlsx", icon=":material/download:")
+            drop = st.multiselect(t1("hs_add_rm"), list(mine), format_func=lambda k: mine[k]["model"], key="hs_add_drop")
+            if st.button(t1("hs_add_rm"), disabled=not drop, icon=":material/delete:", key="hs_add_drop_btn"):
+                for k in drop:
+                    master.remove(k)
+                st.session_state.pop("hs_add_drop", None)
+                st.rerun()
+
+
+def add_picked(picked: list, by: str) -> tuple:
+    """(number added, models whose code is not valid). picked = [(suggestion, HS code as edited)]."""
+    n, bad = 0, []
+    for r, code in picked:
+        docs = list(dict.fromkeys(d for c in r["codes"].values() for _s, d, _p in c["docs"])) or [d for d, _p in r["invoices"]]
+        try:
+            master.add(r["model"], code or "", docs, by)
+            n += 1
+        except ValueError:
+            bad.append(r["model"])
+    return n, bad
 
 
 def _browse(current: str):

@@ -126,3 +126,21 @@ written that way on purpose).
 | Form D package figure not read when split in pieces | pieces joined as `( 500 )` | spaces allowed inside the brackets |
 | Invoice line description not checked | only the packing list's was read | description read per invoice line, compared with the packing list |
 | B/L final destination `Hcm, VIETNAM` shown as not read | only capitals were accepted | the value is read as written |
+
+### HS master list: suggestions (LDV 2.8)
+
+- Reference data page: models of checked invoices that the list lacks, with the HS code printed on their certificates
+  and what supports it (`engine/hs_suggest.py`). The user confirms each one; nothing is added by itself.
+- Added models are kept in `master_hs_added.json`; the company Excel is never changed and always wins.
+- A Form E prints 6 digits: the 8-digit master code must begin with them. A Form D is compared on all digits.
+
+### Carrier B/Ls and several shipments (LDV 2.8)
+
+- Labelled boxes (`engine/bl_box.py`): carrier B/Ls and sea waybills whose box labels are text. Each value is the text
+  under its label; cargo is read from the typed rows (with footnotes such as `++COUNTRY`) or from the columns.
+- Plain B/Ls with containers written with slashes (`engine/bl_plain.py`), description on an attached sheet included.
+- Excel goods names printed beside each model are read per line.
+- Several B/Ls in one package: each is checked with the invoices it names (and their contracts and certificates).
+  A draft and the final B/L of one invoice are both checked. Files with one name in several folders stay apart.
+- `CNTR_VS_PL`: container numbers, cartons, weight and volume per container = packing list.
+  `SC_CHARGES`: freight / insurance on all contracts together = invoice.

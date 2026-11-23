@@ -6,6 +6,8 @@ the repository: the tracking files live in the data folder (config "data_dir", e
 
   master_hs.json       current list {model: {hs, row}} + source path, modification time, skipped rows
   master_hs_log.jsonl  one line per import: models added / removed / changed
+  master_hs_added.json models the user added from checked documents (engine/hs_suggest.py); used until the Excel lists
+                       the model: the Excel always wins, and LDV never changes it
 
 Command line (also used by Import-HS.bat / import_hs.sh):
   python -m engine.master "path/to/MA HS.xlsx"     import (and remember) this file
@@ -133,10 +135,76 @@ def refresh() -> dict | None:
     return None
 
 
+def _added_file() -> Path:
+    return data_dir() / "master_hs_added.json"
+
+
+def added(current: bool = True) -> dict:
+    """{key: {model, hs, added_at, by, docs}} the user added from documents; current: without those the Excel has now."""
+    f = _added_file()
+    k = (str(f), f.stat().st_mtime_ns) if f.exists() else None
+    if _cache.get("added_key") != k:
+        _cache.update(added_key=k, added=json.loads(f.read_text(encoding="utf-8")) if k else {})
+    excel = (load() or {}).get("items", {})
+    return {m: v for m, v in _cache.get("added", {}).items() if not (current and m in excel)}
+
+
+def _save_added(rows: dict, what: dict):
+    data_dir().mkdir(parents=True, exist_ok=True)
+    tmp = _added_file().with_suffix(".tmp")
+    tmp.write_text(json.dumps(rows, ensure_ascii=False, indent=1), encoding="utf-8")
+    tmp.replace(_added_file())
+    _cache["added_key"] = ""
+    with open(data_dir() / "master_hs_log.jsonl", "a", encoding="utf-8") as log:
+        log.write(json.dumps(dict(at=datetime.now().isoformat(timespec="seconds"), **what), ensure_ascii=False) + "\n")
+
+
+def add(model, hs, docs=(), by: str = "") -> None:
+    """Add one model the user confirmed. ValueError: not a 6, 8 or 10 digit code, or the Excel already has the model."""
+    d, k = digits(hs), key(model)
+    if not k or len(d) not in (6, 8, 10) or re.search(r"[^\d.\s]", str(hs)):
+        raise ValueError(f"{model}: {hs}")
+    if k in (load() or {}).get("items", {}):
+        raise ValueError(f"{model}: in Excel")
+    row = dict(model=str(model).strip(), hs=d, added_at=datetime.now().isoformat(timespec="seconds"), by=by, docs=list(docs))
+    _save_added({**added(False), k: row}, dict(document_added=k, hs=d, by=by, docs=list(docs)))
+
+
+def remove(model) -> None:
+    rows = added(False)
+    if rows.pop(key(model), None):
+        _save_added(rows, dict(document_removed=key(model)))
+
+
+def added_xlsx() -> bytes:
+    """The added models as an Excel with the master list's columns, to copy into the company's list."""
+    import io
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.append(["Mã NPL/SP", "Mã HS"])
+    for r in added().values():
+        ws.append([r["model"], r["hs"]])
+        ws.cell(ws.max_row, 2).number_format = "@"
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
 def hs_for(model) -> str | None:
     d = load()
-    it = d["items"].get(key(model)) if d else None
+    it = (d["items"].get(key(model)) or added().get(key(model))) if d else None
     return it["hs"] if it else None
+
+
+def agrees(printed, ref: str, model=None, form: str = "D") -> bool:
+    """A printed HS code against the master code. The same digits; a Form E prints the 6-digit subheading (ASEAN-China
+    rules), so there the master code must begin with it; a 6-digit code the user added from a Form E is compared on its
+    6 digits."""
+    p = digits(printed)
+    if p == ref or (form == "E" and len(p) == 6 and ref.startswith(p)):
+        return True
+    return len(ref) == 6 and key(model) in added() and p.startswith(ref)
 
 
 def status() -> dict:

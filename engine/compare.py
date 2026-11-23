@@ -16,6 +16,7 @@ import re
 
 from . import master
 from .rules import CONFIG, _canon_port, _city
+from .util import co_form, form_text
 
 TOL = 0.005
 
@@ -126,8 +127,8 @@ def _cell(docs: list[dict], src: str, typ: str) -> dict:
     parts = [dict(doc=n, page=p, show=[fmt(a, typ) for a in v], norm=[_norm(a, typ) for a in v])
              for n, p, v in zip(names, pages, vals)]
     partial = False
-    if typ == "number" and len(docs) > 1 and len(vals) < len(docs):
-        # some documents of this kind give the value and others not (not printed or not read): no package total
+    if len(docs) > 1 and len(vals) < len(docs) and (typ == "number" or any(_absent(d, src) for d in docs if d["name"] not in names)):
+        # some documents of this kind give the value and others not (not printed or not read): no package total / list
         partial = True
     nos = [(d.get("fields") or {}).get("pl_cntr_nos" if src == "pl_containers" else "cntr_nos") for d in docs]
     if typ == "number" and len(vals) > 1 and src in ("containers", "pl_containers") and all(nos):
@@ -135,7 +136,10 @@ def _cell(docs: list[dict], src: str, typ: str) -> dict:
         total = len({x.strip() for n in nos for x in str(n.get("value") or "").split(",") if x.strip()})
         flat = [str(total)]
     elif typ == "number" and len(vals) > 1:                   # e.g. two sales contracts: add them up
-        total = sum(_num(v[0]) or 0 for v in vals)
+        # the same B/L twice (draft and final, one B/L number): its figures count once when they agree
+        bl = {d["name"]: ((d.get("fields") or {}).get("bl_no") or {}).get("value") for d in docs if d.get("kind") == "BL"}
+        once = {(bl.get(n) or n, _num(v[0])): _num(v[0]) or 0 for n, v in zip(names, vals)}
+        total = sum(once.values())
         flat = [str(total)]
     else:
         flat = list(dict.fromkeys(a for v in vals for a in v))
@@ -178,7 +182,9 @@ def compare(s: dict) -> dict:
     by_kind = {}
     for d in s.get("docs", []):
         by_kind.setdefault(d.get("kind"), []).append(d)
-    cols = [dict(c, docs=by_kind.get(c["kind"], [])) for c in cfg["columns"]]
+    form = co_form(s.get("docs", []))
+    cols = [dict(c, docs=by_kind.get(c["kind"], []), en=form_text(c["en"], form), vi=form_text(c["vi"], form))
+            for c in cfg["columns"]]
     rows = []
     for fd in cfg["fields"]:
         cells = {}
@@ -246,7 +252,7 @@ def compare(s: dict) -> dict:
                     result = "mismatch"
             if sub and result == "single" and not any(v.get("odd") for _, v in sub):
                 result = "match"                   # the contract / Form D agree with their own invoice(s)
-        rows.append(dict(id=fd["id"], en=fd["en"], vi=fd["vi"], type=fd["type"], unit=fd.get("unit", ""),
+        rows.append(dict(id=fd["id"], en=form_text(fd["en"], form), vi=form_text(fd["vi"], form), type=fd["type"], unit=fd.get("unit", ""),
                          cells=cells, result=result))
     _against_ref(rows, cfg["fields"])
     return dict(columns=[{k: c[k] for k in ("id", "kind", "en", "vi")} | dict(n_docs=len(c["docs"]))

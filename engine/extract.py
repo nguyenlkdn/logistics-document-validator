@@ -118,6 +118,8 @@ def classify(text: str) -> str | None:
         return "BL"
     if "COMMERCIAL INVOICE" in t or "PACKING LIST" in t:
         return "CI"
+    if "SEA WAYBILL" in t and "CONSIGNEE" in t and "PORT OF DISCHARGE" in t:
+        return "BL"
     from .bl_plain import is_plain_bl
     if is_plain_bl(text):                         # a B/L with its labels in the background picture
         return "BL"
@@ -626,19 +628,20 @@ def load(path: Path, kind: str | None = None) -> Doc | None:
         return None
     raw_all = "\n".join(p.get_text() for p in pdf)   # includes rotated text, e.g. a diagonal DRAFT watermark
     # '非有效证书' ("not a valid certificate"): the draft watermark of a Chinese certificate of origin
-    is_draft = bool(re.search(r"\bDRAFT\b|非有效证书", full + "\n" + raw_all, re.I) or "draft" in path.name.lower())
+    is_draft = bool(re.search(r"\bDRAFT\b|非有效证书", full + "\n" + raw_all, re.I) or re.search("draft|草稿", path.name.lower()))
     d = Doc(path, kind, lines, pdf[0].rect.width, is_draft)
-    from . import bl_plain, form_e
+    from . import bl_box, bl_plain, form_e
     fe = kind == "CO" and form_e.is_form_e(full)       # Form E (ASEAN-China): its own layout, the Form D fields
-    plain = kind == "BL" and bl_plain.is_plain_bl(full)   # B/L without label text: read by position
-    (form_e.extract if fe else bl_plain.extract if plain else EXTRACTORS[kind])(d)
+    box = kind == "BL" and bl_box.is_box_bl(lines)        # carrier B/L / waybill with labelled boxes
+    plain = kind == "BL" and not box and bl_plain.is_plain_bl(full)   # B/L without label text: read by position
+    (form_e.extract if fe else bl_box.extract if box else bl_plain.extract if plain else EXTRACTORS[kind])(d)
     if kind == "CO":                                # box 6 marks: model on one line, colour code "(BK)" on the next
         d.lists["marks_models"] = [Field(a + b, a, Line(pno, 0.0), 0, 0) for pno, pg in enumerate(pdf)
                                    for a, b in re.findall(r"(?m)^(" + MARK_HEAD + r")\s*\n\s*(\([A-Za-z0-9]+\)[A-Za-z]*" + MARK_TAIL + r")\s*$",
                                                           pg.get_text())]
     d.lists["unparsed"] = _unparsed_rows(d)
     from .extract_net import EXTRA                   # extra fields for the cross-document / self-check rules
-    if not plain:
+    if not (plain or box):
         (form_e.extra if fe else EXTRA[kind])(d)
     from .plausibility import mark                   # P5: readings with a detectable defect are SUSPECT
     mark(d)

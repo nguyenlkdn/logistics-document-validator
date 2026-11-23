@@ -36,6 +36,8 @@ import re
 import traceback
 from dataclasses import dataclass, field
 
+from .util import form_text
+
 LOG = logging.getLogger("ldv.checks")
 
 
@@ -167,6 +169,7 @@ REGISTRY_ROWS = [
     _d("INCOTERM_PORT", "r_incoterm", "document", "*", "BL.pol CI.pol *.lists.fob", "INCOTERM"),
     _d("SC_PO_COVERAGE", "r_po_coverage", "invoice", "SC CI", "CI.pos SC.pos", "SC_PO_TYPO SC_PO_MISSING SC_PO_EXTRA"),
     _d("SC_VS_CI", "r_sc_vs_ci", "invoice", "SC CI", "CI.items SC.items", "SC_VS_CI"),
+    _d("SC_CHARGES", "r_sc_vs_ci", "invoice", "SC CI", "SC.lists.charges CI.lists.charges", "SC_CHARGES SC_CHARGES_TWICE"),
     _d("SC_NUMBERING", "r_sc_vs_ci", "document", "SC", "SC.items", "SC_NUMBERING"),
     _d("DEPARTURE_DATE", "r_dates", "invoice", "CO CI", "CO.departure CI.sailing", "DEPARTURE_DATE"),
     _d("CO_INVOICE_DATE", "r_dates", "invoice", "CO CI", "CO.items CO.items[inv_date] CI.invoice_date", "CO_INVOICE_DATE"),
@@ -188,6 +191,8 @@ REGISTRY_ROWS = [
     _d("CNTR_SUMMARY", "r_containers", "invoice", "BL CI", "BL.cntr_summary CI.lists.cntr_types", "CNTR_SUMMARY"),
     _d("CNTR_CAPACITY", "r_containers", "document", "BL", "BL.lists.cntr BL.lists.cntr_load", "CNTR_CAPACITY"),
     _d("CNTR_ATTACH_SUM", "r_containers", "document", "BL", "BL.lists.cntr_load BL.ctn BL.gw BL.cbm", "CNTR_ATTACH_SUM"),
+    _d("CNTR_VS_PL", "r_cntr_vs_pl", "shipment", "BL CI", "BL.lists.cntr BL.lists.cntr_load CI.pl_items",
+       "CNTR_NO CNTR_NO_MISSING CNTR_LOAD CNTR_LOAD_UNREAD"),
     _d("BL_MARKS_MODEL", "r_bl_cargo", "invoice", "BL CI", "BL.lists.marks_models CI.items[model]", "BL_MARKS_MODEL"),
     _d("BL_CARGO_QTY", "r_bl_cargo", "invoice*", "BL CI", "BL.bl_qty CI.Σqty", "BL_QTY BL_DESC_QTY"),
     _d("BL_CARGO_CTN", "r_bl_cargo", "invoice*", "BL CI", "BL.bl_qty_ctn CI.Σctn", "BL_DESC_CTN BL_DESC_QTY"),
@@ -303,6 +308,7 @@ class Run:
         self.done: set = set()                    # (check id, group id, doc)
         self.done_ids: set = set()                # (check id, group id)
         self.diagnostics: list[str] = []
+        self.part = 0                             # first record of the shipment being checked (several B/Ls)
         self.traces: dict = {}                    # has_text() results of this run
         self._names: list = []                    # document names of the current group
         self.core = core_ids()
@@ -416,7 +422,7 @@ class Run:
     def override(self, ids, status, reason, detail, group_id=None):
         """Change records of the current run before it is finished (e.g. the B/L covers an invoice that is not in
         the package: its totals cannot be compared, and the findings about them were withdrawn)."""
-        for r in self.results:
+        for r in self.results[self.part:]:
             if r.check_id in ids and (group_id is None or r.group_id == group_id) and r.status != CheckStatus.NOT_APPLICABLE:
                 r.status, r.reason, r.detail = status, reason, {**r.detail, **detail}
                 r._fids = []
@@ -791,7 +797,7 @@ def effective(s: dict, marks: dict) -> dict | None:
     return verdict(s.get("checks") or [], s["findings"], is_open)
 
 
-def reason_text(r: dict, lang: str) -> str:
+def reason_text(r: dict, lang: str, form: str = "") -> str:
     """The EN / VI explanation of a NOT_RUN / NOT_APPLICABLE record."""
     from .rules import CONFIG
     msgs = CONFIG.get("check_reasons", {})
@@ -813,17 +819,31 @@ def reason_text(r: dict, lang: str) -> str:
                 by=d.get("by", ""), rule=d.get("rule", ""), error=d.get("error", ""), invoices=d.get("invoices", ""),
                 what=d.get("what", ""), models=", ".join(d.get("models") or []))
     try:
-        return m.get(lang, m.get("en", key)).format(**vals)
+        out = m.get(lang, m.get("en", key)).format(**vals)
     except (KeyError, IndexError):
-        return m.get(lang, key)
+        out = m.get(lang, key)
+    return out if key == "na_form_e_only" else form_text(out, form)     # that one names the Form D on purpose
 
 
-def _kind_label(k: str, lang: str) -> str:
+def kind_name(k: str, lang: str, form: str = "", short: bool = False) -> str:
+    """The document type as the reports show it; a C/O by its form (Form D / Form E) when the review knows it."""
     from .rules import CONFIG
-    return CONFIG["doc_kinds"].get(k, {}).get(lang, k) if k else ""
+    if not k:
+        return ""
+    d = CONFIG["doc_kinds"].get(k)
+    if not d:
+        return k
+    f = d.get("forms", {}).get(form)
+    if short:
+        return f["short"] if f else {"CI": "CI / PL", "SC": "S/C", "BL": "B/L", "CO": "C/O"}.get(k, k)
+    return (f or d).get(lang) or d["en"]
 
 
-def check_name(cid: str, lang: str) -> str:
+_kind_label = kind_name
+
+
+def check_name(cid: str, lang: str, form: str = "") -> str:
+    """The check's name; checks written for the Form D are named for the certificate of the set (form: co_form)."""
     from .rules import CONFIG
     n = CONFIG.get("checks", {}).get(cid, {})
-    return n.get(lang) or n.get("en") or cid
+    return form_text(n.get(lang) or n.get("en") or cid, form)

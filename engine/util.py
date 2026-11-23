@@ -1,8 +1,26 @@
+import difflib
 import re
 from datetime import date, datetime
 
 _MONTHS = {m: i for i, m in enumerate(
     ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"], 1)}
+
+
+def _get(d, k, default=None):
+    return d.get(k, default) if isinstance(d, dict) else getattr(d, k, default)
+
+
+def co_form(docs) -> str:
+    """The certificate form of the C/O documents in a set: 'D', 'E', 'D/E' (both kinds) or '' (no C/O, or a
+    review stored before LDV 2.8 that does not say). Takes Doc objects or the session's document dicts."""
+    return "/".join(sorted({_get(d, "form") for d in docs if _get(d, "kind") == "CO" and _get(d, "form")}))
+
+
+def form_text(text: str, form: str) -> str:
+    """A text written for a Form D (config messages, check names) said for the certificate actually checked."""
+    if not text or form not in ("E", "D/E"):
+        return text
+    return text.replace("Form D", f"Form {form}").replace("mẫu D", f"mẫu {form}")
 
 
 def num(s) -> float:
@@ -112,3 +130,55 @@ def number_to_words(n: int) -> str:
         if n >= scale:
             parts += below_1000(n // scale) + ([word] if word else []); n %= scale
     return " ".join(parts)
+
+
+def words_for(text: str, value: float) -> str | None:
+    """The amount-in-words sentence text, corrected to value: its own wording, case, 'AND' and punctuation are kept and
+    only the number words that differ are changed ('… ONE HUNDRED EIGHTY AND CENTS FIVE ONLY' -> '… ONE HUNDRED EIGHT
+    AND CENTS FIVE ONLY'). None when the sentence is not written in a way that can be corrected word by word."""
+    number = set(_UNITS) | set(_TENS) | set(_SCALES) | {"HUNDRED"}
+    toks = [(m[0], m.start(), m.end()) for m in re.finditer(r"[A-Za-z]+", text)]
+    whole, cents = divmod(round(value * 100), 100)
+    at = lambda w: next((i for i, t in enumerate(toks) if t[0].upper() in w), None)
+    c, pt = at(("CENT", "CENTS")), at(("POINT",))
+    num = [i for i, t in enumerate(toks) if t[0].upper() in number]
+    if not num or pt is not None:
+        return None
+    if c is None:
+        part = {"whole": num, "cents": []}
+    elif any(i > c for i in num):                      # '… AND CENTS FIVE'
+        part = {"whole": [i for i in num if i < c], "cents": [i for i in num if i > c]}
+    else:                                              # '… AND FIVE CENTS': the number after the last AND
+        a = max((i for i, t in enumerate(toks[:c]) if t[0].upper() == "AND"), default=None)
+        if a is None:
+            return None
+        part = {"whole": [i for i in num if i < a], "cents": [i for i in num if i > a]}
+    if not part["whole"] or bool(part["cents"]) != bool(cents):
+        return None
+    edits = []                                         # (start, end, new text)
+    for key, n in (("whole", whole), ("cents", cents)):
+        idx = part[key]
+        if not idx:
+            continue
+        have = [toks[i][0].upper() for i in idx]
+        want = number_to_words(n).replace("-", " ").split()
+        for op, i1, i2, j1, j2 in difflib.SequenceMatcher(None, have, want, autojunk=False).get_opcodes():
+            if op == "equal":
+                continue
+            sample = toks[idx[min(i1, len(idx) - 1)]][0]
+            new = " ".join(w if sample.isupper() else w.capitalize() if sample[0].isupper() else w.lower()
+                           for w in want[j1:j2])
+            if op == "insert":
+                k = toks[idx[i1 - 1]][2] if i1 else toks[idx[0]][1]
+                edits.append((k, k, f" {new}" if i1 else f"{new} "))
+            elif op == "replace":
+                edits.append((toks[idx[i1]][1], toks[idx[i2 - 1]][2], new))
+            else:                                      # the word goes, with the blank / hyphen before it
+                start = toks[idx[i1]][1]
+                edits.append((len(text[:start].rstrip(" -")), toks[idx[i2 - 1]][2], ""))
+    out = text
+    for a, b, new in sorted(edits, reverse=True):
+        out = out[:a] + new + out[b:]
+    out = re.sub(r"\s+", " ", re.sub(r"\b(AND)(\s+AND\b)+", r"\1", out, flags=re.I)).strip()
+    got = words_to_number(out)
+    return out if got is not None and abs(got - value) < 0.005 else None
