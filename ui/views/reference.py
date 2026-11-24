@@ -4,7 +4,7 @@ from pathlib import Path
 
 import streamlit as st
 
-from engine import hs_suggest, master
+from engine import hs_suggest, master, places
 
 from .. import components as ui
 from .. import state
@@ -58,6 +58,7 @@ def render():
             preview_import(Path(pv), hs)
 
     suggestions(hs)
+    place_names()
 
     # ---- current list
     if hs["loaded"]:
@@ -162,6 +163,54 @@ def suggestions(hs: dict):
                 for k in drop:
                     master.remove(k)
                 st.session_state.pop("hs_add_drop", None)
+                st.rerun()
+
+
+def place_names():
+    """Place names of the checked B/Ls that belong to no known city; the user confirms the city of each."""
+    st.subheader(t("pl_names"))
+    for kind, text in st.session_state.pop("pl_msg", []):
+        (st.success if kind == "ok" else st.error)(text)
+    rows = places.suggest(_reviews(_review_files()))
+    if not rows:
+        st.caption(t("pl_none"))
+    else:
+        st.caption(t("pl_intro"))
+        table = [dict(pick=False, name=r["name"], city=r["city"],
+                      why=(t1("pl_conf", c=" / ".join(r["conflict"])) if r["conflict"] else
+                           t1("pl_from_bl", c=r["city"]) if r["city"] else t1("pl_no_city")),
+                      docs=", ".join(r["docs"])) for r in rows]
+        ed = st.data_editor(table, hide_index=True, width="stretch", height=min(38 + 35 * len(table), 300),
+                            key=f"pl_{hash(tuple(r['key'] for r in rows))}", disabled=["name", "why", "docs"],
+                            column_config={"pick": st.column_config.CheckboxColumn(t1("hs_sug_pick"), width=60),
+                                           "name": st.column_config.TextColumn(t1("pl_name"), width=170),
+                                           "city": st.column_config.TextColumn(t1("pl_city"), width=190),
+                                           "why": st.column_config.TextColumn(t1("hs_sug_why"), width="large"),
+                                           "docs": st.column_config.TextColumn(t1("hs_sug_docs"), width="large")})
+        picked = [(r, e) for r, e in zip(rows, ed) if e["pick"]]
+        if st.button(t1("pl_add", n=len(picked)), type="primary", icon=":material/add_location_alt:", disabled=not picked,
+                     key="pl_btn"):
+            n, bad = 0, []
+            for r, e in picked:
+                try:
+                    places.add(r["name"], e["city"], r["docs"], state.reviewer())
+                    n += 1
+                except ValueError:
+                    bad.append(r["name"])
+            st.session_state["pl_msg"] = ([("ok", t("pl_done", n=n))] if n else []) + (
+                [("bad", t("pl_bad", m=", ".join(bad)))] if bad else [])
+            st.rerun()
+    mine = places.added()
+    if mine:
+        with st.expander(t("pl_mine", n=len(mine)), expanded=False):
+            st.dataframe([{t1("pl_name"): v["name"], t1("pl_city"): v["city"], t1("hs_add_at"): v["added_at"].replace("T", " "),
+                           t1("hs_add_by"): v.get("by", ""), t1("hs_sug_docs"): ", ".join(v.get("docs", []))}
+                          for v in mine.values()], hide_index=True, width="stretch")
+            drop = st.multiselect(t1("hs_add_rm"), list(mine), format_func=lambda k: mine[k]["name"], key="pl_drop")
+            if st.button(t1("hs_add_rm"), disabled=not drop, icon=":material/delete:", key="pl_drop_btn"):
+                for k in drop:
+                    places.remove(k)
+                st.session_state.pop("pl_drop", None)
                 st.rerun()
 
 

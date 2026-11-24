@@ -466,6 +466,22 @@ T = {
     "hs_sug_series": ("8 digits from the same series in the list", "8 số lấy từ cùng dòng model trong danh mục"),
     "hs_sug_sdiff": ("same series in the list has {c}", "cùng dòng model trong danh mục là {c}"),
     "hs_sug_typo": ("maybe a typo of {m}", "có thể gõ nhầm của {m}"),
+    "pl_names": ("Place names", "Tên địa danh"),
+    "pl_intro": ("Places on checked B/Ls that LDV cannot match to a city, so their check did not run. Confirm the city; "
+                 "the names are kept on this PC only.",
+                 "Địa danh trên B/L đã kiểm tra mà LDV chưa biết thuộc thành phố nào, nên mục kiểm tra chưa chạy. "
+                 "Xác nhận thành phố; tên chỉ lưu trên máy này."),
+    "pl_none": ("Every place name of the checked B/Ls is known.", "Mọi địa danh trên B/L đã kiểm tra đều đã biết."),
+    "pl_name": ("Place name", "Địa danh"), "pl_city": ("City", "Thành phố"),
+    "pl_from_bl": ("the B/L itself is to {c}: confirm that the place is there", "B/L đi {c}: xác nhận địa danh thuộc nơi này"),
+    "pl_conf": ("B/Ls to different cities: {c}", "các B/L đi thành phố khác nhau: {c}"),
+    "pl_no_city": ("no known city on the B/L: type it", "B/L không có thành phố đã biết: hãy nhập"),
+    "pl_add": ("Add {n} place name(s)", "Thêm {n} địa danh"),
+    "pl_done": ("Added {n} place name(s). Check the documents again to use them: saved reviews do not change.",
+                "Đã thêm {n} địa danh. Kiểm tra lại chứng từ để áp dụng: kết quả đã lưu không đổi."),
+    "pl_bad": ("Not added, the city is missing or the name is already known: {m}",
+               "Chưa thêm, thiếu thành phố hoặc tên đã có: {m}"),
+    "pl_mine": ("Place names you added ({n})", "Địa danh đã thêm ({n})"),
     "hs_sug_noco": ("on the invoice only", "chỉ có trên hóa đơn"),
     "hs_add_title": ("Added from documents ({n})", "Đã thêm từ chứng từ ({n})"),
     "hs_add_note": ("LDV uses these until your Excel lists the model (the Excel always wins). Download them and copy the rows "

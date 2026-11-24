@@ -6,7 +6,7 @@ from collections import Counter
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
-from . import master
+from . import master, places
 from .checks import CheckStatus, Group, Run, begin, current_run, has_text
 from .extract import PO_RE, Doc, Field
 from .util import co_form, fmt_like, form_text, number_to_words, words_for, words_to_number
@@ -457,7 +457,7 @@ def r_sc_vs_ci(scs, ci, out):
     key = lambda it: (it["model"], it["qty"].value, round(it["price"].value, 2))
     a = Counter(key(it) for it in ci.items)
     b = Counter(key(it) for s in scs for it in s.items)
-    if a != b:
+    if a != b and ci.items:              # no invoice line read: nothing to compare with, NOT_RUN (need_items)
         fmt = lambda c: "; ".join(f"{m} {q:,.0f} @ {p}" for m, q, p in sorted(c.elements()))
         locs = [x for s in scs for it in s.items if key(it) in (b - a) for x in at_line(s, it["qty"].line)]
         ck.add(Finding("SC_VS_CI", "ERROR", list(scs) + [ci], {}, fmt(b - a), fmt(a - b), locs))
@@ -506,7 +506,8 @@ def r_sc_vs_ci(scs, ci, out):
             ck.add(Finding("SC_NUMBERING", "MINOR", [s], {}, ",".join(n.raw if n else "—" for n in nums),
                            ",".join(str(i) for i in range(1, len(nums) + 1)),
                            [x for i, (n, it) in enumerate(zip(nums, s.items), 1) if _v(n) != i
-                            for x in at(s, n or it["qty"])]))
+                            for x in (at(s, n) if n else [Loc(s, it["qty"].page, s.empty_no[it["row"]], None)]
+                                      if it.get("row") in s.empty_no else at_line(s, it["qty"].line))]))
         ck.end()
 
 
@@ -617,8 +618,9 @@ def r_co(ci, co, bl, out):
     ck = begin("CO_ITEMS", out)
     ck.need_items(co)
     ck.need_items(ci)
-    ck.compared()
-    if len(co.items) != len(ci.items):            # the whole item table is wrong (owner, 2026-11-19): box it at once
+    if ci.items:                                  # no invoice line read: not run, no false difference
+        ck.compared()
+    if ci.items and len(co.items) != len(ci.items):            # the whole item table is wrong (owner, 2026-11-19): box it at once
         locs = _co_table(co) or [x for it in co.items for x in (at(co, it.get("hs_f")) or at_line(co, it["qty"].line))]
         locs += [x for it in ci.items for x in at_line(ci, it["qty"].line, "ref")]
         ck.add(Finding("CO_ITEMS", "ERROR", [co, ci], _items_diff(co, ci), _item_list(co), _item_list(ci), locs))
@@ -1233,7 +1235,7 @@ def r_bl_cargo(ci, co, bl, out):
         if a and b:
             ck.compared()
         elif ref_f:
-            ck.not_run("master_data_missing", what="city_list")      # place not in config "cities"
+            ck.not_run("master_data_missing", what="city_list")      # a place name that belongs to no known city
         if a and b and a != b:
             sug = (ci.f.get("pod") or ref_f).value
             ck.add(Finding("BL_DESTINATION", "ERROR", [bl], dict(dest=fd.value, ref=b), fd.value, sug,
@@ -1282,16 +1284,8 @@ def _norm_words(t: str) -> str:
 
 
 def _city(place: str) -> str | None:
-    """Port / place name -> its city group from config "cities" (e.g. CAT LAI -> HO CHI MINH CITY)."""
-    p = _norm_words(place)
-    for city, names in CONFIG.get("cities", {}).items():
-        if p in {_norm_words(n) for n in [city] + names}:
-            return city
-    for city, names in CONFIG.get("cities", {}).items():    # city + terminal: 'HAIPHONG DINH VU'
-        al = {_norm_words(n) for n in [city] + names}
-        if any(p.startswith(a) and p[len(a):] in al for a in al if len(a) >= 5):
-            return city
-    return None
+    """Port / place name -> its city group (engine/places: the general list and the names the user confirmed)."""
+    return places.city(place)
 
 
 def _pairs(ci, co) -> list:

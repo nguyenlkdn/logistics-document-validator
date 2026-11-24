@@ -149,6 +149,8 @@ def _():
     assert d.f["final_dest"].value == "PORT A", d.f["final_dest"]
     d = pdf("bl_dest_lc", B_L + ["FINAL DESTINATION : Port b, NOWHERE"], "BL")      # not only in capitals
     assert d.f["final_dest"].value == "Port b", d.f["final_dest"]
+    d = pdf("bl_dest_hyphen", B_L + ["FINAL DESTINATION : XY-ABC, NOWHERE"], "BL")       # a terminal with a hyphen
+    assert d.f["final_dest"].value == "XY-ABC", d.f["final_dest"]
     d = pdf("bl_nodest", B_L + ["SAID TO CONTAIN"], "BL")
     assert "final_dest" in (d.f["absent"].value if d.f.get("absent") else ""), d.f.get("absent")
 
@@ -269,6 +271,18 @@ def _():
     assert d.f["pl_total_ctn"].value == 1.0, d.f.get("pl_total_ctn")
     assert d.f["pl_total_qty"].value == 357.0 and d.f["pl_total_cbm"].value == 0.481
     assert [str(h["date"].value) for h in d.lists["headers"]] == ["2026-10-05", "2026-10-05"], d.lists["headers"]
+
+
+@test("CI: a unit price without its trailing zeros ('45.5', '45'); number and date on separate header lines")
+def _():
+    d = pdf("ci_short_price", [
+        "COMMERCIAL INVOICE", "Invoice No.: ABC26-XYZ031", "Invoice Date: 2026-10-05",
+        [(40, "AB-X10(W1)"), (300, "12 PCS"), (380, "45.5"), (440, "546.00")],
+        [(40, "AB-X20(W1)"), (300, "10 PCS"), (380, "45"), (440, "450.00")],
+        [(300, "TOTAL"), (440, "USD 996.00")]], "CI")
+    assert [(i["qty"].value, i["price"].value, i["amount"].value) for i in d.items] == [(12, 45.5, 546), (10, 45, 450)], d.items
+    assert not d.lists["unparsed"], d.lists["unparsed"]
+    assert [(h["no"].value, str(h["date"].value)) for h in d.lists["headers"]] == [("ABC26-XYZ031", "2026-10-05")]
 
 
 @test("B/L: hyphenated invoice numbers in the invoice list")
@@ -862,7 +876,13 @@ def _():
             assert [(l.doc.name, l.role) for l in f.locs] == [(scs[1].name, "wrong"), (scs[0].name, "ref"), (ci.name, "ref")]
             assert "Contract 2" in f.text("en") and "200" in f.text("en"), f.text("en")
         assert len(got) == (2 if both else 0), [(f.key, f.current) for f in out]
-        assert any(f.key == "SC_NUMBERING" and f.current == "1,—,—" for f in out)
+        num = next(f for f in out if f.key == "SC_NUMBERING")
+        assert num.current == "1,—,—" and len(num.locs) == 2
+        heads = {c.text: c for l in scs[0].lines for c in l.cells()}      # the empty number cells, not the quantities
+        x0, x1 = heads["NO."].bbox[0], heads["DESCRIPTION"].bbox[0]
+        for loc, it in zip(num.locs, scs[0].items[1:]):
+            q = it["qty"].line.spans_for(it["qty"].start, it["qty"].end)[0].bbox
+            assert loc.text is None and x0 - 4 <= loc.clip[0] < loc.clip[2] < x1 and loc.clip[1] <= (q[1] + q[3]) / 2 <= loc.clip[3], loc.clip
 
 
 @test("several B/Ls: each is checked with its own invoice; a wrong container no. / load is found; draft + final count once")

@@ -204,6 +204,12 @@ def extra_ci(d: Doc, header_only: bool = False):
         d.f["absent"] = Field(", ".join(absent), "", L[0], 0, 0)
     d.lists["headers"] = [dict(no=F(l, m, 1), date=F(l, m, 2, parse_date(m[2])))
                           for _, l, m in _search(L, rf"INVOICE NO\.?\s*:?\s*({DOC_ID})\s+(?:DATE\s*:\s*)?({DATE_DMY})")]
+    if not d.lists["headers"]:                       # number and date on separate lines: the pair of each page
+        for pno in sorted({l.page for l in L}):
+            page = [l for l in L if l.page == pno]
+            no, date = _first(page, rf"INVOICE NO\.?\s*:\s*({DOC_ID})"), _first(page, r"Invoice Date:\s*(\S+)", conv=parse_date)
+            if no and date:
+                d.lists["headers"].append(dict(no=no, date=date))
     if not header_only and 0 < pl_start < len(L):
         _pl_header(d, pl)
 

@@ -286,6 +286,9 @@ def _against_ref(rows: list, fields: list):
         r["vs"] = dict(en=ref["en"], vi=ref["vi"], show=want["show"])
         cells = [v for v in r["cells"].values() if v["state"] == "value"]
         bad = [v for v in cells if not _same(want["norm"], v["norm"], r["type"])]
+        if bad and r["type"] == "port" and not all(_city(n) for v in bad + [want] for n in v["norm"]):
+            del r["vs"]                   # a place of no known city is not a difference (BL_DESTINATION does not run)
+            continue
         for v in bad:
             v["odd"] = True
         if bad:

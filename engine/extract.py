@@ -93,6 +93,7 @@ class Doc:
     pl_items: list = field(default_factory=list)
     lists: dict = field(default_factory=dict)    # multi-occurrence fields -> [Field]
     cargo_blocks: list = field(default_factory=list)   # B/L: [CargoBlock]
+    empty_no: dict = field(default_factory=dict)       # contract sheet: {row: box of an empty line-number cell}
     packages: list = field(default_factory=list)       # packing list: [Package] when lines share a carton
     suspect_lines: int = 0                             # P5 S2: goods rows not read -> line sums are SUSPECT
     item_ids: list = field(default_factory=list)       # [ItemId] parallel to items
@@ -241,7 +242,7 @@ def _extract_ci(d: Doc):
     d.f["pos"] = Field(sorted(pos), "", L[0], 0, 0)
     d.lists["fob"] = _fob_all(L)
 
-    item_rx = rf"({NUM})\s*{QTY_UNIT}\s{{2,}}({DEC2})\s{{2,}}({DEC2})\s*$"
+    item_rx = rf"({NUM})\s*{QTY_UNIT}\s{{2,}}({NUM})\s{{2,}}({DEC2})\s*$"      # a price may drop its zeros: '45.5'
     hits = list(_search(inv, item_rx))
     for n, (i, l, m) in enumerate(hits):
         po = re.search(PO_RE, l.text)
@@ -486,8 +487,9 @@ def _extract_bl_cargo(d: Doc):
         d.f["bl_qty_ctn"] = F(l, m, 1, num(m[1]))             # '1,250 CARTONS (1,250 SETS)': the cartons too
         d.f["bl_qty_phrase"] = F(l, m, 0)
         break
+    # a terminal name may hold a hyphen, also the non-breaking one
     # the label in capitals, the value as written ('Hcm, VIETNAM' is Ho Chi Minh City, not "not read")
-    d.f["final_dest"] = _first(L, r"FINAL DESTINATION\s*:\s*([A-Za-z][A-Za-z .]*?)\s*(?:,|$)", flags=0)
+    d.f["final_dest"] = _first(L, r"FINAL DESTINATION\s*:\s*([A-Za-z][A-Za-z .\-‐‑–]*?)\s*(?:,|$)", flags=0)
     d.f["delivery"] = _after(L, r"\[ Place of Delivery \]", r"\s{2,}([A-Z][A-Z ]*?)(?=,|\s{2,}|$)")
 
 

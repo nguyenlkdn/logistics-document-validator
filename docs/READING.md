@@ -134,6 +134,12 @@ written that way on purpose).
 - Added models are kept in `master_hs_added.json`; the company Excel is never changed and always wins.
 - A Form E prints 6 digits: the 8-digit master code must begin with them. A Form D is compared on all digits.
 
+### Place names
+
+- Ports and terminals belong to a city: the general list in config "cities" plus the names the user confirms on the
+  Reference data page (`engine/places.py`). A name of no known city is not guessed: its check does not run.
+- Confirmed names are kept in `places_added.json` in the data folder, never in the repository.
+
 ### Carrier B/Ls and several shipments (LDV 2.8)
 
 - Labelled boxes (`engine/bl_box.py`): carrier B/Ls and sea waybills whose box labels are text. Each value is the text

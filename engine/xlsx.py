@@ -142,6 +142,13 @@ class Sheet:
         r1, c1 = self.merged.get((cell.row, cell.col), (cell.row, cell.col))
         return self.colx[cell.col], self.rowy[cell.row], self.colx[c1 + 1], self.rowy[r1 + 1]
 
+    def box(self, row, col):
+        """The place of a grid cell on the page, also when it is empty (a merged cell: the whole merge)."""
+        for (r, c), (r1, c1) in self.merged.items():
+            if r <= row <= r1 and c <= col <= c1:
+                return self.colx[c], self.rowy[r], self.colx[c1 + 1], self.rowy[r1 + 1]
+        return self.colx[col], self.rowy[row], self.colx[col + 1], self.rowy[row + 1]
+
     def right(self, cell, max_cols=12):
         """The next filled cell to the right on the same row (the value after a label)."""
         for c in range(cell.col + 1, min(cell.col + max_cols, self.c1) + 1):
@@ -681,6 +688,9 @@ def read_sc(d, sheets):
             for it in _items(sh, cols["qty"], mcol, r_head, dict(price=cols["price"], amount=cols["amount"])):
                 noc = sh.at.get((it["row"], cols["no"]))
                 it["no"] = _f(noc, int(_number(noc))) if noc is not None and _number(noc) is not None else None
+                if it["no"] is None:                  # an empty number cell has no text: keep its place for the highlight
+                    x0, y0, x1, y1 = sh.box(it["row"], cols["no"])
+                    d.empty_no[it["row"]] = (x0 + 4, y0 + 4, x1 - 4, y1 - 4)   # inside the grid lines
                 d.items.append(it)
         g = _goods_heading(sh, r_head, min([r_head + 3] + [it["row"] - 1 for it in d.items]))
         if g:

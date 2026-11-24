@@ -1039,6 +1039,49 @@ def _():
     assert got["CD-Y20"]["conflict"] == ["555566", "555577"] and got["CD-Y20"]["hs"] == "" and got["CD-Y20"]["state"] == "check"
 
 
+@test("Invoice lines not read: SC_VS_CI and CO_ITEMS do not run (no false ERROR), the package is not confirmed")
+def _():
+    docs = package()
+    next(d for d in docs if d.kind == "CI").items = []
+    fs, res, v = gated(docs)
+    assert not {f.key for f in fs} & {"SC_VS_CI", "CO_ITEMS"}, [f.key for f in fs]
+    st = {r.check_id: (r.status, r.reason) for r in res}
+    assert st["SC_VS_CI"] == st["CO_ITEMS"] == ("NOT_RUN", "items_not_read"), (st["SC_VS_CI"], st["CO_ITEMS"])
+    assert v["state"] == "AMBER", v
+    docs = package()                                              # a line missing among others is still an error
+    ci = next(d for d in docs if d.kind == "CI")
+    ci.items = ci.items + [dict(ci.items[0])]
+    assert {"SC_VS_CI", "CO_ITEMS"} <= {f.key for f in gated(docs)[0]}
+
+
+@test("Place names: unknown ones are suggested with the B/L's city, used only after the user adds them, and can be removed")
+def _():
+    from engine import places
+    bl = lambda name, **k: dict(docs=[dict(name=name, kind="BL", fields={a: dict(value=v) for a, v in k.items()})])
+    s1 = bl("b1", final_dest="QX-ZED", delivery="HAI PHONG", pod="HAIPHONG")
+    s2 = bl("b2", final_dest="QX\u2011ZED", delivery="DA NANG")
+    s3 = bl("b3", final_dest="QX-ZED", delivery="NOWHERE", pod="CAT LAI")
+    got = places.suggest([s1])
+    assert [(r["name"], r["city"]) for r in got] == [("QX-ZED", "HAI PHONG")], got
+    assert places.city("QX-ZED") is None                          # a suggestion is not used
+    got = {r["key"]: r for r in places.suggest([s1, s2])}
+    assert got["QXZED"]["city"] == "" and got["QXZED"]["conflict"] == ["DA NANG", "HAI PHONG"]
+    assert {r["key"] for r in places.suggest([s3])} == {"QXZED", "NOWHERE"}
+    for bad in (("QX-ZED", ""), ("", "HAI PHONG"), ("CAT LAI", "HAI PHONG")):      # no city / no name / another city's name
+        try:
+            places.add(*bad)
+            raise AssertionError(bad)
+        except ValueError:
+            pass
+    places.add("QX-ZED", "hph", ["b1"], "someone")
+    try:
+        assert places.city("QX\u2011ZED") == "HAI PHONG" and places.city("CAT LAI") == "HO CHI MINH CITY"
+        assert not places.suggest([s1])
+    finally:
+        places.remove("QXZED")
+    assert places.city("QX-ZED") is None
+
+
 @test("HS list: added models are used, the Excel wins, wrong codes are refused; the added list reads back as a master Excel")
 def _():
     assert master.hs_for("NEW-M1") is None
