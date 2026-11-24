@@ -4,6 +4,7 @@ The list is the reference. One finding per model and printed value: it names eve
 (models that share one wrong heading share the finding).
   name  the name beside the model, else the goods heading of the document (which may list several names)
   unit  the word after the line's quantity, else the unit of the document's quantity column
+A goods heading must not name goods either that none of the document's models has.
 Wording that does not change the goods is ignored: quotes, BRAND, plurals, spaces, capitals, a size or SERIES after the
 name ('20L(AB)SERIES'), and a missing brand where the line prints the name only.
 """
@@ -105,6 +106,38 @@ def r_master_goods(ci, scs, co, bl, out):
         ck.end()
 
 
+def _place(doc, f, name) -> Field:
+    """Where one name of a heading is printed (a heading may go on over the next lines); else the heading."""
+    # by its place: a B/L block's line is a part of the page line
+    i = next((k for k, l in enumerate(doc.lines) if l is f.line or (l.page == f.line.page and abs(l.y - f.line.y) < 1)), None)
+    near = doc.lines[i:i + 4] if i is not None else [f.line]
+    rx = re.compile(r"\s+".join(re.escape(w) for w in _text(name).split()), re.I)
+    for l in near:
+        m = rx.search(l.text)
+        if m and l.page == f.line.page:
+            return Field(m[0], m[0], l, m.start(), m.end())
+    return f
+
+
+def _docs(hits) -> list:
+    out = []
+    for d, _f, _s in hits:
+        if not any(d is x for x in out):
+            out.append(d)
+    return out
+
+
+def _locs(hits) -> list:
+    out, seen = [], set()
+    for d, f, _s in hits:
+        for x in at(d, f):
+            k = (id(d), x.page, x.clip)
+            if k not in seen:
+                seen.add(k)
+                out.append(x)
+    return out
+
+
 def _report(ck, key, bad: dict, want: dict):
     """bad: {(model, printed key): [(doc, Field, shown)]}"""
     same = {}                                     # one wrong heading for several models: one finding naming them
@@ -113,22 +146,23 @@ def _report(ck, key, bad: dict, want: dict):
         same.setdefault((place, k, _text(want[m])), []).append(m)
     for (_p, k, _r), ms in same.items():
         m, hits = ms[0], bad[(ms[0], k)]
-        docs = []
-        for d, _f, _s in hits:
-            if not any(d is x for x in docs):
-                docs.append(d)
-        locs, seen = [], set()
-        for d, f, _s in hits:
-            for x in at(d, f):
-                k = (id(d), x.page, x.clip)
-                if k not in seen:
-                    seen.add(k)
-                    locs.append(x)
-        ck.add(Finding(key, "WARNING", docs, dict(model=", ".join(ms), ref=_text(want[m])), hits[0][2], _text(want[m]), locs))
+        ck.add(Finding(key, "WARNING", _docs(hits), dict(model=", ".join(ms), ref=_text(want[m])), hits[0][2], _text(want[m]), _locs(hits)))
 
 
 def _names(ck, ci, scs, co, bl, want):
-    bad = {}
+    bad, extra = {}, {}
+
+    def unused(doc, f, models):
+        """The names of a goods heading that no model of the document has. Only when every model's name is known:
+        else the name may be that of the unknown one."""
+        if not models or not all(m in want for m in models):
+            return
+        refs = [want[m] for m in models]
+        for n in _parts(f.value):
+            k = "".join(_words(n))
+            # half of a name that holds an 'AND' itself is not a name of its own
+            if k and not any(same_name(n, r) or (len(_parts(r)) > 1 and k in "".join(_words(r))) for r in refs):
+                extra.setdefault(k, []).append((doc, _place(doc, f, n), n))
 
     def check(doc, m, f, heading):
         ck.compared()
@@ -142,6 +176,8 @@ def _names(ck, ci, scs, co, bl, want):
 
     for doc, lines, head, _pl in _rows(ci, scs, co):
         done = set()
+        if isinstance(head, Field) and any(not isinstance(it.get("desc"), Field) and not it.get("goods_full") for it in lines):
+            unused(doc, head, [_model(it) for it in lines])
         for it in lines:
             m = _model(it)
             if m not in want:
@@ -158,8 +194,20 @@ def _names(ck, ci, scs, co, bl, want):
         f = blk.goods if blk is not None else bl.f.get("goods_full") or bl.f.get("goods")
         for m in want if f else ():
             check(bl, m, f, True)
+        # a B/L heading over several invoices also names the goods of the others
+        if f and (blk is not None or (len(bl.cargo_blocks) < 2 and len(bl.lists.get("invoice_nos") or []) < 2)):
+            unused(bl, f, [_model(it) for it in ci.items])
+    for k, hits in list(extra.items()):           # the same wrong name is printed beside a model: part of that finding
+        mine = next((v for (_m, x), v in bad.items() if x == k), None)
+        if mine is not None:
+            told = [d for (_m, x), v in bad.items() if x == k for d, _f, _s in v]      # its heading is reported already
+            mine += [h for h in hits if not any(h[0] is d for d in told)]
+            del extra[k]
     _nothing(ck, ci, "goods_full", want)
     _report(ck, "MASTER_NAME", bad, want)
+    for hits in extra.values():
+        ck.add(Finding("MASTER_NAME_EXTRA", "WARNING", _docs(hits), dict(name=hits[0][2]), hits[0][2],
+                       " / ".join(dict.fromkeys(_text(x) for x in want.values())), _locs(hits)))
 
 
 def _units(ck, ci, scs, co, bl, want):

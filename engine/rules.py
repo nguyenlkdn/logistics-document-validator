@@ -1410,7 +1410,10 @@ def _goods_vs_heading(ci, co, it, goods, ck_g):
     own = [p for p in (ci.pl_items + ci.items) if p.get("desc") and it.get("model") and p.get("model")
            and master.key(p["model"]) == master.key(it["model"])]
     g = ci.f.get("pl_goods_full") or ci.f.get("goods_full")
-    ck_g._input(ci, "pl_goods_full", "READ")
+    if own:                                                # record the source that is really compared
+        ck_g.need_item(ci, own[0], "desc")
+    else:
+        ck_g._input(ci, "pl_goods_full" if ci.f.get("pl_goods_full") else "goods_full", "READ")
     if not goods:
         return
     ck_g.compared()
@@ -1427,8 +1430,9 @@ def _co_packages_by_model(ci, co, ck, ck_g):
     """Form D/E box 7 against a packing list written container by container: each item's cartons (figures and
     words) = its quantity ÷ sets per carton; per model, the cartons of all its items = the packing list's cartons."""
     from .rules_net import model_qty
-    ck.need_items(co)
-    ck.need_items(ci, "pl_items")
+    for c in (ck, ck_g):
+        c.need_items(co)
+        c.need_items(ci, "pl_items")
     per_model = {}
     for it in co.items:
         fig, words, per, qty = it.get("pkg_fig"), it.get("pkg_words"), it.get("per_ctn"), it["qty"].value

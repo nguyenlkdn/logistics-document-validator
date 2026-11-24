@@ -453,6 +453,12 @@
       "note_en": "Reference: the name column of the company master list (Excel). If the list is wrong, correct the Excel",
       "note_vi": "Căn cứ: cột tên hàng trong danh mục Excel của công ty. Nếu danh mục sai, hãy sửa file Excel"
     },
+    "MASTER_NAME_EXTRA": {
+      "en": "Goods heading names {name}: no model of the document has this name in the master list",
+      "vi": "Tiêu đề hàng hóa ghi {name}: không model nào trên chứng từ có tên này trong danh mục",
+      "note_en": "Reference: the name column of the company master list (Excel). If the list is wrong, correct the Excel",
+      "note_vi": "Căn cứ: cột tên hàng trong danh mục Excel của công ty. Nếu danh mục sai, hãy sửa file Excel"
+    },
     "MASTER_UNIT": {
       "en": "{model}: unit should be {ref} (master list)",
       "vi": "{model}: đơn vị phải là {ref} (danh mục)",

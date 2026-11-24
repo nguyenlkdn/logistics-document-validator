@@ -912,16 +912,15 @@ def local_sets():
 
 
 if "--local" in sys.argv:
-    from engine import collect
-    from engine.extract import load
+    invented = os.environ["LDV_DATA_DIR"]                   # importing run_baseline sets its own
     sets, base = local_sets()
+    from run_baseline import load_set as rb_load
     os.environ["LDV_DATA_DIR"] = tempfile.mkdtemp(prefix="ldv_checks_local_")
     if (base / "master_hs.xlsx").exists():
         master.import_xlsx(base / "master_hs.xlsx")
     for z in sets:
         with tempfile.TemporaryDirectory() as t:
-            files = collect([z], Path(t))
-            docs = [d for d in (load(p) for p in files if p.suffix.lower() == ".pdf") if d]
+            docs = rb_load(z, Path(t))
 
             @test(f"T1/T4 local set {z.name[:40]}")
             def _():
@@ -941,6 +940,8 @@ if "--local" in sys.argv:
                 problems, n = blank_out(docs, z.name)
                 print(f"      {n} inputs removed")
                 assert not problems, problems[:20]
+    os.environ["LDV_DATA_DIR"] = invented                      # the tests below use the invented master list again
+    master._cache["key"] = master._cache["added_key"] = None
 
 # ------------------------------------------------------------------- P/O numbers of a sales contract (PO T01 - T10)
 def _po(n):
@@ -1090,6 +1091,18 @@ def _():
         assert set(got) == {"MASTER_NAME", "MASTER_UNIT"} and all(f.severity == "WARNING" for f in got.values())
         assert got["MASTER_NAME"].suggested == "ACME RICE COOKER" and got["MASTER_UNIT"].suggested == "SET"
         assert [d.kind for d in got["MASTER_NAME"].docs] == ["CO"], got["MASTER_NAME"].docs
+        # a heading with several names: each must be the name of a model; the C/O's wrong name shares its finding
+        docs = package()
+        sc = next(d for d in docs if d.kind == "SC")
+        sc.f["goods_full"] = F("ACME RICE COOKER AND ACME KETTLE")
+        fs, _ = run(docs)
+        got = [f for f in fs if f.key == "MASTER_NAME_EXTRA"]
+        assert [(f.current, f.severity, [d.kind for d in f.docs]) for f in got] == [("ACME KETTLE", "WARNING", ["SC"])], got
+        co = next(d for d in docs if d.kind == "CO")
+        co.items[0]["goods_full"] = F("ACME KETTLE")
+        fs, _ = run(docs)
+        got = [(f.key, sorted(d.kind for d in f.docs)) for f in fs if f.key.startswith("MASTER_NAME")]
+        assert got == [("MASTER_NAME", ["CO", "SC"])], got
         # a list imported by an older LDV (no names) is imported again by itself
         import json as _j
         f = master._json()

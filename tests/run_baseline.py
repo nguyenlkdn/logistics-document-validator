@@ -26,15 +26,24 @@ EXPECTED = BASE / "expected.json"
 EXPECTED_CHECKS = BASE / "expected_checks.json"
 
 
+def load_set(path: Path, tmp: Path) -> list:
+    """Every document of a set as LDV reads it: PDFs and the sheets of Excel workbooks."""
+    from engine import collect
+    from engine.extract import EXCEL, load, load_excel
+    docs = []
+    for p in collect([path], tmp):
+        if p.suffix.lower() in EXCEL:
+            docs += load_excel(p, p.parent)
+        elif p.suffix.lower() == ".pdf" and (d := load(p)):
+            docs.append(d)
+    return docs
+
+
 def check_snapshot(zip_path: Path) -> list:
     """One line per check record: id | group | document | status | reason."""
-    from engine import collect
-    from engine.extract import load
     from engine.rules import validate_checks
     with tempfile.TemporaryDirectory() as tmp:
-        files = collect([zip_path], Path(tmp))
-        docs = [d for d in (load(p) for p in files if p.suffix.lower() == ".pdf") if d]
-        _, checks = validate_checks(docs)
+        _, checks = validate_checks(load_set(zip_path, Path(tmp)))
     return sorted(f"{c.check_id} | {c.group_id} | {c.doc} | {c.status} | {c.reason or ''}" for c in checks)
 
 
