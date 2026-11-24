@@ -1966,6 +1966,8 @@ def _validate_group(docs: list[Doc]) -> list[Finding]:
     _call(r_co, ci, co, bl, out)
     _co_items_gate(out, docs)                           # early too: later scans (far dates …) report what it withdraws
     _call(r_hs, ci, co, bl, out)
+    from .rules_master import r_master_goods
+    _call(r_master_goods, ci, scs, co, bl, out)
     _call(r_containers, ci, bl, out)
     _call(r_bl_cargo, ci, co, bl, out)
     _call(r_co_marks, ci, co, out)

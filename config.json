@@ -447,6 +447,18 @@
       "note_en": "Add it to the HS master Excel, or on the Reference data page (suggestions from the checked documents), so its HS code can be checked",
       "note_vi": "Thêm model vào file Excel mã HS, hoặc ở trang Dữ liệu tham chiếu (gợi ý từ chứng từ đã kiểm tra), để kiểm tra được mã HS"
     },
+    "MASTER_NAME": {
+      "en": "{model}: goods name should be {ref} (master list)",
+      "vi": "{model}: tên hàng phải là {ref} (danh mục)",
+      "note_en": "Reference: the name column of the company master list (Excel). If the list is wrong, correct the Excel",
+      "note_vi": "Căn cứ: cột tên hàng trong danh mục Excel của công ty. Nếu danh mục sai, hãy sửa file Excel"
+    },
+    "MASTER_UNIT": {
+      "en": "{model}: unit should be {ref} (master list)",
+      "vi": "{model}: đơn vị phải là {ref} (danh mục)",
+      "note_en": "Reference: the unit column of the company master list (Excel). If the list is wrong, correct the Excel",
+      "note_vi": "Căn cứ: cột đơn vị trong danh mục Excel của công ty. Nếu danh mục sai, hãy sửa file Excel"
+    },
     "HS_CODE": {
       "en": "Form D item {no}: HS {hs} is not under B/L HS {hs_bl}",
       "vi": "C/O mục {no}: mã HS {hs} không thuộc nhóm HS {hs_bl} trên B/L"
@@ -831,6 +843,11 @@
       "note_en": "Box 8: WO, PE, CTH, CTSH, PSR or an RVC percentage (e.g. 40%)",
       "note_vi": "Ô 8: WO, PE, CTH, CTSH, PSR hoặc tỷ lệ RVC (ví dụ 40%)"
     }
+  },
+  "units": {
+    "SET": ["SETS", "SET(S)", "BỘ"],
+    "PCS": ["PC", "PIECE", "PIECES", "PIECE(S)", "CÁI", "CHIẾC"],
+    "UNIT": ["UNITS"]
   },
   "cities": {
     "HO CHI MINH CITY": [
@@ -1361,6 +1378,14 @@
       "en": "Invoice models are in the HS master list",
       "vi": "Model trên hóa đơn có trong danh mục HS"
     },
+    "MASTER_NAME": {
+      "en": "Goods names = master list",
+      "vi": "Tên hàng = danh mục"
+    },
+    "MASTER_UNIT": {
+      "en": "Units = master list",
+      "vi": "Đơn vị = danh mục"
+    },
     "CO_HS": {
       "en": "Form D HS codes = HS master list / B/L heading",
       "vi": "Mã HS trên Form D = danh mục HS / nhóm HS trên B/L"
@@ -1736,8 +1761,8 @@
       "vi": "Thiếu dữ liệu gốc (danh mục HS / tên địa danh): bổ sung ở Dữ liệu tham chiếu rồi kiểm tra lại."
     },
     "master_data_missing_models": {
-      "en": "Not in the HS master list: {models}. Add them to the HS master Excel, then check again.",
-      "vi": "Chưa có trong danh mục HS: {models}. Bổ sung vào file Excel danh mục HS rồi kiểm tra lại."
+      "en": "Not in the HS master list (or blank there): {models}. Add them to the HS master Excel, then check again.",
+      "vi": "Chưa có trong danh mục HS (hoặc để trống): {models}. Bổ sung vào file Excel danh mục HS rồi kiểm tra lại."
     },
     "blocked_by": {
       "en": "Not meaningful on its own: {by} already reports this difference.",
@@ -1802,6 +1827,10 @@
     "na_one_cargo_block": {
       "en": "Not applicable: the B/L prints one cargo block; {by} compares it.",
       "vi": "Không áp dụng: B/L chỉ có một khối hàng; {by} đã so sánh."
+    },
+    "na_master_no_column": {
+      "en": "Not applicable: the master list Excel has no such column (name / unit).",
+      "vi": "Không áp dụng: file Excel danh mục không có cột này (tên / đơn vị)."
     },
     "na_items_are_parts": {
       "en": "Not applicable: every goods line is a part identified by its part number, not a finished-goods model.",

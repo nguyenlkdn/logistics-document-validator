@@ -199,7 +199,7 @@ def _():
     assert not closure_errors(BASE_RES, package()), closure_errors(BASE_RES, package())
     ids = {r.check_id for r in BASE_RES}
     assert ids == set(REGISTRY) - {"DOC_PAIRING"} | {"DOC_PAIRING"}, set(REGISTRY) - ids   # every check id has a record
-    assert len(REGISTRY) == 105, len(REGISTRY)      # 2.7: + CO_ITEM_VALUE, CO_CRITERION (Form E); 2.8: CNTR_VS_PL, SC_CHARGES; 2.9: the P/O numbers of a contract
+    assert len(REGISTRY) == 107, len(REGISTRY)      # 2.11: MASTER_NAME, MASTER_UNIT; 2.7: + CO_ITEM_VALUE, CO_CRITERION (Form E); 2.8: CNTR_VS_PL, SC_CHARGES; 2.9: the P/O numbers of a contract
 
 
 @test("T4 declared vs used inputs: every input a check read is declared in CheckDef.needs")
@@ -1052,6 +1052,56 @@ def _():
     ci = next(d for d in docs if d.kind == "CI")
     ci.items = ci.items + [dict(ci.items[0])]
     assert {"SC_VS_CI", "CO_ITEMS"} <= {f.key for f in gated(docs)[0]}
+
+
+@test("Master list: goods name and unit, with the spellings that do not matter; a wrong one names its documents")
+def _():
+    import openpyxl
+    from engine import rules_master as rm
+    for p, r, ok in (('"ACME" BRAND RICE COOKER', "ACME RICE COOKER", 1), ("RICE COOKER SERIES 1.8L(AB)", "ACME RICE COOKER", 1),
+                     ("ACME  Rice\u00a0Cookers", " ACME RICE COOKER", 1), ("ELECTRIC HOT POT", "ACME ELECTRIC HOTPOT", 1),
+                     ("OVEN 20L(AB20)SERIES", "ACME OVEN", 1), ("ZETA RICE COOKER", "ACME RICE COOKER", 0),
+                     ("ACME OVEN", "ACME OVEN (WITH LID)", 0), ("ACME OVEN (WITH LID)", "ACME OVEN", 0), ("", "ACME", 0)):
+        assert rm.same_name(p, r) == bool(ok), (p, r)
+    assert rm.unit_key("SET(S)") == rm.unit_key("sets") == rm.unit_key("Bộ") == "SET"
+    assert rm.unit_key("PIECE") == rm.unit_key("cái") == "PCS" and rm.unit_key("BOX") != "SET"
+    _, res = run(package())                                    # the Excel of the other tests has no such columns
+    assert status(res, "MASTER_NAME") == status(res, "MASTER_UNIT") == {"NOT_APPLICABLE"}
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Mã NPL/SP", "Mã HS", "TÊN", "ĐƠN VỊ"])
+    for r in ([MODEL, "8516.60.10", " ACME RICE\u00a0COOKER", "SET"], ["CD-Y20(W1)VN", "85166010", "ACME KETTLE", "SET"],
+              ["CD-Y20(W1)VN", "85166010", "ACME OVEN", "SET"]):
+        ws.append(r)
+    p = Path(tempfile.mkdtemp()) / "m.xlsx"
+    wb.save(p)
+    s = master.import_xlsx(p)
+    try:
+        assert len(s["skipped"]) == 1 and master.row_for(MODEL)["name"] == "ACME RICE COOKER"
+        fs, res = run(package())
+        assert not [f for f in fs if f.key.startswith("MASTER_")], [(f.key, f.current) for f in fs]
+        assert status(res, "MASTER_NAME") == {"PASS"}, by_id(res, "MASTER_NAME")
+        docs = package()
+        co = next(d for d in docs if d.kind == "CO")
+        co.items[0]["goods_full"] = F('"ZETA" BRAND RICE COOKER')
+        co.items[0]["unit"] = "PIECE"
+        fs, res = run(docs)
+        got = {f.key: f for f in fs if f.key.startswith("MASTER_")}
+        assert set(got) == {"MASTER_NAME", "MASTER_UNIT"} and all(f.severity == "WARNING" for f in got.values())
+        assert got["MASTER_NAME"].suggested == "ACME RICE COOKER" and got["MASTER_UNIT"].suggested == "SET"
+        assert [d.kind for d in got["MASTER_NAME"].docs] == ["CO"], got["MASTER_NAME"].docs
+        # a list imported by an older LDV (no names) is imported again by itself
+        import json as _j
+        f = master._json()
+        d = _j.loads(f.read_text(encoding="utf-8"))
+        d.pop("format")
+        for i in d["items"].values():
+            i.pop("name"), i.pop("unit")
+        f.write_text(_j.dumps(d), encoding="utf-8")
+        master._cache["key"] = None
+        assert master.refresh() and master.row_for(MODEL)["unit"] == "SET"
+    finally:
+        setup_master()
 
 
 @test("Place names: unknown ones are suggested with the B/L's city, used only after the user adds them, and can be removed")

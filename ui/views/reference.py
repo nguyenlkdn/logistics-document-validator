@@ -21,7 +21,7 @@ def render():
         done = None
     done = done or st.session_state.pop("hs_done", None)
     if done:
-        st.success(t("hs_done", n=done["count"], a=len(done["added"]), r=len(done["removed"]), c=len(done["changed"])))
+        st.success(t("hs_done", n=done["count"], a=len(done["added"]), r=len(done["removed"]), c=len({x["model"] for x in done["changed"]})))
     hs = master.status()
 
     if hs["loaded"]:
@@ -65,9 +65,9 @@ def render():
         st.subheader(t("hs_browse"))
         items = list((master.load() or {}).get("items", {}).values())
         q = st.text_input(t("hs_filter"), key="hs_q").strip().upper()
-        rows = [dict(m=i["model"], h=master.fmt(i["hs"]), r=i["row"]) for i in items
-                if not q or q in i["model"].upper() or q.replace(".", "") in i["hs"]]
-        st.dataframe([{t1("hs_col_model"): r["m"], t1("hs_col_hs"): r["h"], t1("hs_col_row"): r["r"]} for r in rows],
+        rows = [dict(m=i["model"], h=master.fmt(i["hs"]), n=i.get("name", ""), u=i.get("unit", ""), r=i["row"]) for i in items
+                if not q or q in i["model"].upper() or q.replace(".", "") in i["hs"] or q in i.get("name", "").upper()]
+        st.dataframe([{t1("hs_col_model"): r["m"], t1("hs_col_hs"): r["h"], t1("hs_col_name"): r["n"], t1("hs_col_unit"): r["u"], t1("hs_col_row"): r["r"]} for r in rows],
                      hide_index=True, width="stretch", height=min(38 + 35 * len(rows), 420))
         if hs["skipped"]:
             with st.expander(f"{t1('hs_skipped_n')} ({len(hs['skipped'])})"):
@@ -130,7 +130,8 @@ def suggestions(hs: dict):
         st.caption(t("hs_sug_intro"))
         label = {"ok": t1("hs_sug_ok"), "check": t1("hs_sug_check"), "none": t1("hs_sug_nocode"),
                  "single": t1("hs_sug_single")}
-        table = [dict(pick=False, model=r["model"], hs=master.fmt(r["hs"]), state=label[r["state"]], why=_evidence(r),
+        table = [dict(pick=False, model=r["model"], hs=master.fmt(r["hs"]), name=r["name"], unit=r["unit"],
+                      state=label[r["state"]], why=_evidence(r),
                       docs=", ".join(dict.fromkeys(d for c in r["codes"].values() for _s, d, _p in c["docs"]))
                       or ", ".join(dict.fromkeys(d for d, _p in r["invoices"]))) for r in rows]
         # a new key when the rows change, so ticks never land on another model
@@ -139,13 +140,15 @@ def suggestions(hs: dict):
                             column_config={"pick": st.column_config.CheckboxColumn(t1("hs_sug_pick"), width=60),
                                            "model": st.column_config.TextColumn(t1("hs_col_model"), width=170),
                                            "hs": st.column_config.TextColumn(t1("hs_col_hs"), width=120),
+                                           "name": st.column_config.TextColumn(t1("hs_col_name"), width=200),
+                                           "unit": st.column_config.TextColumn(t1("hs_col_unit"), width=70),
                                            "state": st.column_config.TextColumn(t1("hs_sug_state"), width=120),
                                            "why": st.column_config.TextColumn(t1("hs_sug_why"), width="large"),
                                            "docs": st.column_config.TextColumn(t1("hs_sug_docs"), width="large")})
         picked = [(r, e) for r, e in zip(rows, ed) if e["pick"]]
         if st.button(t1("hs_sug_add", n=len(picked)), type="primary", icon=":material/playlist_add:", disabled=not picked,
                      key="hs_sug_btn"):
-            n, bad = add_picked([(r, e["hs"]) for r, e in picked], state.reviewer())
+            n, bad = add_picked([(r, e["hs"], e["name"], e["unit"]) for r, e in picked], state.reviewer())
             st.session_state["hs_sug_msg"] = ([("ok", t("hs_sug_done", n=n))] if n else []) + (
                 [("bad", t("hs_sug_bad", m=", ".join(bad)))] if bad else [])
             st.rerun()
@@ -154,6 +157,7 @@ def suggestions(hs: dict):
         with st.expander(t("hs_add_title", n=len(mine)), expanded=False):
             st.caption(t("hs_add_note"))
             st.dataframe([{t1("hs_col_model"): v["model"], t1("hs_col_hs"): master.fmt(v["hs"]),
+                           t1("hs_col_name"): v.get("name", ""), t1("hs_col_unit"): v.get("unit", ""),
                            t1("hs_add_at"): v["added_at"].replace("T", " "), t1("hs_add_by"): v.get("by", ""),
                            t1("hs_sug_docs"): ", ".join(v.get("docs", []))} for v in mine.values()],
                          hide_index=True, width="stretch")
@@ -215,12 +219,12 @@ def place_names():
 
 
 def add_picked(picked: list, by: str) -> tuple:
-    """(number added, models whose code is not valid). picked = [(suggestion, HS code as edited)]."""
+    """(number added, models whose code is not valid). picked = [(suggestion, HS code, name, unit as edited)]."""
     n, bad = 0, []
-    for r, code in picked:
+    for r, code, name, unit in picked:
         docs = list(dict.fromkeys(d for c in r["codes"].values() for _s, d, _p in c["docs"])) or [d for d, _p in r["invoices"]]
         try:
-            master.add(r["model"], code or "", docs, by)
+            master.add(r["model"], code or "", docs, by, name or "", unit or "")
             n += 1
         except ValueError:
             bad.append(r["model"])
@@ -253,12 +257,13 @@ def preview_import(path: Path, hs: dict):
     old = (master.load() or {}).get("items", {})
     added = [k for k in items if k not in old]
     removed = [k for k in old if k not in items]
-    changed = [k for k in items if k in old and old[k]["hs"] != items[k]["hs"]]
+    changed = [k for k in items if k in old and any(old[k].get(c, "") != items[k][c] for c in ("hs", "name", "unit"))]
     st.markdown(f"**{t('hs_preview', name=path.name)}**")
     st.write(t("hs_valid", n=len(items), s=len(skipped)))
     if hs["loaded"]:
         st.write(t("hs_diff", a=len(added), r=len(removed), c=len(changed)))
-    st.dataframe([{t1("hs_col_model"): i["model"], t1("hs_col_hs"): master.fmt(i["hs"]), t1("hs_col_row"): i["row"],
+    st.dataframe([{t1("hs_col_model"): i["model"], t1("hs_col_hs"): master.fmt(i["hs"]), t1("hs_col_name"): i["name"],
+                   t1("hs_col_unit"): i["unit"], t1("hs_col_row"): i["row"],
                    "": "＋" if k in added else ("≠" if k in changed else "")} for k, i in list(items.items())[:200]],
                  hide_index=True, width="stretch", height=260)
     if skipped:

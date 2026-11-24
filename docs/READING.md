@@ -134,6 +134,14 @@ written that way on purpose).
 - Added models are kept in `master_hs_added.json`; the company Excel is never changed and always wins.
 - A Form E prints 6 digits: the 8-digit master code must begin with them. A Form D is compared on all digits.
 
+### Goods name and unit against the master list
+
+- `engine/rules_master.py`: the optional Excel columns name (`TÊN`) and unit (`ĐƠN VỊ`) are the reference for every model,
+  on the invoice, packing list, contract, Form D / E and B/L. Both are warnings.
+- Ignored: quotes, BRAND, plurals, spaces, capitals, a size or SERIES after the name, a brand left out on the line.
+  Anything in brackets that is part of the name, such as `(WITH LID)`, counts.
+- A model not in the list, or with a blank name / unit, is not guessed: the check does not run for it.
+
 ### Place names
 
 - Ports and terminals belong to a city: the general list in config "cities" plus the names the user confirms on the

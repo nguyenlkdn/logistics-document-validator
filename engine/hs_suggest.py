@@ -56,6 +56,9 @@ def suggest(sessions: list, items: dict) -> list:
                     continue
                 seen[(k, hs, d["name"])] = True
                 c = out[k]["codes"].setdefault(hs, dict(docs=[], bl_ok=0, bl_no=0))
+                for f, v in (("names", it.get("goods_full") or it.get("goods")), ("units", it.get("unit"))):
+                    if v:
+                        out[k].setdefault(f, {})[str(v).strip()] = True
                 c["docs"].append((s.get("shipment", ""), d["name"], it.get("_page")))
                 heads = bl.get(it.get("inv_ref"))
                 if heads:
@@ -75,6 +78,9 @@ def _finish(r: dict, items: dict) -> dict:
     r["series_differs"] = bool(r["hs"] and series and not any(h.startswith(r["hs"]) or r["hs"].startswith(h) for h in series))
     if r["hs"] and len(series) == 1 and series[0].startswith(r["hs"]) and len(series[0]) > len(r["hs"]):
         r["hs"], r["from_series"] = series[0], True
+    for f, k in (("names", "name"), ("units", "unit")):       # printed one way only: suggested, else left to the user
+        got = list(r.pop(f, {}))
+        r[k] = re.sub(r"\s+", " ", got[0].replace('"', "").replace(" BRAND ", " ")).strip().upper() if len(got) == 1 else ""
     r["typo_of"] = typo
     r["n_docs"] = sum(len(c["docs"]) for c in codes.values())
     r["bl_no"] = sum(c["bl_no"] for c in codes.values())

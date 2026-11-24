@@ -1,10 +1,10 @@
-"""HS master list: the company's own Excel (model -> HS code) converted to LDV's internal tracking file.
+"""HS master list: the company's own Excel (model -> HS code, goods name, unit) converted to LDV's internal tracking file.
 
 The Excel stays wherever the user keeps it and can be edited any time. LDV remembers its path and
 re-imports it automatically when it changes (checked before every shipment check). Nothing is stored in
 the repository: the tracking files live in the data folder (config "data_dir", env LDV_DATA_DIR):
 
-  master_hs.json       current list {model: {hs, row}} + source path, modification time, skipped rows
+  master_hs.json       current list {model: {hs, name, unit, row}} + source path, modification time, skipped rows
   master_hs_log.jsonl  one line per import: models added / removed / changed
   master_hs_added.json models the user added from checked documents (engine/hs_suggest.py); used until the Excel lists
                        the model: the Excel always wins, and LDV never changes it
@@ -18,11 +18,15 @@ import json
 import os
 import re
 import sys
+import unicodedata
 from datetime import datetime
 from pathlib import Path
 
 _CFG = json.loads((Path(__file__).resolve().parent.parent / "config.json").read_text(encoding="utf-8"))
 MODEL_HEAD = re.compile(r"m[aã]\s*(npl|sp)|model|item\s*code|part", re.I)
+NAME_HEAD = re.compile(r"^\s*t[eê]n\b|name|description|m[oô] t[aả]", re.I)
+UNIT_HEAD = re.compile(r"[dđ][oơ]n\s*v[iị]|\b[dđ]vt\b|\bunit\b", re.I)
+FORMAT = 2                                   # of master_hs.json; an older one is imported again (2: name and unit)
 HS_HEAD = re.compile(r"\bhs\b|m[aã]\s*hs", re.I)
 _cache = {"key": None, "data": None}
 
@@ -58,11 +62,15 @@ def read_xlsx(path: Path) -> tuple[dict, list]:
         for ws in wb.worksheets:
             rows = list(ws.iter_rows(values_only=True))
             for h, row in enumerate(rows[:15]):
-                cells = [str(c or "") for c in row]
+                cells = [unicodedata.normalize("NFC", str(c or "")) for c in row]
                 mc = next((i for i, c in enumerate(cells) if MODEL_HEAD.search(c)), None)
                 hc = next((i for i, c in enumerate(cells) if HS_HEAD.search(c) and i != mc), None)
                 if mc is None or hc is None:
                     continue
+                other = [i for i in range(len(cells)) if i not in (mc, hc)]
+                nc = next((i for i in other if NAME_HEAD.search(cells[i])), None)
+                uc = next((i for i in other if i != nc and UNIT_HEAD.search(cells[i])), None)
+                text = lambda r, c: re.sub(r"\s+", " ", str(r[c])).strip() if c is not None and c < len(r) and r[c] is not None else ""
                 items, skipped = {}, []
                 for n, r in enumerate(rows[h + 1:], start=h + 2):
                     model = r[mc] if mc < len(r) else None
@@ -79,8 +87,14 @@ def read_xlsx(path: Path) -> tuple[dict, list]:
                     elif key(model) in items and items[key(model)]["hs"] != d:
                         skipped.append(dict(row=n, model=str(model).strip(), hs=d,
                                             reason=f"listed twice with different HS (row {items[key(model)]['row']})"))
+                    elif key(model) in items and any(
+                            text(r, c) and items[key(model)][k] and text(r, c).upper() != items[key(model)][k].upper()
+                            for k, c in (("name", nc), ("unit", uc))):
+                        skipped.append(dict(row=n, model=str(model).strip(), hs=d,
+                                            reason=f"listed twice with different name / unit (row {items[key(model)]['row']})"))
                     else:
-                        items.setdefault(key(model), dict(model=str(model).strip(), hs=d, row=n))
+                        items.setdefault(key(model), dict(model=str(model).strip(), hs=d, name=text(r, nc), unit=text(r, uc),
+                                                          row=n))
                 return items, skipped
         raise ValueError("No header row with a model column (e.g. 'Mã NPL/SP') and an HS column (e.g. 'Mã HS') found")
     finally:
@@ -95,8 +109,11 @@ def import_xlsx(path) -> dict:
     added = sorted(k for k in items if k not in old)
     removed = sorted(k for k in old if k not in items)
     changed = [dict(model=k, old=old[k]["hs"], new=items[k]["hs"]) for k in sorted(items) if k in old and old[k]["hs"] != items[k]["hs"]]
+    if (load() or {}).get("format") == FORMAT:             # the first import with names and units is no change of them
+        changed += [dict(model=k, field=c, old=old[k].get(c, ""), new=items[k][c]) for k in sorted(items) if k in old
+                    for c in ("name", "unit") if old[k].get(c, "") != items[k][c]]
     now = datetime.now().isoformat(timespec="seconds")
-    data = dict(source=str(path), source_mtime=path.stat().st_mtime,
+    data = dict(format=FORMAT, source=str(path), source_mtime=path.stat().st_mtime,
                 source_sha1=hashlib.sha1(path.read_bytes()).hexdigest(), imported_at=now, items=items, skipped=skipped)
     data_dir().mkdir(parents=True, exist_ok=True)
     tmp = _json().with_suffix(".tmp")
@@ -127,6 +144,8 @@ def refresh() -> dict | None:
         return None
     src = Path(d["source"])
     try:
+        if src.exists() and d.get("format") != FORMAT:
+            return import_xlsx(src)
         if src.exists() and src.stat().st_mtime != d["source_mtime"]:
             if hashlib.sha1(src.read_bytes()).hexdigest() != d.get("source_sha1"):
                 return import_xlsx(src)
@@ -159,14 +178,14 @@ def _save_added(rows: dict, what: dict):
         log.write(json.dumps(dict(at=datetime.now().isoformat(timespec="seconds"), **what), ensure_ascii=False) + "\n")
 
 
-def add(model, hs, docs=(), by: str = "") -> None:
+def add(model, hs, docs=(), by: str = "", name: str = "", unit: str = "") -> None:
     """Add one model the user confirmed. ValueError: not a 6, 8 or 10 digit code, or the Excel already has the model."""
     d, k = digits(hs), key(model)
     if not k or len(d) not in (6, 8, 10) or re.search(r"[^\d.\s]", str(hs)):
         raise ValueError(f"{model}: {hs}")
     if k in (load() or {}).get("items", {}):
         raise ValueError(f"{model}: in Excel")
-    row = dict(model=str(model).strip(), hs=d, added_at=datetime.now().isoformat(timespec="seconds"), by=by, docs=list(docs))
+    row = dict(model=str(model).strip(), hs=d, name=str(name or "").strip(), unit=str(unit or "").strip(), added_at=datetime.now().isoformat(timespec="seconds"), by=by, docs=list(docs))
     _save_added({**added(False), k: row}, dict(document_added=k, hs=d, by=by, docs=list(docs)))
 
 
@@ -182,19 +201,29 @@ def added_xlsx() -> bytes:
     from openpyxl import Workbook
     wb = Workbook()
     ws = wb.active
-    ws.append(["Mã NPL/SP", "Mã HS"])
+    ws.append(["Mã NPL/SP", "Mã HS", "TÊN", "ĐƠN VỊ"])
     for r in added().values():
-        ws.append([r["model"], r["hs"]])
+        ws.append([r["model"], r["hs"], r.get("name", ""), r.get("unit", "")])
         ws.cell(ws.max_row, 2).number_format = "@"
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
 
 
-def hs_for(model) -> str | None:
+def row_for(model) -> dict | None:
+    """The list's row of a model: {model, hs, name, unit}; the Excel first, then the models the user added."""
     d = load()
-    it = (d["items"].get(key(model)) or added().get(key(model))) if d else None
+    return (d["items"].get(key(model)) or added().get(key(model))) if d else None
+
+
+def hs_for(model) -> str | None:
+    it = row_for(model)
     return it["hs"] if it else None
+
+
+def has_column(col: str) -> bool:
+    """The list gives this ("name" / "unit") for at least one model."""
+    return any(r.get(col) for r in [*((load() or {}).get("items", {})).values(), *added().values()])
 
 
 def agrees(printed, ref: str, model=None, form: str = "D") -> bool:
@@ -223,7 +252,8 @@ def _main(argv) -> int:
         print(f"Imported {s['count']} models from {s['source']}")
         print(f"  added {len(s['added'])}, removed {len(s['removed'])}, changed {len(s['changed'])}")
         for c in s["changed"]:
-            print(f"  changed {c['model']}: {fmt(c['old'])} -> {fmt(c['new'])}")
+            print(f"  changed {c['model']}: " + (f"{c['field']} {c['old']} -> {c['new']}" if c.get("field") else
+                                               f"{fmt(c['old'])} -> {fmt(c['new'])}"))
     else:
         r = refresh()
         if r:
