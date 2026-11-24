@@ -151,6 +151,25 @@ def _after(lines, label_pattern, value_pattern, group=1, conv=None):
     return None
 
 
+def _dest_box(lines):
+    """The place typed in the '[ Final Destination ]' box: the text under its label, right of the label's left edge."""
+    for i, l, m in _search(lines, r"\[\s*Final Destination\b"):
+        spans = l.spans_for(m.start(), m.end())
+        x0 = min(s.bbox[0] for s in spans) - 5
+        for nl in lines[i + 1:]:
+            if nl.page != l.page or nl.y - l.y > 30:           # below the box
+                break
+            inside = [s for s in nl.spans if s.bbox[0] >= x0 and s.text.strip()]
+            if not inside:
+                continue
+            k = min(nl.text.find(s.text.strip()) for s in inside)
+            v = re.match(r"\s*([^,\[\]]*[^,\[\]\s])", nl.text[k:]) if k >= 0 else None
+            if not v:                                          # the labels of the next row
+                break
+            return Field(v[1].strip(), v[1], nl, k + v.start(1), k + v.end(1))
+    return None
+
+
 def column_models(lines: list) -> list:
     """Models listed one per line in a shipping-marks column, as Fields. A model may be written whole
     ('CD-Y20PE(BM)VN') or split over two lines, before the colour code ('CD-Y20PE' / '(BM)VN') or after it
@@ -489,7 +508,10 @@ def _extract_bl_cargo(d: Doc):
         break
     # a terminal name may hold a hyphen, also the non-breaking one
     # the label in capitals, the value as written ('Hcm, VIETNAM' is Ho Chi Minh City, not "not read")
-    d.f["final_dest"] = _first(L, r"FINAL DESTINATION\s*:\s*([A-Za-z][A-Za-z .\-‐‑–]*?)\s*(?:,|$)", flags=0)
+    typed = _first(L, r"FINAL DESTINATION\s*:\s*([A-Za-z][A-Za-z .\-‐‑–]*?)\s*(?:,|$)", flags=0)
+    dests = [f for f in (typed, _dest_box(L)) if f]            # in the goods description and / or in its own box
+    d.f["final_dest"] = dests[0] if dests else None
+    d.lists["final_dests"] = dests
     d.f["delivery"] = _after(L, r"\[ Place of Delivery \]", r"\s{2,}([A-Z][A-Z ]*?)(?=,|\s{2,}|$)")
 
 

@@ -151,6 +151,15 @@ def _():
     assert d.f["final_dest"].value == "Port b", d.f["final_dest"]
     d = pdf("bl_dest_hyphen", B_L + ["FINAL DESTINATION : XY-ABC, NOWHERE"], "BL")       # a terminal with a hyphen
     assert d.f["final_dest"].value == "XY-ABC", d.f["final_dest"]
+    box = [[(40, "[ Port of Discharge ]"), (170, "[ Place of Delivery ]"), (310, "[ Final Destination (reference only) ]")]]
+    nxt = [[(40, "[ Container No. ]"), (310, "[ Gross Weight ]")]]
+    val = lambda *more: [[(40, "PORT A, NOWHERE"), (170, "PORT A, NOWHERE, CY"), *more]]
+    d = pdf("bl_dest_box", B_L + box + val((318, "XY-ABC, NOWHERE")) + nxt, "BL")                 # in its own box
+    assert d.f["final_dest"].value == "XY-ABC" and d.f["delivery"].value == "PORT A", (d.f["final_dest"], d.f["delivery"])
+    d = pdf("bl_dest_both", B_L + box + val((318, "PORT B")) + nxt + ["FINAL DESTINATION : PORT C, NOWHERE"], "BL")
+    assert [f.value for f in d.lists["final_dests"]] == ["PORT C", "PORT B"], d.lists["final_dests"]
+    d = pdf("bl_dest_empty", B_L + box + val() + nxt, "BL")                                       # an empty box is no value
+    assert d.f["final_dest"] is None and "final_dest" in d.f["absent"].value
     d = pdf("bl_nodest", B_L + ["SAID TO CONTAIN"], "BL")
     assert "final_dest" in (d.f["absent"].value if d.f.get("absent") else ""), d.f.get("absent")
 

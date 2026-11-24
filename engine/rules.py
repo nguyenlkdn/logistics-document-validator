@@ -1227,7 +1227,7 @@ def r_bl_cargo(ci, co, bl, out):
     fd = bl.f.get("final_dest")
     ck = begin("BL_DESTINATION", out, bl)
     ck.need(bl, "final_dest", absent_ok=True)
-    if fd:
+    for fd in bl.lists.get("final_dests") or [fd] if fd else []:      # typed in two places: each one must be right
         ref_f = bl.f.get("delivery") or bl.f.get("pod") or ci.f.get("pod")
         a, b = _city(fd.value), _city(ref_f.value) if ref_f else None
         if not ref_f:
