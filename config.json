@@ -459,6 +459,18 @@
       "note_en": "Reference: the name column of the company master list (Excel). If the list is wrong, correct the Excel",
       "note_vi": "Căn cứ: cột tên hàng trong danh mục Excel của công ty. Nếu danh mục sai, hãy sửa file Excel"
     },
+    "MASTER_NAME_MISSING": {
+      "en": "Goods name {name} is not in the HS master list",
+      "vi": "Tên hàng {name} không có trong danh mục mã HS",
+      "note_en": "No model of the list has this name. Correct the document, or add it to the HS master Excel",
+      "note_vi": "Không model nào trong danh mục có tên này. Hãy sửa chứng từ, hoặc thêm vào file Excel mã HS"
+    },
+    "HS_NOT_IN_MASTER": {
+      "en": "HS code {hs} is not in the HS master list",
+      "vi": "Mã HS {hs} không có trong danh mục mã HS",
+      "note_en": "No model of the list has this code. Correct the document, or add it to the HS master Excel",
+      "note_vi": "Không model nào trong danh mục có mã này. Hãy sửa chứng từ, hoặc thêm vào file Excel mã HS"
+    },
     "MASTER_UNIT": {
       "en": "{model}: unit should be {ref} (master list)",
       "vi": "{model}: đơn vị phải là {ref} (danh mục)",

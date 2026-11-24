@@ -221,6 +221,21 @@ def hs_for(model) -> str | None:
     return it["hs"] if it else None
 
 
+def lists_hs(hs) -> bool:
+    """A printed HS code (or heading) is one of the list's codes, or a heading of one. A 6-digit code the user added from
+    a Form E also stands for the longer codes under it."""
+    d, mine = digits(hs), added()
+    rows = [*((load() or {}).get("items", {})).items(), *mine.items()]
+    return len(d) >= 4 and any(r["hs"].startswith(d) or (k in mine and len(r["hs"]) == 6 and d.startswith(r["hs"]))
+                               for k, r in rows)
+
+
+def names() -> list:
+    """Every goods name of the list."""
+    rows = [*((load() or {}).get("items", {})).values(), *added().values()]
+    return list(dict.fromkeys(r["name"] for r in rows if r.get("name")))
+
+
 def has_column(col: str) -> bool:
     """The list gives this ("name" / "unit") for at least one model."""
     return any(r.get(col) for r in [*((load() or {}).get("items", {})).values(), *added().values()])

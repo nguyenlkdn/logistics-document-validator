@@ -63,6 +63,11 @@ class Finding:
         return [d.name for d in self.docs]
 
     @property
+    def wrong_docs(self):
+        """Names of every document that holds a wrong value (the others are only compared with)."""
+        return list(dict.fromkeys(self.doc_names[:1] + [l.doc.name for l in self.locs if l.role == "wrong"]))
+
+    @property
     def page(self):
         for l in self.locs:
             if l.role == "wrong" and l.page is not None:
@@ -802,7 +807,7 @@ def _all_parts(ci) -> bool:
 
 def r_hs(ci, co, bl, out):
     """HS codes. With the HS master list (company Excel) the master is the reference and the document that
-    differs is blamed: each Form D item, the B/L heading, and invoice models missing from the list.
+    differs is blamed: each Form D item, the B/L heading; a code that no row of the list has is an ERROR too.
     Models not in the master fall back to Form D vs B/L."""
     sval = lambda x: x.value if isinstance(x, Field) else x
     hs_bl_f = bl.f.get("hs") if bl else None
@@ -816,27 +821,11 @@ def r_hs(ci, co, bl, out):
     have = master.load() is not None
     known = {}                                            # invoice model -> master HS
     parts = _all_parts(ci)
-    ck = begin("HS_MASTER", out)
-    if parts:                                             # every line is a part (part number), not a finished model
-        ck.na(evidence="items_are_parts")
-    elif ck.master(have) and ci:
-        ck.need_items(ci)
-    if have and ci and not parts:
+    if have and ci and not parts:                         # models missing from the list: rules_master.r_master_models
         for it in ci.items:
             m = sval(it.get("model"))
-            ck.need_item(ci, it, "model")
-            if not m or m in known:
-                continue
-            hs = master.hs_for(m)
-            known[m] = hs
-            if hs is None:                                # master data, not a reading problem: NOT_RUN + the WARNING
-                ck.master_missing(m)
-                line = next((l for l in ci.lines if m in l.text), None)
-                ck.add(Finding("HS_MASTER_MISSING", "WARNING", [ci], dict(model=m), m, "",
-                               [Loc(ci, line.page if line else None, None, m)]))
-            else:
-                ck.compared()
-    ck.end()
+            if m and m not in known:
+                known[m] = master.hs_for(m)
     ck = begin("CO_HS", out)
     ck.need_items(co)
     off = []                                              # Form D items not under the B/L heading (no master)
@@ -868,6 +857,14 @@ def r_hs(ci, co, bl, out):
         for it, loc in off:
             ck.add(Finding("HS_CODE", "ERROR", [co, bl], dict(no=it["no"], hs=it["hs"], hs_bl=_v(hs_bl_f)), it["hs"],
                            _v(hs_bl_f) + "…", loc + at(bl, hs_bl_f, "ref")))
+    if have and co and not parts:                         # a code of a model not in the list must still be one of the list's
+        new = {}
+        for it in co.items:
+            m = sval(it.get("model"))
+            if master.digits(it["hs"]) and not (m and master.hs_for(m)) and not master.lists_hs(it["hs"]):
+                new.setdefault(it["hs"], []).extend(at(co, it.get("hs_f")) or at_line(co, it["qty"].line))
+        for hs, locs in new.items():
+            ck.add(Finding("HS_NOT_IN_MASTER", "ERROR", [co], dict(hs=hs), hs, "", locs))
     ck.end()
     ck = begin("BL_HS", out)
     if parts:                                             # the B/L heading of a parts block: no finished-goods master
@@ -884,6 +881,10 @@ def r_hs(ci, co, bl, out):
         heads = Counter(h[:len(hs_bl)] for h in refs)
         ck.add(Finding("BL_HS_MASTER", "ERROR", [bl], dict(hs=_v(hs_bl_f), ref=", ".join(sorted(heads))),
                        _v(hs_bl_f), heads.most_common(1)[0][0], at(bl, hs_bl_f)))
+    elif have and hs_bl and not parts:
+        for f in (bl.lists.get("hs_codes") if blk is None else None) or [hs_bl_f]:
+            if not master.lists_hs(f.value):
+                ck.add(Finding("HS_NOT_IN_MASTER", "ERROR", [bl], dict(hs=f.value), f.value, "", at(bl, f)))
     ck.end()
 
 
@@ -1970,7 +1971,8 @@ def _validate_group(docs: list[Doc]) -> list[Finding]:
     _call(r_co, ci, co, bl, out)
     _co_items_gate(out, docs)                           # early too: later scans (far dates …) report what it withdraws
     _call(r_hs, ci, co, bl, out)
-    from .rules_master import r_master_goods
+    from .rules_master import r_master_goods, r_master_models
+    _call(r_master_models, ci, scs, co, bl, out)
     _call(r_master_goods, ci, scs, co, bl, out)
     _call(r_containers, ci, bl, out)
     _call(r_bl_cargo, ci, co, bl, out)

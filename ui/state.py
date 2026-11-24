@@ -8,6 +8,7 @@ import json
 from engine import check, master, report_root, session
 from engine.history import DONE, OPEN, STATUSES, History
 from engine.rules import SEVERITY
+from engine.session import wrong_docs
 
 APP = Path(__file__).resolve().parent.parent
 VERSION = (APP / "VERSION").read_text(encoding="utf-8").strip() if (APP / "VERSION").exists() else "dev"
@@ -99,11 +100,11 @@ def counts(s: dict, mk: dict | None = None) -> dict:
 
 
 def per_doc(s: dict) -> list[dict]:
-    """Findings per document (the document holding the value to fix), in document order."""
+    """Findings per document (a document holding a value to fix; one finding may count in several), in document order."""
     order = {"CI": 0, "SC": 1, "BL": 2, "CO": 3}
     rows = []
     for d in s["docs"]:
-        own = [f for f in s["findings"] if f["doc"] == d["name"]]
+        own = [f for f in s["findings"] if d["name"] in wrong_docs(f)]
         rows.append(dict(name=d["name"], kind=d["kind"], pages=d.get("pages"), total=len(own),
                          **{sev: sum(f["severity"] == sev for f in own) for sev in SEVERITY}))
     rows.sort(key=lambda r: (order.get(r["kind"], 9), r["name"]))

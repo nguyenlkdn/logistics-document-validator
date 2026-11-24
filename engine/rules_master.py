@@ -1,4 +1,7 @@
-"""Goods name and unit of every model against the company's master list (engine/master.py, columns name and unit).
+"""Models, goods names and units of the documents against the company's master list. A model, name or (rules.r_hs) HS
+code that the list does not have at all is an ERROR on whichever document prints it.
+
+Goods name and unit of every model against the company's master list (engine/master.py, columns name and unit).
 
 The list is the reference. One finding per model and printed value: it names every document that prints it that way
 (models that share one wrong heading share the finding).
@@ -13,9 +16,9 @@ import re
 import unicodedata
 
 from . import master
-from .checks import begin
+from .checks import begin, current_run
 from .extract import Field
-from .rules import CONFIG, Finding, _all_parts, _bl_block, at
+from .rules import CONFIG, Finding, Loc, _all_parts, _bl_block, at
 
 _SIZE = re.compile(r"\d+(?:\.\d+)?\s*(?:L|LTR|LITERS?|LITRES?|KG|W|KW|CM|MM|INCH|IN)(?![A-Z])")
 _AND = re.compile(r"\s+AND\s+|\s*[&,;]\s*")
@@ -78,6 +81,56 @@ def _rows(ci, scs, co):
         yield s, s.items, s.f.get("goods_full") or s.f.get("goods"), False
     if co:
         yield co, co.items, None, False
+
+
+def r_master_models(ci, scs, co, bl, out):
+    """Every model the documents print (lines and shipping marks) is in the master list; one ERROR per model."""
+    ck = begin("HS_MASTER", out)
+    if ci and _all_parts(ci):                             # every line is a part (part number), not a finished model
+        ck.na(evidence="items_are_parts")
+    elif ck.master(master.load() is not None) and ci:
+        ck.need_items(ci)
+        mine, found, seen = {}, {}, set()
+        for it in ci.items:
+            ck.need_item(ci, it, "model")
+            if m := _model(it):
+                ck.compared()
+                mine.setdefault(master.key(m), m)
+        run = current_run()
+        others = {master.key(_model(it)) for d in (run.docs if run else []) if d.kind == "CI" and d is not ci for it in d.items}
+
+        def see(doc, m, locs):
+            k = master.key(m)
+            if not k or master.row_for(m):
+                return
+            # the other documents: a model of another invoice is reported there, a look-alike of an invoice model is a
+            # typo of that document (CO_MODEL, *_MARKS_MODEL, SC_VS_CI ...)
+            if k not in mine and (k in others or difflib.get_close_matches(k, [*mine, *others], n=1, cutoff=0.75)):
+                return
+            found.setdefault(k, (m, []))[1].append((doc, locs))
+
+        for doc in [ci, *scs, *([co] if co else [])]:
+            for it in [*doc.items, *doc.pl_items]:
+                if (m := _model(it)) and (id(doc), m) not in seen:
+                    seen.add((id(doc), m))
+                    line = next((l for l in doc.lines if m in l.text), None)
+                    see(doc, m, [Loc(doc, line.page if line else None, None, m)])
+        for doc in [ci, *([co] if co else []), *([bl] if bl else [])]:
+            for f in [*(doc.lists.get("marks_models") or []), *(doc.lists.get("pl_marks_models") or [])]:
+                if (id(doc), f.value) not in seen:        # the line of the same document is boxed already
+                    seen.add((id(doc), f.value))
+                    see(doc, f.value, at(doc, f))
+        for m, hits in found.values():
+            ck.master_missing(m)
+            docs = list({id(d): d for d, _l in hits}.values())
+            ck.add(Finding("HS_MASTER_MISSING", "ERROR", docs, dict(model=m), m, "", [x for _d, l in hits for x in l]))
+    ck.end()
+
+
+def _listed(name) -> bool:
+    """The goods name is in the list (of any model); half of a name that holds an 'AND' counts."""
+    k = "".join(_words(name))
+    return any(same_name(name, r) or (len(_parts(r)) > 1 and k in "".join(_words(r))) for r in master.names())
 
 
 def r_master_goods(ci, scs, co, bl, out):
@@ -146,19 +199,21 @@ def _report(ck, key, bad: dict, want: dict):
         same.setdefault((place, k, _text(want[m])), []).append(m)
     for (_p, k, _r), ms in same.items():
         m, hits = ms[0], bad[(ms[0], k)]
-        ck.add(Finding(key, "WARNING", _docs(hits), dict(model=", ".join(ms), ref=_text(want[m])), hits[0][2], _text(want[m]), _locs(hits)))
+        sev = "ERROR" if key == "MASTER_NAME" and not _listed(hits[0][2]) else "WARNING"
+        ck.add(Finding(key, sev, _docs(hits), dict(model=", ".join(ms), ref=_text(want[m])), hits[0][2], _text(want[m]), _locs(hits)))
 
 
 def _names(ck, ci, scs, co, bl, want):
     bad, extra = {}, {}
 
     def unused(doc, f, models):
-        """The names of a goods heading that no model of the document has. Only when every model's name is known:
-        else the name may be that of the unknown one."""
-        if not models or not all(m in want for m in models):
-            return
-        refs = [want[m] for m in models]
+        """The names of a goods heading that no model of the document has. When a model's name is not known, the name may
+        be that one's: then only a name that the list does not have at all."""
+        known = bool(models) and all(m in want for m in models)
+        refs = [want[m] for m in models if m in want]
         for n in _parts(f.value):
+            if not known and (_listed(n) or _listed(f.value)):
+                continue
             k = "".join(_words(n))
             # half of a name that holds an 'AND' itself is not a name of its own
             if k and not any(same_name(n, r) or (len(_parts(r)) > 1 and k in "".join(_words(r))) for r in refs):
@@ -180,11 +235,13 @@ def _names(ck, ci, scs, co, bl, want):
             unused(doc, head, [_model(it) for it in lines])
         for it in lines:
             m = _model(it)
-            if m not in want:
-                continue
             f = it.get("desc") if it.get("desc") is not None else it.get("goods_full") or it.get("goods")
             f, heading = (f, False) if isinstance(f, Field) else (head, True)
             if not isinstance(f, Field) or not _text(f.value):
+                continue
+            if m not in want:                             # no name to compare with: it must still be one of the list's
+                if not heading and not _listed(f.value) and _words(f.value):
+                    extra.setdefault("".join(_words(f.value)), []).append((doc, f, _text(f.value)))
                 continue
             if (m, heading, _text(f.value)) not in done:
                 done.add((m, heading, _text(f.value)))
@@ -197,6 +254,19 @@ def _names(ck, ci, scs, co, bl, want):
         # a B/L heading over several invoices also names the goods of the others
         if f and (blk is not None or (len(bl.cargo_blocks) < 2 and len(bl.lists.get("invoice_nos") or []) < 2)):
             unused(bl, f, [_model(it) for it in ci.items])
+        elif f:                                   # ... so a name of another invoice is reported there
+            run = current_run()
+            heads = [x for d in (run.docs if run else []) if d.kind == "CI" and d is not ci
+                     for x in _parts(getattr(d.f.get("goods_full") or d.f.get("goods"), "value", ""))]
+            theirs = {"".join(_words(x)) for x in heads}
+            for n in _parts(f.value):
+                k = "".join(_words(n))
+                if k and not _listed(n) and not _listed(_text(f.value)) and (k in extra or any(x == k for _m, x in bad) or k not in theirs):
+                    extra.setdefault(k, []).append((bl, _place(bl, f, n), n))
+    for k, hits in list(extra.items()):           # printed with and without its brand: one name
+        short = "".join(_words(hits[0][2])[1:])
+        if short in extra and extra[short] is not hits:
+            hits += extra.pop(short)
     for k, hits in list(extra.items()):           # the same wrong name is printed beside a model: part of that finding
         mine = next((v for (_m, x), v in bad.items() if x == k), None)
         if mine is not None:
@@ -206,6 +276,9 @@ def _names(ck, ci, scs, co, bl, want):
     _nothing(ck, ci, "goods_full", want)
     _report(ck, "MASTER_NAME", bad, want)
     for hits in extra.values():
+        if not _listed(hits[0][2]):
+            ck.add(Finding("MASTER_NAME_MISSING", "ERROR", _docs(hits), dict(name=hits[0][2]), hits[0][2], "", _locs(hits)))
+            continue
         ck.add(Finding("MASTER_NAME_EXTRA", "WARNING", _docs(hits), dict(name=hits[0][2]), hits[0][2],
                        " / ".join(dict.fromkeys(_text(x) for x in want.values())), _locs(hits)))
 

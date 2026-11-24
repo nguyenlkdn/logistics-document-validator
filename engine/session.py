@@ -66,7 +66,7 @@ def build(res) -> dict:
             no=i, sig=sig, key=f.key, severity=f.severity,
             doc=f.doc_names[0] if f.docs else "", doc_kind=f.docs[0].kind if f.docs else "",
             doc_form=f.docs[0].form if f.docs and f.docs[0].kind == "CO" else "",
-            related=f.doc_names[1:], current=f.current, suggested=f.suggested,
+            related=f.doc_names[1:], wrong=f.wrong_docs, current=f.current, suggested=f.suggested,
             # a value found by text search on the page (no position from the reader): its page from where it was found
             page=f.page or next((l["page"] + 1 for l in locs[i - 1] if l.get("role") == "wrong" and l.get("page") is not None),
                                 None),
@@ -80,6 +80,16 @@ def build(res) -> dict:
                 checks=[c.to_dict() for c in res.checks], verdict=res.verdict,
                 marks={k: [list(m) for m in v] for k, v in res.marks.items()},
                 excel=rel(res.excel) if res.excel else None)
+
+
+def wrong_docs(f: dict) -> list[str]:
+    """Documents of a stored finding that hold a wrong value; reviews before 2.12 stored only the boxes."""
+    return f.get("wrong") or list(dict.fromkeys([f["doc"]] + [l["doc"] for l in f.get("locs") or [] if l["role"] == "wrong"]))
+
+
+def ref_docs(f: dict) -> list[str]:
+    """Documents a stored finding was only compared with."""
+    return [n for n in f.get("related") or [] if n not in wrong_docs(f)]
 
 
 def save(res) -> Path:

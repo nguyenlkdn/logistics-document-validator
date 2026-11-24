@@ -86,8 +86,9 @@ The company's HS Excel (model → HS code, header row e.g. `Mã NPL/SP` | `Mã H
 when the file has changed. Import: page *Reference data* (preview + confirm before replacing), drag the Excel onto `Import-HS.bat`, `./import_hs.sh <file>`,
 or `python -m engine.master <file>`.
 Rules: `CO_HS_MASTER` (Form D item HS ≠ master), `BL_HS_MASTER` (B/L heading matches no invoice model's master HS),
-`HS_MASTER_MISSING` (invoice model not in the list), `MASTER_NAME` / `MASTER_UNIT` (goods name / unit differs from the optional
-columns `TÊN` / `ĐƠN VỊ`; warnings, see `engine/rules_master.py`). Models not in the list fall back to Form D vs B/L (`HS_CODE`).
+`HS_MASTER_MISSING` / `MASTER_NAME_MISSING` / `HS_NOT_IN_MASTER` (a model, goods name or HS code on any document that the list
+does not have: errors), `MASTER_NAME` / `MASTER_UNIT` (goods name / unit differs from the optional columns `TÊN` / `ĐƠN VỊ`:
+warnings; a name the list does not have is an error; see `engine/rules_master.py`). Models not in the list fall back to Form D vs B/L (`HS_CODE`).
 Tests use their own copy `tests/baseline/master_hs.xlsx` (ignored by git), never the PC's real list.
 
 ## History

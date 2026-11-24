@@ -106,6 +106,10 @@ def main():
             s = session.load(res.out_dir)
             assert len(s["docs"]) == len(res.docs) and len(s["findings"]) == len(res.findings), name
             assert all("locs" in f for f in s["findings"]), name
+            for f, rf in zip(s["findings"], res.findings):          # a wrong value in several documents: each one is marked
+                assert session.wrong_docs(f) == rf.wrong_docs and not set(rf.wrong_docs) & set(session.ref_docs(f)), (name, f["key"])
+                old = {k: v for k, v in f.items() if k != "wrong"}
+                assert session.wrong_docs(old) == rf.wrong_docs, (name, f["key"])
             assert all(d["fields"] for d in s["docs"]), name
             assert all(Path(d["path"]).exists() for d in s["docs"]), name
             located = [f for f, rf in zip(s["findings"], res.findings) if rf.locs]

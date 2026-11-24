@@ -11,6 +11,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .rules import CONFIG, SEVERITY
+from .session import ref_docs, wrong_docs
 
 OPEN = ("open", "in_review", "waiting")
 DONE = ("fixed", "accepted", "not_error")
@@ -192,7 +193,7 @@ def build_html(s: dict, marks: dict, trails: dict, cmp: dict | None, signoff: di
             flags.append(L("type_user"))
         if d.get("is_draft") is False and d["kind"] not in ("CI", "SC"):
             flags.append(L("not_draft"))
-        n = sum(f["doc"] == d["name"] for f in s["findings"])
+        n = sum(d["name"] in wrong_docs(f) for f in s["findings"])
         a(f"<tr><td>{_e(d['name'])}</td><td>{_e(L.kind(d['kind'], d.get('form', '')))}</td><td>{_e(d.get('pages') or '')}</td>"
           f"<td>{_e(', '.join(flags))}</td><td>{n}</td></tr>")
     for name in s.get("skipped", []):
@@ -230,11 +231,11 @@ def build_html(s: dict, marks: dict, trails: dict, cmp: dict | None, signoff: di
           f"<b style='color:{COLOR[x]}'>{_e(L.sev(x).upper())}</b> &#160; <b>{_e(finding_id(s['shipment'], rev, f['no']))}</b>"
           f" &#160; {L.msg(f)}</td></tr>")
         pg = f" · {L('page')} {f['page']}" if f.get("page") else ""
-        rows = [("doc", _e(f["doc"]) + pg)]
+        rows = [("doc", "<br>".join(_e(n) + (pg if n == f["doc"] else "") for n in wrong_docs(f)))]
         if f.get("current") or f.get("suggested"):
             rows += [("found", f"<b>{_e(f.get('current') or '—')}</b>"), ("expected", f"<b>{_e(f.get('suggested') or '—')}</b>")]
-        if f.get("related"):
-            rows.append(("ref_doc", _e(", ".join(f["related"]))))
+        if ref_docs(f):
+            rows.append(("ref_doc", _e(", ".join(ref_docs(f)))))
         locs = f.get("locs")
         if locs:
             seen = list(dict.fromkeys((l["doc"], l["page"] + 1, l["role"]) for l in locs))
@@ -433,7 +434,7 @@ def to_xlsx(s: dict, marks: dict, trails: dict, cmp: dict | None, signoff: dict 
     ws.append([L("file"), L("type"), L("pages"), L("findings")])
     head(ws)
     for d in s["docs"]:
-        ws.append([d["name"], L.kind(d["kind"], d.get("form", "")), d.get("pages"), sum(f["doc"] == d["name"] for f in s["findings"])])
+        ws.append([d["name"], L.kind(d["kind"], d.get("form", "")), d.get("pages"), sum(d["name"] in wrong_docs(f) for f in s["findings"])])
     for col, w in zip("ABCD", (50, 36, 8, 10)):
         ws.column_dimensions[col].width = w
 
@@ -447,8 +448,8 @@ def to_xlsx(s: dict, marks: dict, trails: dict, cmp: dict | None, signoff: dict 
         m = marks.get(f["sig"], {})
         tr = "\n".join(f"{_ts(e['ts'])} {e.get('who') or ''}: {L.status(e['old_status'])} → {L.status(e['status'])}"
                        + (f" “{e['note']}”" if e.get("note") else "") for e in trails.get(f["sig"], []))
-        ws.append([finding_id(s["shipment"], rev, f["no"]), f["severity"], f.get("msg_en"), f.get("msg_vi"), f["doc"],
-                   f.get("page"), f.get("current"), f.get("suggested"), ", ".join(f.get("related") or []),
+        ws.append([finding_id(s["shipment"], rev, f["no"]), f["severity"], f.get("msg_en"), f.get("msg_vi"), "\n".join(wrong_docs(f)),
+                   f.get("page"), f.get("current"), f.get("suggested"), ", ".join(ref_docs(f)),
                    L.note(f).replace("<br>", "\n"), f["key"], L.status(m.get("status", "open")), m.get("note", ""), tr])
         row = ws[ws.max_row]
         for c in row:

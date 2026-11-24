@@ -41,11 +41,11 @@ def plain(v):
 
 
 def per_file(res) -> list[dict]:
-    """Findings counted per file (the file holding the value to fix), in document order
+    """Findings counted per file (a file holding a value to fix; one finding may count in several files), in document order
     Invoice/PL -> Sales Contract -> B/L -> Form D; files with no findings included."""
     rows = []
     for d in res.docs:
-        own = [f for f in res.findings if f.docs and f.docs[0] is d]
+        own = [f for f in res.findings if d.name in f.wrong_docs]
         c = {s: sum(f.severity == s for f in own) for s in SEVERITY}
         rows.append(dict(file=d.name, kind=d.kind, total=len(own), **c))
     order = {"CI": 0, "SC": 1, "BL": 2, "CO": 3}
@@ -195,7 +195,7 @@ def markdown(res) -> str:
             "|---|---|---|---|---|---|"]
     for i, f in enumerate(res.findings, 1):
         ce = f"`{f.current}` → `{f.suggested}`" if f.current or f.suggested else ""
-        out.append(f"| {i} | {ICON[f.severity]} | {f.text('en')}<br>_{f.text('vi')}_ | {f.doc_names[0]} | "
+        out.append(f"| {i} | {ICON[f.severity]} | {f.text('en')}<br>_{f.text('vi')}_ | {'<br>'.join(f.wrong_docs)} | "
                    f"{f.page or ''} | {ce} |")
     out += ["", "## Not recognised / Không đọc được", ""]
     out += [f"- {u['doc']}: {u['what']} / {u['vi']}" for u in res.unrecognised] or ["- Everything recognised / Đã đọc được toàn bộ"]

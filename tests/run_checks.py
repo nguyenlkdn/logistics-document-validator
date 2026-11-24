@@ -815,6 +815,32 @@ def _():
     assert r.status == "FAIL", (r.status, r.reason)
 
 
+@test("Not in the HS list: a model on any document (one ERROR), an HS code of the C/O or B/L; look-alikes are typos")
+def _():
+    key = lambda fs, *ks: [(f.key, f.severity, f.current, sorted(d.kind for d in f.docs)) for f in fs if f.key in ks]
+    docs = package()
+    ci, sc, bl, co = docs
+    for d in (ci, sc, co):
+        for it in d.items + d.pl_items:
+            it["model"] = "ZZ-777(Q)"
+    for d in (bl, co):
+        d.lists["marks_models"] = [F("ZZ-777(Q)")]
+    co.items[0]["hs"], bl.f["hs"] = "9999.10.10", F("9999")
+    bl.lists.pop("hs_codes", None)
+    fs, res = run(docs)
+    assert key(fs, "HS_MASTER_MISSING") == [("HS_MASTER_MISSING", "ERROR", "ZZ-777(Q)", ["BL", "CI", "CO", "SC"])], key(fs, "HS_MASTER_MISSING")
+    assert sorted(x[2] for x in key(fs, "HS_NOT_IN_MASTER")) == ["9999", "9999.10.10"]
+    assert status(res, "HS_MASTER") == status(res, "CO_HS") == status(res, "BL_HS") == {"FAIL"}
+    assert not closure_errors(res, docs) and not undeclared(res), undeclared(res)
+    docs = package()                                              # only the B/L marks show another model
+    docs[2].lists["marks_models"] = [F(MODEL), F("ZZ-777(Q)")]
+    assert key(run(docs)[0], "HS_MASTER_MISSING") == [("HS_MASTER_MISSING", "ERROR", "ZZ-777(Q)", ["BL"])]
+    docs[2].lists["marks_models"] = [F(MODEL[:-1] + "X")]         # one letter off: a typo, reported as one
+    assert not key(run(docs)[0], "HS_MASTER_MISSING")
+    assert master.lists_hs("8516") and master.lists_hs("8516.60") and not master.lists_hs("85") and not master.lists_hs("8517")
+    assert not key(BASE_FS, "HS_MASTER_MISSING", "HS_NOT_IN_MASTER")
+
+
 @test("HS master missing: the reason names every model to add")
 def _():
     from engine.checks import reason_text
@@ -1088,7 +1114,7 @@ def _():
         co.items[0]["unit"] = "PIECE"
         fs, res = run(docs)
         got = {f.key: f for f in fs if f.key.startswith("MASTER_")}
-        assert set(got) == {"MASTER_NAME", "MASTER_UNIT"} and all(f.severity == "WARNING" for f in got.values())
+        assert {k: f.severity for k, f in got.items()} == {"MASTER_NAME": "ERROR", "MASTER_UNIT": "WARNING"}, got
         assert got["MASTER_NAME"].suggested == "ACME RICE COOKER" and got["MASTER_UNIT"].suggested == "SET"
         assert [d.kind for d in got["MASTER_NAME"].docs] == ["CO"], got["MASTER_NAME"].docs
         # a heading with several names: each must be the name of a model; the C/O's wrong name shares its finding
@@ -1103,6 +1129,14 @@ def _():
         fs, _ = run(docs)
         got = [(f.key, sorted(d.kind for d in f.docs)) for f in fs if f.key.startswith("MASTER_NAME")]
         assert got == [("MASTER_NAME", ["CO", "SC"])], got
+        # a name that the list does not have at all: ERROR, beside a model or in a heading
+        docs = package()
+        next(d for d in docs if d.kind == "CO").items[0]["goods_full"] = F("ACME GADGET")
+        assert [(f.key, f.severity) for f in run(docs)[0] if f.key.startswith("MASTER_NAME")] == [("MASTER_NAME", "ERROR")]
+        docs = package()
+        next(d for d in docs if d.kind == "SC").f["goods_full"] = F("ACME RICE COOKER AND ACME GADGET")
+        got = [(f.key, f.severity, f.current) for f in run(docs)[0] if f.key.startswith("MASTER_NAME")]
+        assert got == [("MASTER_NAME_MISSING", "ERROR", "ACME GADGET")], got
         # a list imported by an older LDV (no names) is imported again by itself
         import json as _j
         f = master._json()

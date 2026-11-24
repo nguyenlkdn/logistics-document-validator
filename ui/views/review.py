@@ -18,6 +18,7 @@ import streamlit as st
 
 from engine.history import STATUSES
 from engine.rules import SEVERITY
+from engine.session import ref_docs, wrong_docs
 
 from .. import components as ui
 from .. import state, viewer
@@ -42,10 +43,12 @@ def locs_of(s: dict, f: dict) -> list[dict]:
             for doc, ms in s.get("marks", {}).items() for m in ms if m[6] == f["no"]]
 
 
-def target(s: dict, f: dict) -> tuple[str, int]:
-    """Document and 1-based page to show for a finding: its first 'wrong' location, else its document/page."""
+def target(s: dict, f: dict, stay: str | None = None) -> tuple[str, int]:
+    """Document and 1-based page to show for a finding: its first 'wrong' location (in document `stay` if
+    it has one there), else its document/page."""
     ls = locs_of(s, f)
-    first = next((l for l in ls if l["role"] == "wrong"), ls[0] if ls else None)
+    first = next((l for l in ls if l["role"] == "wrong" and l["doc"] == stay), None) or \
+        next((l for l in ls if l["role"] == "wrong"), ls[0] if ls else None)
     if first:
         return first["doc"], first["page"] + 1
     return f["doc"], f.get("page") or 1
@@ -65,7 +68,7 @@ def _select(no, s):
     f = next((x for x in s["findings"] if x["no"] == no), None)
     if not f:
         return
-    doc, page = target(s, f)
+    doc, page = target(s, f, st.session_state.get("f_doc") if st.session_state.get("f_scope") == "doc" else None)
     st.session_state.update(f_sel=no, f_doc=doc, v_page=page)
 
 
@@ -140,7 +143,7 @@ def render():
     status_of = lambda f: mk.get(f["sig"], {}).get("status", "open")
     ql = q.strip().lower()
     hit = lambda f: not ql or any(ql in str(f.get(k) or "").lower()
-                                  for k in ("msg_en", "msg_vi", "current", "suggested", "key", "doc"))
+                                  for k in ("msg_en", "msg_vi", "current", "suggested", "key", "doc")) or any(ql in n.lower() for n in wrong_docs(f))
     base = [f for f in s["findings"] if f["severity"] in sev and status_of(f) in stt and hit(f)]
 
     # ---- current document / finding
@@ -151,14 +154,14 @@ def render():
         st.session_state.update(f_doc=first, v_page=1)
     doc = st.session_state.get("f_doc")
     scope = st.session_state.get("f_scope", "all")
-    listed = [f for f in base if scope == "all" or f["doc"] == doc]
+    listed = [f for f in base if scope == "all" or doc in wrong_docs(f)]
     sel = next((f for f in s["findings"] if f["no"] == st.session_state.get("f_sel")), None)
 
     nav, view, panel = st.columns([1.05, 3.3, 2.15], gap="small")
     with nav, st.container(key="docnav"):
         ui.label(t1("k_docs"))
         for i, r in enumerate(docs):
-            n = {x: sum(f["severity"] == x and f["doc"] == r["name"] for f in base) for x in SEVERITY}
+            n = {x: sum(f["severity"] == x and r["name"] in wrong_docs(f) for f in base) for x in SEVERITY}
             counts = " ".join(f"{ui.ICON[x]}{n[x]}" for x in SEVERITY if n[x]) or "✓"
             pages = f" · {r['pages']} {t1('pages') if (r['pages'] or 0) > 1 else t1('page')}" if r["pages"] else ""
             mine = " ✎" if next((d for d in s["docs"] if d["name"] == r["name"]), {}).get("kind_set_by_user") else ""
@@ -280,8 +283,9 @@ def finding_panel(s, sel, listed, base, mk, cid, doc, scope):
             text = text if len(text) <= 110 else text[:107] + "…"
             badge = "" if m == "open" else f" · _{status_label(m)}_"
             label = f"{ui.ICON[f['severity']]} **#{f['no']}** {'~~' + text + '~~' if m in state.DONE else text}{badge}"
-            if scope == "all" and f["doc"] != doc:
-                label += f"  \n_{kind_label(f['doc_kind'], short=True, form=f.get('doc_form', ''))} · {f['doc']}_"
+            if scope == "all" and doc not in wrong_docs(f):
+                more = f" +{len(wrong_docs(f)) - 1}" if len(wrong_docs(f)) > 1 else ""
+                label += f"  \n_{kind_label(f['doc_kind'], short=True, form=f.get('doc_form', ''))} · {f['doc']}{more}_"
             st.button(label, key=f"fbtn_{f['no']}", on_click=_select, args=(f["no"], s), width="stretch",
                       type="primary" if sel and sel["no"] == f["no"] else "secondary")
 
@@ -308,14 +312,15 @@ def detail(s, f, mk, cid, order):
             why = " ".join(t(f"suspect_{w.strip()}") for w in f["suspect"].split(",") if f"suspect_{w.strip()}" in T)
             st.warning(t("suspect") + (f" {why}" if why else ""), icon=":material/help:")
 
-        rows = [(t1("doc"), ui.esc(f["doc"]) + (f" · {t1('page')} {f['page']}" if f.get("page") else ""))]
+        rows = [(t1("doc"), "<br>".join(ui.esc(n) + (f" · {t1('page')} {f['page']}" if n == f["doc"] and f.get("page") else "")
+                                        for n in wrong_docs(f)))]
         if f.get("current") or f.get("suggested"):
             rows.append((t1("found"), f'<span class="ldv-val" style="background:{ui.TINT["ERROR"]}">'
                                       f'{ui.esc(f["current"]) or "—"}</span>'))
             rows.append((t1("expected"), f'<span class="ldv-val" style="background:{ui.TINT["RESOLVED"]}">'
                                          f'{ui.esc(f["suggested"]) or "—"}</span>'))
-        if f.get("related"):
-            rows.append((t1("related"), " · ".join(ui.esc(n) for n in f["related"])))
+        if ref_docs(f):
+            rows.append((t1("related"), " · ".join(ui.esc(n) for n in ref_docs(f))))
         rows.append((t1("rule"), f"<code>{ui.esc(f['key'])}</code>"))
         st.markdown('<div class="ldv-kv">' + "".join(f'<div class="k">{ui.esc(k)}</div><div>{v}</div>' for k, v in rows)
                     + "</div>", unsafe_allow_html=True)
