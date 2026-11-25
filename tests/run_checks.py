@@ -295,8 +295,9 @@ def removed(docs, inp):
 
 
 def blank_out(docs, label=""):
-    """Every input a passing / failing check read is removed in turn: that check must not PASS and must not vanish."""
-    _, res = run(docs)
+    """Every input a passing / failing check read is removed in turn: that check must not PASS and must not vanish.
+    The checks alone: engine/unwrap.py reads the file again and would put the removed value back."""
+    _, res = rules._run_checks(docs)
     problems, n = [], 0
     for r in res:
         if r.status not in (CheckStatus.PASS, CheckStatus.FAIL, CheckStatus.REVIEW_REQUIRED):
@@ -308,7 +309,7 @@ def blank_out(docs, label=""):
                 if not ok:
                     continue
                 n += 1
-                _, res2 = run(docs)
+                _, res2 = rules._run_checks(docs)
                 again = [x for x in res2 if (x.check_id, x.group_id, x.doc) == (r.check_id, r.group_id, r.doc)]
                 if not again:
                     problems.append((label, r.check_id, r.group_id, inp["name"], "vanished"))
@@ -1177,6 +1178,49 @@ def _():
     finally:
         places.remove("QXZED")
     assert places.city("QX-ZED") is None
+
+
+@test("A misspelled destination: an error when it means another city than the port, never a pass")
+def _():
+    from engine import places
+    assert places.misspelled("HO CHX MINH CITY") == "HO CHI MINH CITY" == places.misspelled("HOCIHMINH CITY")
+    for n in ("HAI PHONG", "HAI DUONG", "QX-ZED", "CAT LAJ", "HOXXMINH CITY", ""):        # known, other, short, too far
+        assert places.misspelled(n) is None, n
+    for dest, port, want in (("HO CHX MINH CITY", "HAIPHONG", "FAIL"), ("HO CHX MINH CITY", "CAT LAI", "NOT_RUN"),
+                             ("QX-ZED TOWN", "HAIPHONG", "NOT_RUN"), ("HAI PHONG", "HAIPHONG", "PASS")):
+        docs = package()
+        b = next(d for d in docs if d.kind == "BL")
+        b.f["final_dest"], b.f["delivery"] = F(dest), F(port)
+        b.lists.pop("final_dests", None)
+        fs, res = run(docs)
+        assert status(res, "BL_DESTINATION") == {want}, (dest, port, status(res, "BL_DESTINATION"))
+        assert [f.severity for f in fs if f.key == "BL_DESTINATION"] == ["ERROR"] * (want == "FAIL")
+
+
+@test("Form E value: the invoice is the wrong one when its line fails quantity x price and the Form E has the product")
+def _():
+    for amount, fob, wrong, want in ((700.5, 700.0, "CI", "700.00"), (700.0, 700.5, "CO", "700.00"), (700.5, 701.0, "CO", "700.50")):
+        docs = package(amount=700.0)
+        ci, co = docs[0], docs[3]
+        co.form = "E"
+        ci.items[0]["amount"] = F(amount, f"{amount:,.2f}")
+        co.items[0]["fob"] = F(fob, f"{fob:,.2f}")
+        fs, res = run(docs)
+        got = [(f.docs[0].kind, f.suggested, [l.doc.kind for l in f.locs if l.role == "wrong"]) for f in fs if f.key == "CO_ITEM_VALUE"]
+        assert got == [(wrong, want, [wrong])], (amount, fob, got)
+
+
+@test("A blank SHIPMENT clause of the contract is a warning; a missing clause is not")
+def _():
+    for blank in (True, False):
+        docs = package()
+        docs[1].f["shipment_by"] = None
+        if blank:
+            docs[1].f["blank:shipment_by"] = F("SHIPMENT")
+        fs, res = run(docs)
+        got = [(f.severity, f.docs[0].kind) for f in fs if f.key == "SHIPMENT_BLANK"]
+        assert got == ([("WARNING", "SC")] if blank else []), got
+        assert status(res, "SHIPMENT_DATE") == {"REVIEW_REQUIRED" if blank else "NOT_RUN"}, status(res, "SHIPMENT_DATE")
 
 
 @test("HS list: added models are used, the Excel wins, wrong codes are refused; the added list reads back as a master Excel")

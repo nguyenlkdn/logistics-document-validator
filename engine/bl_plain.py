@@ -86,7 +86,10 @@ def containers(d, L):
     """Container numbers, types, loads per container, count, summary ('2*40HC') and count in words."""
     from .extract import Field, _search
     from .util import num
+    from .extract import _only_untyped
+    from .pdftext import wrapped_cells
     d.lists["cntr"], d.lists["cntr_load"], d.lists["cntr_load_parts"] = [], [], []
+    d.lists["cntr_untyped"] = []
     cells = [c for l in L for c in l.cells()]      # pieces of one column joined (a row may be cut into several spans)
     for i, c in enumerate(cells):
         ln, t = c, c.text
@@ -94,9 +97,17 @@ def containers(d, L):
         if not m:                                  # number and type far apart on the line
             full = next(l for l in L if l.page == c.page and l.y == c.y and c.spans[0] in l.spans)
             m = _CNTR_ROW.search(full.text) if c.spans[0] is full.spans[0] else None
+            ln = full
+            no = re.match(r"\s*([A-Z]{4}\d{7})\s*/(?!/)", t)
+            if not m and no:                       # the row is cut in its column: its type is under it
+                for ln in wrapped_cells(L, c, r"\s*[A-Z]{4}\d{7}\b"):
+                    m = _CNTR_ROW.search(ln.text) or _CNTR_SLASH.search(ln.text)
+                    if m:
+                        break
+                else:
+                    d.lists["cntr_untyped"].append(Field(no[1], no[1], c, no.start(1), no.end(1)))
             if not m:
                 continue
-            ln = full
         g = 3 if m.re is _CNTR_ROW else 2
         typ = f"{m[g]}{m[g + 1]}"
         if any(f.value[0] == m[1] for f in d.lists["cntr"]):
@@ -119,6 +130,7 @@ def containers(d, L):
             d.lists["cntr_load"].append(Field((m[1], *v), f.raw, f.line, f.start, f.end))
             d.lists["cntr_load_parts"].append(dict(no=m[1], printed=printed,
                                                    **{k: parts.get(k) for k in ("ctn", "gw", "cbm")}))
+    _only_untyped(d)
     one = r"\d+\s*[X×x*]\s*\d{2}\s*'?\s*[A-Z]{2}"
     for _, l, m in _search(L, rf"({one}(?:\s*[+&,]\s*{one})*)", 0):
         v = ",".join(f"{a}X{b}{c}" for a, b, c in re.findall(r"(\d+)\s*[X×x*]\s*(\d{2})\s*'?\s*([A-Z]{2})", m[1]))

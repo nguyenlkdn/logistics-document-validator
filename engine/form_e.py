@@ -66,20 +66,8 @@ class Piece:
 
 def _borders(path, page, top, end):
     """x of the vertical rules that run down the goods table on a page (the column borders)."""
-    import pymupdf
-    xs = set()
-    with pymupdf.open(path) as pdf:
-        for dr in pdf[page].get_drawings():
-            for it in dr["items"]:
-                if it[0] == "l":
-                    a, b = it[1], it[2]
-                    if abs(a.x - b.x) < 1 and min(a.y, b.y) < top + 40 and max(a.y, b.y) > end - 40:
-                        xs.add(round(a.x, 1))
-                elif it[0] == "re":
-                    r = it[1]
-                    if r.width < 2 and r.y0 < top + 40 and r.y1 > end - 40:
-                        xs.add(round(r.x0, 1))
-    return sorted(xs)
+    from .pdftext import pages
+    return sorted({x for x, y0, y1 in pages(path)[page].drawings() if y0 < top + 40 and y1 > end - 40})
 
 
 def _cols(L, path=None):

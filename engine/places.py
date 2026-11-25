@@ -1,6 +1,7 @@
 """Place names of one city (ports, terminals): the general list in config "cities" plus the names the user confirmed.
 
-A name LDV does not know is never guessed: the check that needs it does not run. The Reference data page lists such names
+A name LDV does not know is never guessed: the check that needs it does not run. The one exception: a name one typo away
+from another city's name (misspelled) is reported as the wrong city; it never makes a check pass. The Reference data page lists such names
 from the checked documents with a suggested city, and the user confirms each one. The confirmed names stay on this PC:
 
   places_added.json     {key: {name, city, added_at, by, docs}} in the data folder (engine/master.data_dir)
@@ -58,6 +59,26 @@ def _lookup(place, groups: dict) -> str | None:
 def city(place) -> str | None:
     """Port / place name -> its city (e.g. CAT LAI -> HO CHI MINH CITY), None when the name is not known."""
     return _lookup(place, cities())
+
+
+def _one_typo(a: str, b: str) -> bool:
+    """One letter wrong, missing, extra, or two neighbours swapped."""
+    if len(a) > len(b):
+        a, b = b, a
+    i = next((n for n, (x, y) in enumerate(zip(a, b)) if x != y), len(a))
+    if len(a) == len(b):
+        return a[i + 1:] == b[i + 1:] or (a[i:i + 2] == b[i:i + 2][::-1] and a[i + 2:] == b[i + 2:])
+    return len(b) - len(a) == 1 and a[i:] == b[i + 1:]
+
+
+def misspelled(place) -> str | None:
+    """The city an unknown name is a misspelling of: one typo away from a name of exactly one city. Short names
+    (under 7 letters) are never matched: another real place can be one letter away."""
+    p = key(place)
+    if len(p) < 7 or city(place):
+        return None
+    hits = {c for c, names in cities().items() for n in [c] + names if len(key(n)) >= 7 and _one_typo(p, key(n))}
+    return hits.pop() if len(hits) == 1 else None
 
 
 def _save(rows: dict, what: dict):

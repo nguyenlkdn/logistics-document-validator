@@ -175,7 +175,7 @@ REGISTRY_ROWS = [
     _d("SC_NUMBERING", "r_sc_vs_ci", "document", "SC", "SC.items", "SC_NUMBERING"),
     _d("DEPARTURE_DATE", "r_dates", "invoice", "CO CI", "CO.departure CI.sailing", "DEPARTURE_DATE"),
     _d("CO_INVOICE_DATE", "r_dates", "invoice", "CO CI", "CO.items CO.items[inv_date] CI.invoice_date", "CO_INVOICE_DATE"),
-    _d("SHIPMENT_DATE", "r_dates", "invoice", "SC CI", "SC.shipment_by CI.sailing", "SHIPMENT_LATE SHIPMENT_SLACK"),
+    _d("SHIPMENT_DATE", "r_dates", "invoice", "SC CI", "SC.shipment_by CI.sailing", "SHIPMENT_LATE SHIPMENT_SLACK SHIPMENT_BLANK"),
     _d("SC_DATE", "r_dates", "invoice", "SC CI", "SC.sc_date CI.invoice_date", "SC_DATE"),
     _d("VESSEL.ci", "r_vessel", "invoice", "BL CI", "BL.vessel CI.vessel", "VESSEL"),
     _d("VESSEL.co", "r_vessel", "invoice", "BL CO", "BL.vessel CO.vessel", "VESSEL"),

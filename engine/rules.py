@@ -549,6 +549,9 @@ def r_dates(scs, ci, co, out):
         by_f = s.f.get("shipment_by")
         by = _v(by_f)
         ck_ship.need(s, "shipment_by")
+        blank = s.f.get("blank:shipment_by")
+        if by is None and blank:                  # the clause is printed with nothing after it
+            ck_ship.add(Finding("SHIPMENT_BLANK", "WARNING", [s], {}, blank.raw, "", at(s, blank)))
         ck_ship.need(ci, "sailing")
         if by and sail:
             ck_ship.compared()
@@ -914,7 +917,8 @@ def r_containers(ci, bl, out):
     if not bl:
         return
     lines = bl.lists.get("cntr", [])
-    n_lines = len(lines)
+    untyped = bl.lists.get("cntr_untyped", [])       # container rows whose type could not be read: they still count
+    n_lines = len(lines) + len(untyped)
     fig = bl.f.get("containers")
     ref_n = n_lines or (fig.value if fig else None)
     w, wn = bl.f.get("cntr_words"), bl.f.get("cntr_words_n")
@@ -946,6 +950,8 @@ def r_containers(ci, bl, out):
     loads = {x.value[0]: x for x in bl.lists.get("cntr_load", [])}
     ck = begin("CNTR_TYPE", out)
     ck.need_list(bl, "cntr", trace=_CNTR_NO)
+    if untyped:
+        ck._input(bl, "cntr[type]", "NOT_FOUND")
     if not expect:
         ck.need_list(ci, "cntr_types", trace=r"(?i)TOTAL CONTAINER")
         ck.need(bl, "cntr_summary", trace=r"\d+\s*X\s*\d{2}")
@@ -1231,6 +1237,11 @@ def r_bl_cargo(ci, co, bl, out):
     for fd in bl.lists.get("final_dests") or [fd] if fd else []:      # typed in two places: each one must be right
         ref_f = bl.f.get("delivery") or bl.f.get("pod") or ci.f.get("pod")
         a, b = _city(fd.value), _city(ref_f.value) if ref_f else None
+        meant = places.misspelled(fd.value) if b and not a else None
+        if meant and meant != b:                  # a misspelled name of another city: wrong however it was meant
+            a = meant
+        else:
+            meant = None
         if not ref_f:
             ck.need(bl, "delivery")
         if a and b:
@@ -1239,7 +1250,7 @@ def r_bl_cargo(ci, co, bl, out):
             ck.not_run("master_data_missing", what="city_list")      # a place name that belongs to no known city
         if a and b and a != b:
             sug = (ci.f.get("pod") or ref_f).value
-            ck.add(Finding("BL_DESTINATION", "ERROR", [bl], dict(dest=fd.value, ref=b), fd.value, sug,
+            ck.add(Finding("BL_DESTINATION", "ERROR", [bl], dict(dest=f"{fd.value} ({meant})" if meant else fd.value, ref=b), fd.value, sug,
                            at(bl, fd) + at(bl, ref_f, "ref")))
     ck.end()
 
@@ -1721,7 +1732,13 @@ def _label(ci: Doc | None, docs: list[Doc]) -> str:
 
 
 def validate_checks(docs: list[Doc]) -> tuple[list[Finding], list]:
-    """Findings (exactly as validate() always gave them) + one CheckResult per check and group (engine/checks.py)."""
+    """Findings (exactly as validate() always gave them) + one CheckResult per check and group (engine/checks.py).
+    Values a document wraps onto the next line are joined first (engine/unwrap.py)."""
+    from .unwrap import heal
+    return heal(docs, _run_checks)
+
+
+def _run_checks(docs: list[Doc]) -> tuple[list[Finding], list]:
     with Run(docs) as run:
         out, n_inv = [], 0
         parts = _shipments(docs)

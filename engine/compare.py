@@ -14,7 +14,7 @@ are combined: numbers are added up, other values are pooled.
 """
 import re
 
-from . import master
+from . import master, places
 from .rules import CONFIG, _canon_port, _city
 from .util import co_form, form_text
 
@@ -270,6 +270,13 @@ def _group_sum(cells: dict, have: list, cell: dict, groups: dict) -> list:
     return []
 
 
+def _known_difference(bad: list, want: dict) -> bool:
+    """Every place is of a known city, or a misspelling of another city than the wanted one (as BL_DESTINATION)."""
+    there = {_city(n) for n in want["norm"]}
+    return None not in there and all(_city(n) or (places.misspelled(n) or next(iter(there))) not in there
+                                     for v in bad for n in v["norm"])
+
+
 def _against_ref(rows: list, fields: list):
     """A field printed on one document only, checked against a related row ("ref" in config): the B/L final
     destination must be in the city of the port of discharge. Without this the row says "only one document" even
@@ -286,7 +293,7 @@ def _against_ref(rows: list, fields: list):
         r["vs"] = dict(en=ref["en"], vi=ref["vi"], show=want["show"])
         cells = [v for v in r["cells"].values() if v["state"] == "value"]
         bad = [v for v in cells if not _same(want["norm"], v["norm"], r["type"])]
-        if bad and r["type"] == "port" and not all(_city(n) for v in bad + [want] for n in v["norm"]):
+        if bad and r["type"] == "port" and not _known_difference(bad, want):
             del r["vs"]                   # a place of no known city is not a difference (BL_DESTINATION does not run)
             continue
         for v in bad:

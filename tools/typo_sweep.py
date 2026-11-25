@@ -22,6 +22,7 @@ Each typo ends in one of:
 
 The documents are confidential: run this only on the test sets in tests/baseline/ and never commit its output.
 """
+import copy
 import json
 import os
 import re
@@ -140,7 +141,7 @@ def write_typo(src: Path, dst: Path, f: Field, new: str) -> bool:
 def sig(docs):
     """(findings, unread entries, checks not run). A rule that fails is isolated by the check runner (LDV 2.3);
     here it still counts as a CRASH, so the sweep keeps seeing it."""
-    fs, checks = validate_checks(docs)
+    fs, checks = validate_checks([copy.copy(d) for d in docs])          # wrapped values are joined in place
     err = [c for c in checks if c.reason == "internal_error"]
     if err:
         raise RuntimeError(f"rule error in {err[0].detail.get('rule')} ({err[0].detail.get('error')})")
@@ -192,7 +193,6 @@ def _one(job):
             return out | dict(result="CRASH", value="-", how=f"reading: {type(e).__name__}: {e}")
         if nd is None:
             return out | dict(result="CAUGHT", how="document no longer recognised")
-        nd.path = d.path                                  # same name as before, so findings compare
         new_docs = docs[:di] + [nd] + docs[di + 1:]
         try:
             fs, un, nr = sig(new_docs)

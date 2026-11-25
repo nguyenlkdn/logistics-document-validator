@@ -204,7 +204,7 @@ def r_headers(ci, out):
     else:
         ck._input(ci, "lists.headers", "NOT_FOUND")
     for k, show in (("no", lambda v: v), ("date", lambda v: f"{v:%d/%m/%Y}")):
-        odd, ref = _odd_ones([(ci, h[k]) for h in heads], lambda v: v)
+        odd, ref = _odd_ones([(ci, h[k]) for h in heads if h[k] is not None and h[k].value is not None], lambda v: v)
         for _, f in odd:
             ck.add(Finding("DOC_HEADER", "ERROR", [ci], dict(label=f"@hdr_{k}", page=f.page + 1), f.raw, show(ref),
                            at(ci, f)))
@@ -433,7 +433,13 @@ def r_co_values(ci, co, out):
             if not it.get("fob") or not a.get("amount"):
                 continue
             ck.compared()
-            if not _close(it["fob"].value, a["amount"].value):
+            q, p = a.get("qty"), a.get("price")
+            right = round(q.value * p.value, 2) if q and p else None
+            if not _close(a["amount"].value, right) and _close(it["fob"].value, right):
+                # the invoice line fails its own quantity x price and the Form E has the product: the invoice is wrong
+                ck.add(Finding("CO_ITEM_VALUE", "ERROR", [ci, co], dict(no=it["no"]), a["amount"].raw,
+                               fmt_like(right, a["amount"].raw), at(ci, a["amount"]) + at(co, it["fob"], "ref")))
+            elif not _close(it["fob"].value, a["amount"].value):
                 ck.add(Finding("CO_ITEM_VALUE", "ERROR", [co, ci], dict(no=it["no"]), it["fob"].raw,
                                fmt_like(a["amount"].value, it["fob"].raw), at(co, it["fob"]) + at(ci, a["amount"], "ref")))
     if ck is not None:

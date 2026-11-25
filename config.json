@@ -397,6 +397,12 @@
       "note_en": "Amend the shipment clause in the contract",
       "note_vi": "Cần sửa điều khoản giao hàng trong Hợp đồng"
     },
+    "SHIPMENT_BLANK": {
+      "en": "Sales Contract SHIPMENT clause is blank",
+      "vi": "Điều khoản SHIPMENT (giao hàng) trong Hợp đồng để trống",
+      "note_en": "The latest shipment date is not stated, so the sailing date cannot be checked against it",
+      "note_vi": "Không có thời hạn giao hàng nên không thể đối chiếu ngày tàu chạy"
+    },
     "SHIPMENT_SLACK": {
       "en": "Only {days} day(s) between sailing date and Sales Contract latest shipment date",
       "vi": "Chỉ còn {days} ngày giữa ngày tàu chạy và thời hạn giao hàng trong Hợp đồng",

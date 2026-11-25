@@ -466,8 +466,8 @@ def extra_co(d: Doc):
     # box 6 marks split after the colour code: 'EF-Z30(BK)' + 'VN' (extract.py reads the 'CD-Y20PE' + '(BM)VN' split)
     from .pdftext import Line
     have = {f.value for f in d.lists.get("marks_models", [])}
-    pdf = __import__("pymupdf").open(d.path)
-    for pno, pg in enumerate(pdf):
+    from .pdftext import pages
+    for pno, pg in enumerate(pages(d.path)):
         t = pg.get_text()
         pairs = re.findall(r"(?m)^(" + MARK_HEAD + r"\([A-Za-z0-9]+\))\s*\n\s*([A-Z]{1,3})\s*$", t)
         pairs += [(a, "") for a in re.findall(r"(?m)^\s*(" + MARK_HEAD + r"\([A-Za-z0-9]+\)(?=[A-Za-z\-])[A-Za-z]{0,3}"
@@ -481,7 +481,6 @@ def extra_co(d: Doc):
                     d.lists.setdefault("marks_models", []).append(Field(a + b, a + b, ln, 0, len(a + b)))
                 else:
                     d.lists.setdefault("marks_models", []).append(Field(a + b, a, Line(pno, 0.0), 0, 0))
-    pdf.close()
 
 
 EXTRA = dict(CI=extra_ci, SC=extra_sc, BL=extra_bl, CO=extra_co)

@@ -960,6 +960,66 @@ def _():
     assert d.f["pos"].value == [po(1), po(2)]          # the existing field is unchanged
 
 
+@test("a B/L container row cut in its column: the type on the next line is read; without a type it still counts")
+def _():
+    from engine.rules import r_containers
+
+    def bl(name, *rows):
+        return pdf(name, B_L + [[(40, a), (300, b)] for a, b in rows] + ["THREE (3) CONTAINER(S) ONLY"], "BL")
+
+    def keys(d):
+        out = []
+        r_containers(None, d, out)
+        return sorted(f.key for f in out)
+    rest = [("ABCU7654322/ SEAL0003/ 40HC", "3X40'HC OF W/M")]
+    d = bl("wrap_ok", ("ABCU1234567/ SEAL0001/", "3 CONTAINER(S)   1,000.000   40.000"), ("40HC", "SAID"), ("ABCU7654321/ SEAL0002/ 40HC", "X"), *rest)
+    assert [f.value for f in d.lists["cntr"]] == [("ABCU1234567", "40HC"), ("ABCU7654321", "40HC"), ("ABCU7654322", "40HC")], d.lists["cntr"]
+    assert d.f["containers"].value == 3 and keys(d) == [], keys(d)
+    d = bl("wrap_type", ("ABCU1234567/ SEAL0001/", "3 CONTAINER(S)   1,000.000   40.000"), ("20GP", "SAID"), ("ABCU7654321/ SEAL0002/ 40HC", "X"), *rest)
+    assert keys(d) == ["CNTR_TYPE"], keys(d)
+    f = d.lists["cntr"][0]
+    assert [s.text for s in f.line.spans_for(f.start, f.end)] == ["20GP"]          # boxed on the second row
+    d = bl("wrap_none", ("ABCU1234567/ SEAL0001/", "3 CONTAINER(S)   1,000.000   40.000"), ("ABCU7654321/ SEAL0002/ 40HC", "X"), *rest)
+    assert [f.value for f in d.lists["cntr_untyped"]] == ["ABCU1234567"] and keys(d) == [], keys(d)
+    d = bl("wrap_three", ("ABCU1234567/ SEAL0001/", "3 CONTAINER(S)   1,000.000   40.000"), ("40HC", "SAID"), *rest)      # really one missing
+    assert keys(d) == ["CNTR_COUNT", "CNTR_WORDS"], keys(d)
+
+
+@test("wrapped values (engine/unwrap.py): joined when that resolves a problem; a wrong value and a figure stay as printed")
+def _():
+    from engine import unwrap
+    from engine.rules import _run_checks, validate_checks
+    import copy
+
+    def ci(name, goods, pl_goods, qty="10 PCS"):
+        rows = ["COMMERCIAL INVOICE", "INVOICE NO. ACME0000001   DATE : 01/02/2026", "Port of Discharge : PORT B, VIETNAM"]
+        rows += [*goods, [(40, "AB-X10(W1)VN"), (250, qty), (330, "5.00"), (420, "50.00")], "", "PACKING LIST",
+                 "INVOICE NO. ACME0000001   DATE : 01/02/2026", "Port of Discharge : PORT B, VIETNAM", *pl_goods,
+                 [(40, "AB-X10(W1)VN"), (250, "10 PCS"), (300, "10 CTNS"), (360, "20.00"), (420, "25.00"), (490, "1.50")]]
+        return pdf(name, rows, "CI")
+
+    def keys(d, run):
+        return sorted(f.key for f in run([copy.copy(d)])[0] if f.severity in ("ERROR", "WARNING"))
+    whole = ['"TOSHIBA" BRAND RICE COOKER']
+    base = keys(ci("uw_base", whole, whole), _run_checks)
+    cut = ci("uw_cut", whole, ['"TOSHIBA" BRAND RICE', "COOKER"])
+    assert keys(cut, _run_checks) != base, "the wrapped name must matter for this test"
+    assert keys(cut, validate_checks) == base, (keys(cut, validate_checks), base)
+    d = copy.copy(cut)
+    validate_checks([d])
+    assert d.joins and not cut.joins
+    # a real difference stays: the rest under it does not make it right
+    wrong = ci("uw_wrong", whole, ['"TOSHIBA" BRAND RICE', "KETTLE"])
+    assert keys(wrong, validate_checks) != base
+    # a wrong figure is never replaced or completed by what is under it
+    fig = ci("uw_fig", whole, whole, qty="1 PCS")
+    assert keys(fig, validate_checks) == keys(fig, _run_checks) != base
+    assert not unwrap._kept(dict(qty=1.0), dict(qty=10.0)) and not unwrap._kept(dict(qty=1.0), {})
+    assert not unwrap._kept(dict(pod="PORT B"), dict(pod="PORT C")) and unwrap._kept(dict(pod="PORT"), dict(pod="PORT B"))
+    assert not unwrap._kept(dict(items=[dict(qty=1.0), dict(qty=2.0)]), dict(items=[dict(qty=2.0)]))
+    assert unwrap._kept(dict(items=[dict(qty=1.0)]), dict(items=[dict(qty=3.0), dict(qty=1.0)]))
+
+
 if __name__ == "__main__":
     print("RESULT:", "ALL PASS" if not FAILS else f"{len(FAILS)} FAILED")
     sys.exit(1 if FAILS else 0)

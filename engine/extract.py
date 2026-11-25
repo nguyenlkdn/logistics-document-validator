@@ -6,7 +6,7 @@ from pathlib import Path
 import pymupdf
 
 from .grammar import CTN_UNIT, DATE_DMY, DEC, DEC2, DOC_ID, NUM, QTY_UNIT, SAILING
-from .pdftext import Line, doc_lines
+from .pdftext import Line, doc_lines, pages
 from .util import num, parse_date
 
 # a hyphenated suffix after the colour code belongs to the model: EF-Z30-PQ(06)-MG (not EF-Z30-PQ(06))
@@ -98,6 +98,7 @@ class Doc:
     suspect_lines: int = 0                             # P5 S2: goods rows not read -> line sums are SUSPECT
     item_ids: list = field(default_factory=list)       # [ItemId] parallel to items
     form: str = "D"                                    # certificate of origin: Form D or Form E (engine/form_e.py)
+    joins: list = field(default_factory=list)          # wrapped values read as one line (engine/unwrap.py)
     source_file: str = ""                              # the workbook a drawn Excel document comes from
     pl_item_ids: list = field(default_factory=list)    # [ItemId] parallel to pl_items
 
@@ -294,7 +295,7 @@ def _extract_ci(d: Doc):
             ctn = F(l, ctn_m, 1, num(ctn_m[1])) if ctn_m else (F(l, m, 2, num(m[2])) if m[2] else None)
             d.f.update({f"pl_total_{k}": v for k, v in nums.items()}, pl_total_ctn=ctn)
             continue
-        rng = re.search(r"CARTON\s*(?:/\s*)?(?:NO\.?\s*)?(\d+)\s*-\s*(\d+)", l.text)
+        rng = re.search(r"CARTON\s*(?:/\s*)?(?:NO\.?\s*)?(\d+)\s{0,2}-\s{0,2}(\d+)", l.text)
         ctns = (int(rng[2]) - int(rng[1]) + 1) if rng else (num(m[2]) if m[2] else None)
         ctn_f = F(l, rng, 0, ctns) if rng else (F(l, m, 2, ctns) if m[2] else None)
         desc = None
@@ -463,13 +464,36 @@ def _extract_bl(d: Doc):
     _extract_bl_cargo(d)
 
 
+def _only_untyped(d: Doc):
+    """Containers printed without a readable type: each number once, none that another row gives with its type."""
+    typed = {f.value[0] for f in d.lists["cntr"]}
+    d.lists["cntr_untyped"] = list({f.value: f for f in d.lists["cntr_untyped"] if f.value not in typed}.values())
+
+
 def _extract_bl_cargo(d: Doc):
     """Containers (number / seal / type), summary like 3X40'HC, total in words, attach-sheet loads,
     shipping-mark models, goods description, final destination, place of delivery."""
     L = d.lines
     rx = r"\b([A-Z]{4}\d{7})\s*/\s*([A-Z0-9]+)\s*/\s*(\d{2}[A-Z]{2})\b"
-    d.lists["cntr"] = [Field((m[1], m[3]), m[3], l, m.start(3), m.end(3))      # value = (container no., type)
-                       for _, l, _m in _search(L, rx, 0) for m in [re.search(rx, l.text)]]
+    from .pdftext import wrapped_cells
+    d.lists["cntr"], d.lists["cntr_untyped"] = [], []
+    for l in L:                                    # value = (container no., type)
+        m = re.search(rx, l.text)
+        if not m:                                  # the row is cut in its column: 'ABCD1234567/ SEAL/' + '40HC' under it
+            head = next((c for c in l.cells() if re.match(r"\s*[A-Z]{4}\d{7}\s*/(?!/)", c.text)), None)
+            if head is None:
+                continue
+            no = re.match(r"\s*([A-Z]{4}\d{7})", head.text)
+            for joined in wrapped_cells(L, head, r"\s*[A-Z]{4}\d{7}\b"):
+                m = re.search(rx, joined.text)
+                if m:
+                    l = joined
+                    break
+            else:                                  # printed, but its type is not readable: still a container
+                d.lists["cntr_untyped"].append(Field(no[1], no[1], head, no.start(1), no.end(1)))
+                continue
+        d.lists["cntr"].append(Field((m[1], m[3]), m[3], l, m.start(3), m.end(3)))
+    _only_untyped(d)
     d.f["cntr_summary"] = _first(L, r"\b(\d+\s*X\s*\d{2}\s*'?\s*[A-Z]{2}(?:\s*[+&,]\s*\d+\s*X\s*\d{2}\s*'?\s*[A-Z]{2})*)\b", flags=0)
     for _, l, m in _search(L, r"^\s*((?:[A-Z]+[\- ])*[A-Z]+)\s*\((\d+)\)\s*CONTAINER\(S\)\s*ONLY", 0):
         d.f["cntr_words"] = Field(m[1], l.text[m.start(1):m.end(2) + 1], l, m.start(1), m.end(2) + 1)
@@ -603,6 +627,7 @@ def _co_item_details(block: list) -> dict:
     x1 = min((s.bbox[0] for s in head.spans if s.bbox[0] > hs.bbox[2] + 3), default=1e9) - 3
     col = " ".join(s.text.strip() for x in block for s in x.spans if x0 <= s.bbox[0] < x1)
     col = re.sub(r"\s+", " ", col)
+    col = re.sub(r"(?<=TY)- (?=[A-Z]{3})", "-", col)         # 'SEVENTY-' / 'FIVE (75) CARTON'
     m = re.search(PKG_RE, col)
     if m:
         toks = m[1].split()
@@ -658,10 +683,11 @@ def _co_item_details(block: list) -> dict:
 EXTRACTORS = dict(CI=_extract_ci, SC=_extract_sc, BL=_extract_bl, CO=_extract_co)
 
 
-def load(path: Path, kind: str | None = None) -> Doc | None:
-    """Read and extract one PDF. kind: type chosen by the user (overrides the automatic classification)."""
-    pdf = pymupdf.open(path)
-    lines = doc_lines(pdf)
+def load(path: Path, kind: str | None = None, lines: list | None = None) -> Doc | None:
+    """Read and extract one PDF. kind: type chosen by the user (overrides the automatic classification).
+    lines: the document's lines with a wrapped value joined (engine/unwrap.py); default: as printed."""
+    pdf = pages(path)
+    lines = doc_lines(pdf) if lines is None else lines
     full = "\n".join(l.text for l in lines)
     kind = kind if kind in EXTRACTORS else classify(full)
     if not kind:
@@ -669,7 +695,7 @@ def load(path: Path, kind: str | None = None) -> Doc | None:
     raw_all = "\n".join(p.get_text() for p in pdf)   # includes rotated text, e.g. a diagonal DRAFT watermark
     # '非有效证书' ("not a valid certificate"): the draft watermark of a Chinese certificate of origin
     is_draft = bool(re.search(r"\bDRAFT\b|非有效证书", full + "\n" + raw_all, re.I) or re.search("draft|草稿", path.name.lower()))
-    d = Doc(path, kind, lines, pdf[0].rect.width, is_draft)
+    d = Doc(path, kind, lines, pdf[0].width, is_draft)
     from . import bl_box, bl_plain, form_e
     fe = kind == "CO" and form_e.is_form_e(full)       # Form E (ASEAN-China): its own layout, the Form D fields
     box = kind == "BL" and bl_box.is_box_bl(lines)        # carrier B/L / waybill with labelled boxes

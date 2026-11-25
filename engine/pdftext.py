@@ -1,4 +1,6 @@
 """Rebuild visual text lines (with span geometry) from a PDF page."""
+from functools import lru_cache
+from pathlib import Path
 from dataclasses import dataclass, field
 import pymupdf
 
@@ -95,6 +97,67 @@ class Line:
                 max(s.bbox[2] for s in self.spans), max(s.bbox[3] for s in self.spans))
 
 
+def wrapped_cells(lines: list, cell: Line, stop: str, rows: int = 2):
+    """The cell joined with the cells right under it in the same column (a value that did not fit the column's width):
+    with one row, then two … Ends at a gap, another column or a cell that matches stop (the next value)."""
+    import re
+    spans, last = list(cell.spans), cell
+    for _ in range(rows):
+        h = last.bbox[3] - last.bbox[1]
+        under = [c for l in lines if l.page == cell.page and 0 < l.y - last.y < h * 1.8
+                 for c in l.cells() if abs(c.bbox[0] - cell.bbox[0]) < 4]
+        nxt = min(under, key=lambda c: c.y, default=None)
+        if nxt is None or re.match(stop, nxt.text):
+            return
+        spans = spans + list(nxt.spans)
+        last = nxt
+        yield Line(cell.page, cell.y, spans)
+
+
+class Page:
+    """The text of a PDF page, read once: get_text() / get_text("dict") without the images."""
+
+    def __init__(self, page):
+        self.width = page.rect.width
+        self._text = page.get_text()
+        d = page.get_text("dict")
+        d["blocks"] = [b for b in d["blocks"] if b.get("lines")]
+        self._dict = d
+        self._path, self._no, self._drawn = None, page.number, None
+
+    def drawings(self) -> list:
+        """The vertical edges drawn on the page: (x, top, bottom) of each vertical line or thin box (once per page)."""
+        if self._drawn is None:
+            self._drawn = []
+            with pymupdf.open(self._path) as pdf:
+                for dr in pdf[self._no].get_drawings():
+                    for it in dr["items"]:
+                        if it[0] == "l" and abs(it[1].x - it[2].x) < 1:
+                            a, b = it[1], it[2]
+                            self._drawn.append((round(a.x, 1), min(a.y, b.y), max(a.y, b.y)))
+                        elif it[0] == "re" and it[1].width < 2:
+                            self._drawn.append((round(it[1].x0, 1), it[1].y0, it[1].y1))
+        return self._drawn
+
+    def get_text(self, what: str = "text"):
+        return self._dict if what == "dict" else self._text
+
+
+@lru_cache(maxsize=48)
+def _pages(path: str, _mtime: int, _size: int) -> tuple:
+    with pymupdf.open(path) as pdf:
+        out = tuple(Page(p) for p in pdf)
+    for p in out:
+        p._path = path
+    return out
+
+
+def pages(path) -> tuple:
+    """The pages of a PDF; a document that is read again (engine/unwrap.py) is not opened again."""
+    st = Path(path).stat()
+    return _pages(str(path), st.st_mtime_ns, st.st_size)
+
+
 def page_lines(page: pymupdf.Page, pno: int) -> list[Line]:
     spans = []
     for b in page.get_text("dict")["blocks"]:
@@ -118,7 +181,7 @@ def page_lines(page: pymupdf.Page, pno: int) -> list[Line]:
     return lines
 
 
-def doc_lines(doc: pymupdf.Document) -> list[Line]:
+def doc_lines(doc) -> list[Line]:
     out = []
     for pno, page in enumerate(doc):
         out.extend(page_lines(page, pno))
