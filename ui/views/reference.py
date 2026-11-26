@@ -8,7 +8,7 @@ from engine import hs_suggest, master, places
 
 from .. import components as ui
 from .. import state
-from ..i18n import t, t1
+from ..i18n import T, t, t1
 
 
 def render():
@@ -65,9 +65,10 @@ def render():
         st.subheader(t("hs_browse"))
         items = list((master.load() or {}).get("items", {}).values())
         q = st.text_input(t("hs_filter"), key="hs_q").strip().upper()
-        rows = [dict(m=i["model"], h=master.fmt(i["hs"]), n=i.get("name", ""), u=i.get("unit", ""), r=i["row"]) for i in items
-                if not q or q in i["model"].upper() or q.replace(".", "") in i["hs"] or q in i.get("name", "").upper()]
-        st.dataframe([{t1("hs_col_model"): r["m"], t1("hs_col_hs"): r["h"], t1("hs_col_name"): r["n"], t1("hs_col_unit"): r["u"], t1("hs_col_row"): r["r"]} for r in rows],
+        rows = [i for i in items if not q or q in i["model"].upper() or q.replace(".", "") in i["hs"]
+                or any(q in str(i.get(c, "")).upper() for c in master.COLUMNS)]
+        st.dataframe([{t1("hs_col_model"): i["model"], t1("hs_col_hs"): master.fmt(i["hs"]), **_cols(i), t1("hs_col_row"): i["row"]}
+                      for i in rows],
                      hide_index=True, width="stretch", height=min(38 + 35 * len(rows), 420))
         if hs["skipped"]:
             with st.expander(f"{t1('hs_skipped_n')} ({len(hs['skipped'])})"):
@@ -248,6 +249,12 @@ def skipped_table(rows):
                    t1("hs_col_reason"): s["reason"]} for s in rows], hide_index=True, width="stretch")
 
 
+def _cols(item: dict) -> dict:
+    """The list's other columns (config "master_columns") that the Excel has, under their labels."""
+    return {t1(f"hs_col_{c}") if f"hs_col_{c}" in T else c: item.get(c, "") for c in master.COLUMNS
+            if master.has_column(c) or item.get(c)}
+
+
 def preview_import(path: Path, hs: dict):
     try:
         items, skipped = master.read_xlsx(path)        # read only: the Excel is never changed
@@ -257,13 +264,12 @@ def preview_import(path: Path, hs: dict):
     old = (master.load() or {}).get("items", {})
     added = [k for k in items if k not in old]
     removed = [k for k in old if k not in items]
-    changed = [k for k in items if k in old and any(old[k].get(c, "") != items[k][c] for c in ("hs", "name", "unit"))]
+    changed = [k for k in items if k in old and any(old[k].get(c, "") != items[k].get(c, "") for c in ("hs", *master.COLUMNS))]
     st.markdown(f"**{t('hs_preview', name=path.name)}**")
     st.write(t("hs_valid", n=len(items), s=len(skipped)))
     if hs["loaded"]:
         st.write(t("hs_diff", a=len(added), r=len(removed), c=len(changed)))
-    st.dataframe([{t1("hs_col_model"): i["model"], t1("hs_col_hs"): master.fmt(i["hs"]), t1("hs_col_name"): i["name"],
-                   t1("hs_col_unit"): i["unit"], t1("hs_col_row"): i["row"],
+    st.dataframe([{t1("hs_col_model"): i["model"], t1("hs_col_hs"): master.fmt(i["hs"]), **_cols(i), t1("hs_col_row"): i["row"],
                    "": "＋" if k in added else ("≠" if k in changed else "")} for k, i in list(items.items())[:200]],
                  hide_index=True, width="stretch", height=260)
     if skipped:

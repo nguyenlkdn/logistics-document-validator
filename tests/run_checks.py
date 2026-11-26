@@ -199,7 +199,7 @@ def _():
     assert not closure_errors(BASE_RES, package()), closure_errors(BASE_RES, package())
     ids = {r.check_id for r in BASE_RES}
     assert ids == set(REGISTRY) - {"DOC_PAIRING"} | {"DOC_PAIRING"}, set(REGISTRY) - ids   # every check id has a record
-    assert len(REGISTRY) == 107, len(REGISTRY)      # 2.11: MASTER_NAME, MASTER_UNIT; 2.7: + CO_ITEM_VALUE, CO_CRITERION (Form E); 2.8: CNTR_VS_PL, SC_CHARGES; 2.9: the P/O numbers of a contract
+    assert len(REGISTRY) == 111, len(REGISTRY)      # 2.14: MASTER_ORIGIN, MASTER_FACTORY, MASTER_SELLER, CO_ROUTE; 2.11: MASTER_NAME, MASTER_UNIT; 2.7: + CO_ITEM_VALUE, CO_CRITERION (Form E); 2.8: CNTR_VS_PL, SC_CHARGES; 2.9: the P/O numbers of a contract
 
 
 @test("T4 declared vs used inputs: every input a check read is declared in CheckDef.needs")
@@ -1115,9 +1115,14 @@ def _():
         co.items[0]["unit"] = "PIECE"
         fs, res = run(docs)
         got = {f.key: f for f in fs if f.key.startswith("MASTER_")}
-        assert {k: f.severity for k, f in got.items()} == {"MASTER_NAME": "ERROR", "MASTER_UNIT": "WARNING"}, got
+        assert {k: f.severity for k, f in got.items()} == {"MASTER_NAME": "ERROR", "MASTER_UNIT": "ERROR"}, got
         assert got["MASTER_NAME"].suggested == "ACME RICE COOKER" and got["MASTER_UNIT"].suggested == "SET"
         assert [d.kind for d in got["MASTER_NAME"].docs] == ["CO"], got["MASTER_NAME"].docs
+        # the unit of the C/O's sets per carton ('1 CARTON = 1 PCE') must be the list's too
+        docs = package()
+        next(d for d in docs if d.kind == "CO").items[0]["per_unit"] = F("PCE")
+        got = [(f.severity, f.current, [l.text for l in f.locs]) for f in run(docs)[0] if f.key == "MASTER_UNIT"]
+        assert got == [("ERROR", "PCE", ["PCE"])], got
         # a heading with several names: each must be the name of a model; the C/O's wrong name shares its finding
         docs = package()
         sc = next(d for d in docs if d.kind == "SC")
@@ -1221,6 +1226,119 @@ def _():
         got = [(f.severity, f.docs[0].kind) for f in fs if f.key == "SHIPMENT_BLANK"]
         assert got == ([("WARNING", "SC")] if blank else []), got
         assert status(res, "SHIPMENT_DATE") == {"REVIEW_REQUIRED" if blank else "NOT_RUN"}, status(res, "SHIPMENT_DATE")
+
+
+@test("Contract clause ORIGINAL: maker, C/O issuer and 'on behalf of' are read in both layouts")
+def _():
+    from engine.extract import origin_clause
+    for texts, want in (
+            (["1   DESCRIPTION", "2   ORIGINAL   Goods are manufactured and supplied by ACME WORKS CO.,LTD",
+              "ACME WORKS CO.,LTD will arrange C/O form E on behalf of", "ACME (TRADING) ASIA CO.,LTD", "3   PACKING   Box"],
+             ("ACME WORKS CO.,LTD", "ACME WORKS CO.,LTD", "ACME (TRADING) ASIA CO.,LTD")),
+            (["2   ORIGINAL   ACME WORKS MFG.CO.,LTD.", "will supply and arrange C/O form E  on behalf of ACME Trading (Asia) CO.LTD",
+              "3   PACKING   Box"], ("ACME WORKS MFG.CO.,LTD.", "ACME WORKS MFG.CO.,LTD.", "ACME Trading (Asia) CO.LTD")),
+            (["2   ORIGINAL   Goods are manufactured and supplied by ACME WORKS CO.,LTD", "3   PACKING   Box"],
+             ("ACME WORKS CO.,LTD", None, None)),
+            (["2   PACKING   Box", "10. COUNTRY OF ORIGIN   Thailand"], (None, None, None))):
+        d = mk("SC", "oc_sc.pdf", texts, {})
+        origin_clause(d)
+        got = tuple(d.f[k].value if d.f.get(k) else None for k in ("made_by", "co_issuer", "co_for"))
+        assert got == want, got
+        for k in ("made_by", "co_issuer", "co_for"):          # each is boxed where it is printed
+            f = d.f.get(k)
+            assert f is None or f.line.text[f.start:f.end] == f.raw, (k, f)
+
+
+@test("Origin, factory and seller of the HS list: every document must print the model's own")
+def _():
+    import openpyxl
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.append(["Mã NPL/SP", "Mã HS", "TÊN", "ĐƠN VỊ", "Original", "Factory", "Selling"])
+    ws.append([MODEL, "8516.60.10", "ACME RICE COOKER", "SET", "Thailand", "ACME WORKS MFG. CO.,LTD\nOR\nACME CO., LTD.",
+               "ACME (TRADING) ASIA COMPANY LIMITED"])
+    p = Path(tempfile.mkdtemp()) / "m3.xlsx"
+    wb.save(p)
+    master.import_xlsx(p)
+
+    def find(**change):
+        docs = package()
+        by = {d.kind: d for d in docs}
+        for d in [by["CI"], by["SC"]]:
+            d.f["shipper" if d.kind == "CI" else "seller"] = F("ACME TRADING (ASIA) CO., LTD.")
+        by["CI"].f["pl_shipper"] = F("ACME TRADING (ASIA) CO., LTD.")
+        for k, v in change.items():
+            kind, name = k.split("_", 1)
+            by[kind].f[name] = F(v)
+            by[kind].lists.pop(name, None)
+        fs, res = run(docs)
+        return sorted((f.key, f.severity, f.docs[0].kind, f.suggested) for f in fs if f.key.startswith("MASTER_")), res
+    try:
+        got, res = find()
+        assert got == [], got
+        assert {c: status(res, c) for c in ("MASTER_ORIGIN", "MASTER_FACTORY", "MASTER_SELLER")} == dict.fromkeys(
+            ("MASTER_ORIGIN", "MASTER_FACTORY", "MASTER_SELLER"), {"PASS"})
+        assert find(CO_exporter="ACME WORKS MANUFACTURING COMPANY LIMITED", BL_shipper="ACME WORKS MFG CO LTD")[0] == []
+        assert find(CI_origin="ZETALAND")[0] == [("MASTER_ORIGIN", "ERROR", "CI", "THAILAND")]
+        assert find(CO_exporter="ZETA CO., LTD.")[0] == [
+            ("MASTER_FACTORY", "ERROR", "CO", "ACME WORKS MFG. CO.,LTD / ACME CO., LTD.")]
+        assert find(SC_seller="ACME WORKS MFG. CO., LTD.")[0] == [("MASTER_SELLER", "ERROR", "SC", "ACME (TRADING) ASIA COMPANY LIMITED")]
+        assert [x[:3] for x in find(BL_shipper="ACME ASIA CO., LTD.")[0]] == [("MASTER_SELLER", "ERROR", "BL")]
+        # the contract's ORIGINAL clause: the maker and C/O issuer are the factory, 'on behalf of' is the seller
+        assert find(SC_made_by="ACME WORKS MFG.CO.,LTD.", SC_co_issuer="ACME CO., LTD.",
+                    SC_co_for="ACME TRADING (ASIA) CO.,LTD")[0] == []
+        assert [x[:3] for x in find(SC_made_by="ZETA WORKS CO.,LTD")[0]] == [("MASTER_FACTORY", "ERROR", "SC")]
+        assert [x[:3] for x in find(SC_co_for="ACME TRADING (ASIA) PTE. LTD.")[0]] == [("MASTER_SELLER", "ERROR", "SC")]
+        # the clause is printed but one of its two parts is missing: a warning naming that part
+        for parts, want in ((dict(made_by="ACME CO., LTD."), "@seller"), (dict(co_for="ACME TRADING (ASIA) CO.,LTD"), "@factory"),
+                            (dict(made_by="ACME CO., LTD.", co_for="ACME TRADING (ASIA) CO.,LTD"), None)):
+            docs = package()
+            sc = docs[1]
+            sc.f["origin_clause"] = F("2 ORIGINAL")
+            for k, v in parts.items():
+                sc.f[k] = F(v)
+            got = [(f.severity, f.params["part"]) for f in run(docs)[0] if f.key == "SC_ORIGIN_PART"]
+            assert got == ([("WARNING", want)] if want else []), (parts, got)
+    finally:
+        setup_master()
+
+
+@test("Form D sets per carton: when its carton count is the packing list's, only the wrong '1 CARTON = N SET' is reported")
+def _():
+    for per, pl_rng, want, qty in ((4, True, [("CO_SET_PER_CTN", "CO")], 100.0), (4, False, [("CO_SET_PER_CTN", "CO")], 100.0),
+                                   (1, True, [], 100.0), (1, True, [], 95.0)):          # 95: the quantity is wrong (CO_QTY)
+        docs = package()
+        ci, co = docs[0], docs[3]
+        co.items[0]["per_ctn"] = per
+        co.items[0]["qty"] = F(qty, f"{qty:.0f}")
+        co.lists["per_ctn_f"] = [F(f"1 CARTON = {per} SETS")]
+        if not pl_rng:
+            ci.pl_items[0]["rng"] = None
+        fs, _ = run(docs)
+        got = [(f.key, f.docs[0].kind) for f in fs if f.key in ("CO_PKG_COUNT", "CO_SET_PER_CTN", "PL_SET_PER_CTN")]
+        assert got == want, (per, pl_rng, got)
+        wrong = [l.text for f in fs if f.key == "CO_SET_PER_CTN" for l in f.locs if l.role == "wrong"]
+        assert wrong == (["1 CARTON = 4 SETS"] if want else []), wrong      # the box is on the wrong figure, not the quantity
+
+
+@test("Form D / E box 3: port of discharge and 'FROM … TO …' are the B/L's ports (city names agree)")
+def _():
+    for co_f, want in ((dict(pod="PORT B"), []), (dict(pod="PORT B", route_pol="PORT A", route_pod="PORT B"), []),
+                       (dict(pod="HCM", route_pod="CAT LAI"), "same city"),
+                       (dict(pod="PORT X", route_pol="PORT A", route_pod="PORT X"), [("@pod", "PORT X", 2)]),
+                       (dict(pod="PORT B", route_pol="PORT"), []),                 # the words of one inside the other
+                       (dict(pod="PORT B", route_pol="ZED"), [("@pol", "ZED", 1)])):
+        docs = package()
+        co, bl = docs[3], docs[2]
+        if want == "same city":
+            bl.f["pod"], want = F("HO CHI MINH CITY"), []
+        for k, v in co_f.items():
+            co.f[k] = F(v)
+        co.lists["pod"] = [co.f["pod"]]
+        fs, res = run(docs)
+        got = [(f.params["what"], f.current, len([l for l in f.locs if l.role == "wrong"])) for f in fs if f.key == "CO_ROUTE"]
+        assert got == want, (co_f, got)
+        assert status(res, "CO_ROUTE") == ({"FAIL"} if want else {"PASS"})
 
 
 @test("HS list: added models are used, the Excel wins, wrong codes are refused; the added list reads back as a master Excel")

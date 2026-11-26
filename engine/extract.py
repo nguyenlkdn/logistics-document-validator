@@ -560,6 +560,7 @@ def _extract_co(d: Doc):
         det = _co_item_details(block[:stop])
         d.lists.setdefault("pkg_words_f", []).append(det.pop("_words_f", None))   # positions, parallel to items
         d.lists.setdefault("model_f", []).append(det.pop("_model_f", None))
+        d.lists.setdefault("per_ctn_f", []).append(det.pop("_per_f", None))
         d.items.append(dict(no=int(m[1]), hs=m[2], hs_f=F(l, m, 2, m[2]), qty=F(l, m, 3, num(m[3])), inv_ref=m[5], inv_date=date_f,
                             **det))
     tot_rx = rf"TOTAL\s*:\s*((?:[A-Z]+[\- ])*[A-Z]+)\s*\(({NUM})\)\s*"
@@ -616,7 +617,7 @@ PKG_RE = rf"((?:[A-Z]+[\- ])*[A-Z]+)\s*\(\s*({NUM})\s*\)\s*(?:CARTON|CASE|PALLET
 
 def _co_item_details(block: list) -> dict:
     """Box 7 of one Form D item: packages (words + figures), sets per carton, model, goods name."""
-    out = dict(pkg_words=None, pkg_fig=None, per_ctn=None, model=None, goods=None)
+    out = dict(pkg_words=None, pkg_fig=None, per_ctn=None, per_unit=None, model=None, goods=None)
     if not block:
         return out
     head = block[0]
@@ -644,8 +645,15 @@ def _co_item_details(block: list) -> dict:
                 if k >= 0:
                     out["_words_f"] = Field(w, w, x, k, k + len(w))
                 break
-    m = re.search(r"1\s*CARTON\s*=\s*(\d+)\s*(?:SET|PCS|PIECE)", col, re.I)
+    per_rx = r"1\s*CARTONS?\s*=\s*(\d+)\s*([A-Za-z]+(?:\s*\(\s*S\s*\))?)"      # any unit word: a wrong one is reported
+    m = re.search(per_rx, col, re.I)
     out["per_ctn"] = int(m[1]) if m else None
+    for x in block if m else ():                  # where '1 CARTON = 4 SET' is printed
+        pm = re.search(per_rx, x.text, re.I)
+        if pm:
+            out["_per_f"] = Field(pm[0], pm[0], x, pm.start(), pm.end())
+            out["per_unit"] = Field(pm[2], pm[2], x, pm.start(2), pm.end(2))
+            break
     # 'AB-X10(W1)VN', also when the pieces were joined with a space ('AB-X10 (W1)VN') or a letter is mistyped
     # a model wrapped after a hyphen ('MODEL: EF-Z30-' / 'PQ(06)-MG') is one model
     mcol = re.sub(r"(MODEL\s*:\s*\S*-)\s+(?=[A-Za-z0-9(])", r"\1", col)
@@ -701,6 +709,8 @@ def load(path: Path, kind: str | None = None, lines: list | None = None) -> Doc 
     box = kind == "BL" and bl_box.is_box_bl(lines)        # carrier B/L / waybill with labelled boxes
     plain = kind == "BL" and not box and bl_plain.is_plain_bl(full)   # B/L without label text: read by position
     (form_e.extract if fe else bl_box.extract if box else bl_plain.extract if plain else EXTRACTORS[kind])(d)
+    if kind == "SC":
+        origin_clause(d)
     if kind == "CO":                                # box 6 marks: model on one line, colour code "(BK)" on the next
         d.lists["marks_models"] = [Field(a + b, a, Line(pno, 0.0), 0, 0) for pno, pg in enumerate(pdf)
                                    for a, b in re.findall(r"(?m)^(" + MARK_HEAD + r")\s*\n\s*(\([A-Za-z0-9]+\)[A-Za-z]*" + MARK_TAIL + r")\s*$",
@@ -712,6 +722,54 @@ def load(path: Path, kind: str | None = None, lines: list | None = None) -> Doc 
     from .plausibility import mark                   # P5: readings with a detectable defect are SUSPECT
     mark(d)
     return d
+
+
+def origin_clause(d: Doc):
+    """Contract clause 'ORIGINAL': who makes the goods and who issues the certificate of origin for whom.
+      2 ORIGINAL  Goods are manufactured and supplied by <maker>
+                  <issuer> will arrange C/O form E on behalf of
+                  <seller>
+      2 ORIGINAL  <maker>
+                  will supply and arrange C/O form E on behalf of <seller>
+    made_by (the maker), co_issuer (who arranges the C/O), co_for (on whose behalf); a name may be on the next row."""
+    L = d.lines
+    i0 = next((i for i, l in enumerate(L) if re.match(r"\s*\d+\s+ORIGINAL\b", l.text)), None)
+    if i0 is None:
+        return
+    h = re.match(r"\s*\d+\s+ORIGINAL\b", L[i0].text)
+    d.f["origin_clause"] = Field("ORIGINAL", h[0].strip(), L[i0], h.start(), h.end())   # printed: both parts are due
+    rows = []                                          # (line, start of its text) up to the next numbered clause
+    for k, l in enumerate(L[i0:i0 + 5]):
+        if k and (re.match(r"\s*\d+\s+[A-Z]", l.text) or l.page != L[i0].page):
+            break
+        s = re.match(r"\s*\d+\s+ORIGINAL\b\s*", l.text).end() if not k else len(l.text) - len(l.text.lstrip())
+        if l.text[s:].strip():
+            rows.append((l, s))
+
+    def whole(l, s):
+        t = l.text[s:].rstrip()
+        return Field(t, t, l, s, s + len(t)) if t else None
+
+    for k, (l, s) in enumerate(rows):
+        t = l.text
+        m = re.search(r"\b(?:manufactured|produced|made)\b.*?\bby\s+(\S.*?)\s*$", t[s:], re.I)
+        if m:
+            d.f["made_by"] = Field(m[1], m[1], l, s + m.start(1), s + m.end(1))
+            continue
+        m = re.search(r"^(.*?)\bwill\b.*?\barrange\b.*?\bon\s+behalf\s+of\b\s*(.*?)\s*$", t[s:], re.I)
+        if not m:
+            continue
+        if m[1].strip():
+            g = m[1].strip()
+            a = s + m.start(1) + (len(m[1]) - len(m[1].lstrip()))
+            d.f["co_issuer"] = Field(g, g, l, a, a + len(g))
+        elif k:                                        # '<maker>' on the row above, '... will arrange' on this one
+            d.f["co_issuer"] = d.f.get("made_by") or whole(*rows[k - 1])
+            d.f.setdefault("made_by", d.f["co_issuer"])
+        if m[2]:
+            d.f["co_for"] = Field(m[2], m[2], l, s + m.start(2), s + m.end(2))
+        elif k + 1 < len(rows):
+            d.f["co_for"] = whole(*rows[k + 1])
 
 
 EXCEL = (".xlsx", ".xlsm")
@@ -726,6 +784,8 @@ def load_excel(path: Path, outdir: Path) -> list:
         d = Doc(pdf, kind, lines, sheets[0].width, False)
         d.source_file = path.name
         (xlsx.read_ci if kind == "CI" else xlsx.read_sc)(d, sheets)
+        if kind == "SC":
+            origin_clause(d)
         d.lists["unparsed"] = []
         mark(d)
         docs.append(d)

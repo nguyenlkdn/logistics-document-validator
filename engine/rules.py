@@ -1517,9 +1517,9 @@ def r_co_packages(ci, co, out):
         fig, words, per, qty = it.get("pkg_fig"), it.get("pkg_words"), it.get("per_ctn"), it["qty"].value
         rng = p["ctn"]
         ref_locs = at(ci, p.get("ctn_f"), "ref")
-        # true carton count = quantity ÷ sets per carton (when whole); otherwise the packing-list count
-        truth = _whole(qty / per) if per else None
-        truth = truth or rng
+        # true carton count = quantity ÷ sets per carton (when whole); otherwise the packing-list count. When the Form D
+        # count is the packing list's, both agree: then a sets-per-carton that does not give the quantity is the wrong one
+        truth = rng if fig and rng and _close(fig.value, rng) else (_whole(qty / per) if per else None) or rng
         n0 = ck.n_compared
         if fig and truth:
             ck.compared()
@@ -1535,12 +1535,13 @@ def r_co_packages(ci, co, out):
                            words, _words_like(truth, words), (at(co, wf) if wf else at(co, fig) if fig else []) + ref_locs))
         if per and truth:
             ck.compared()
-        if per and truth and not _close(per * truth, qty):
+        # a quantity that is not the packing list's is the wrong one (CO_QTY reports it), not the sets per carton
+        if per and truth and not _close(per * truth, qty) and _close(qty, p["qty"].value):
             ck.add(Finding("CO_SET_PER_CTN", "ERROR", [co, ci],
                            dict(no=it["no"], ctn=f"{truth:,.0f}", per=per, calc=f"{per * truth:,.0f}", qty=it["qty"].raw),
                            f"1 CARTON = {per} SET", f"1 CARTON = {_fmt(qty / truth)} SET",
-                           at(co, it["qty"]) + ref_locs))
-        if rng and per and not p.get("rng") and not _close(p["qty"].value / rng, per):
+                           at(co, _item_list_at(co, "per_ctn_f", it) or it["qty"]) + ref_locs))
+        if rng and per and not p.get("rng") and not _close(p["qty"].value / rng, per) and _close(per * truth, qty):
             # carton count given as a number (no range): ranges are checked by r_pl_ranges
             ck.add(Finding("PL_SET_PER_CTN", "ERROR", [ci, co],
                            dict(model=p["model"], ctn=f"{rng:,}", qty=p["qty"].raw, per=per),

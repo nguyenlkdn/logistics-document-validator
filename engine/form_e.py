@@ -138,6 +138,7 @@ def extract(d):
     d.f["pod"] = _first(L, r"^\s*Port of Discharge\s+([A-Z][A-Z ]+?)(?=,|\s{2,}|$)")
     d.lists["pod"] = [d.f["pod"]] if d.f["pod"] else []
     d.f["route_pol"] = _first(L, r"\bFROM\s+([A-Z][A-Z ]+?)\s*,.*?\bTO\b", flags=0)
+    d.f["route_pod"] = _first(L, r"\bFROM\s+.+?\bTO\s+([A-Z][A-Z ]+?)\s*(?=,|\s+BY\b|\s{2,}|$)", flags=0)
     d.f["co_no"] = _first(L, r"Reference No\.?\s*([A-Z0-9]{8,})")
     cols = _cols(L, d.path)
     rows = _table(L, cols)
@@ -188,8 +189,11 @@ def extract(d):
                 g = m[4].strip()
                 it["goods"] = p7.field(g, m.start(4), m.start(4) + len(g))
                 it["goods_full"] = it["goods"]
-        m = re.search(r"1\s*(?:CTNS?|CARTONS?)\s*=\s*(\d+)\s*(?:SETS?|PCS|PIECES?|UNITS?)", t7, re.I)
+        # '1 CTN = 4 SET': any unit word is read (a wrong one, '1 CTN = 1 PCE', is reported by MASTER_UNIT)
+        m = re.search(r"1\s*(?:CTNS?|CARTONS?)\s*=\s*(\d+)\s*([A-Za-z]+(?:\s*\(\s*S\s*\))?)", t7, re.I)
         it["per_ctn"] = int(m[1]) if m else None
+        per_f = p7.field(m[0], m.start(), m.end()) if m else None      # where it is printed
+        it["per_unit"] = p7.field(m[2], m.start(2), m.end(2)) if m else None
         model_f = None
         m = re.search(r"MODEL\s*(?:NO)?\.?\s*:?\s*([A-Z0-9][A-Za-z0-9\-()/.]*[A-Za-z0-9)])", t7)
         if m:
@@ -204,7 +208,7 @@ def extract(d):
         m = re.search(r"([\d,]+(?:\.\d+)?)\s*(SETS?|PCS|PIECES?|UNITS?)\b", q9.text)
         if m:
             it["qty"] = q9.field(num(m[1]), m.start(1), m.end(1))
-            it["unit"] = m[2]
+            it["unit"] = q9.field(m[2], m.start(2), m.end(2))        # its place: a wrong unit is boxed there
         m = re.search(r"(USD|US\$)\s*[:.]?\s*([\d,]+(?:\.\d+)?)", q9.text)
         it["fob"] = q9.field(num(m[2]), m.start(2), m.end(2)) if m else None
         # box 8: origin criterion ('"PE"', '"WO"', '40%')
@@ -229,6 +233,7 @@ def extract(d):
             continue                               # not an item row (a note in column 5)
         d.lists.setdefault("pkg_words_f", []).append(words_f)
         d.lists.setdefault("model_f", []).append(model_f)
+        d.lists.setdefault("per_ctn_f", []).append(per_f)
         items.append(it)
     # box 10 is printed once for the items under it (often only beside item 1): it names their invoice too
     last = None

@@ -493,6 +493,7 @@ T = {
     "hs_filter": ("Find model, HS code or name", "Tìm model, mã HS hoặc tên hàng"),
     "hs_col_model": ("Model", "Model"),
     "hs_col_name": ("Goods name", "Tên hàng"), "hs_col_unit": ("Unit", "Đơn vị"),
+    "hs_col_origin": ("Origin", "Xuất xứ"), "hs_col_factory": ("Factory", "Nhà máy"), "hs_col_selling": ("Seller", "Người bán"),
     "hs_col_hs": ("HS code", "Mã HS"),
     "hs_col_row": ("Excel row", "Dòng Excel"),
     "hs_col_reason": ("Reason", "Lý do"),

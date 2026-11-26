@@ -592,6 +592,43 @@ def r_origin(ci, scs, co, out, bl=None):
     ck.end()
 
 
+def _same_port(a: str, b: str) -> bool:
+    """Two port names: the same city when both are known (HCM = CAT LAI = HO CHI MINH CITY), else the same words, or the
+    words of one inside the other's ('PORT A' = 'PORT A NEW TERMINAL'). A cut or misspelt name is not the same port."""
+    from . import places
+    ca, cb = places.city(a), places.city(b)
+    if ca and cb:
+        return ca == cb
+    wa, wb = (set(re.findall(r"[A-Z0-9]+", str(x).upper())) for x in (a, b))
+    return bool(wa and wb) and (wa <= wb or wb <= wa)
+
+
+def r_co_route(co, bl, out):
+    """Form D / E box 3 (means of transport and route): its port of discharge and 'FROM <loading> ... TO <discharge>'
+    are the B/L's port of loading and port of discharge."""
+    if not (co and bl):
+        return
+    ck = begin("CO_ROUTE", out)
+    pods = [(f, "@pod") for f in co.lists.get("pod") or ([co.f["pod"]] if co.f.get("pod") else [])]
+    pods += [(co.f["route_pod"], "@pod")] if co.f.get("route_pod") else []
+    pairs = [(f, what, bl.f.get("pod")) for f, what in pods] + \
+            ([(co.f["route_pol"], "@pol", bl.f.get("pol"))] if co.f.get("route_pol") else [])
+    if not pairs:
+        ck.na(evidence="not_printed", field="pod", doc=co.name)
+    bad = {}                                      # the same wrong port printed twice (box 3 and 'TO …'): one finding
+    for f, what, ref in pairs:
+        ck.need(bl, "pod" if what == "@pod" else "pol")
+        if ref is None or not str(ref.value or "").strip():
+            continue
+        ck.compared()
+        if not _same_port(f.value, ref.value):
+            bad.setdefault((what, re.sub(r"[^A-Z0-9]", "", str(f.value).upper())), (ref, []))[1].append(f)
+    for (what, _k), (ref, fs) in bad.items():
+        ck.add(Finding("CO_ROUTE", "ERROR", [co, bl], dict(what=what, port=fs[0].value, ref=ref.value), fs[0].value,
+                       ref.value, [x for f in fs for x in at(co, f)] + at(bl, ref, "ref")))
+    ck.end()
+
+
 def r_import_country(co, bl, out):
     if not (co and bl):
         return
@@ -1015,6 +1052,7 @@ def validate_net(docs, ci, bl, co, scs, out):
     _call(r_marks, ci, bl, co, out)
     _call(r_origin, ci, scs, co, out, bl)
     _call(r_import_country, co, bl, out)
+    _call(r_co_route, co, bl, out)
     _call(r_parties, ci, scs, bl, co, out)
     _call(r_currency, ci, scs, co, out)
     _call(r_payment, ci, scs, out)

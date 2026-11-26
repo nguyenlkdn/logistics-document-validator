@@ -159,6 +159,8 @@
     }
   },
   "labels": {
+    "factory": {"en": "factory", "vi": "nhà máy"},
+    "seller": {"en": "seller", "vi": "người bán"},
     "qty": {
       "en": "quantity",
       "vi": "số lượng"
@@ -483,6 +485,30 @@
       "note_en": "Reference: the unit column of the company master list (Excel). If the list is wrong, correct the Excel",
       "note_vi": "Căn cứ: cột đơn vị trong danh mục Excel của công ty. Nếu danh mục sai, hãy sửa file Excel"
     },
+    "SC_ORIGIN_PART": {
+      "en": "Sales Contract clause ORIGINAL: the {part} is missing or could not be read",
+      "vi": "Điều khoản ORIGINAL của Hợp đồng: thiếu hoặc không đọc được {part}",
+      "note_en": "The clause names the factory (manufactured by / arranges the C/O) and the seller (on behalf of); both must be the master list's",
+      "note_vi": "Điều khoản ghi nhà máy (sản xuất / làm C/O) và người bán (thay mặt cho); cả hai phải đúng danh mục"
+    },
+    "MASTER_ORIGIN": {
+      "en": "{model}: origin should be {ref} (master list)",
+      "vi": "{model}: xuất xứ phải là {ref} (danh mục)",
+      "note_en": "Reference: the origin column of the company master list (Excel). If the list is wrong, correct the Excel",
+      "note_vi": "Căn cứ: cột xuất xứ trong danh mục Excel của công ty. Nếu danh mục sai, hãy sửa file Excel"
+    },
+    "MASTER_FACTORY": {
+      "en": "{model}: factory (C/O exporter) should be {ref} (master list)",
+      "vi": "{model}: nhà máy (người xuất khẩu trên C/O) phải là {ref} (danh mục)",
+      "note_en": "Reference: the factory column of the company master list (Excel). If the list is wrong, correct the Excel",
+      "note_vi": "Căn cứ: cột nhà máy trong danh mục Excel của công ty. Nếu danh mục sai, hãy sửa file Excel"
+    },
+    "MASTER_SELLER": {
+      "en": "{model}: seller should be {ref} (master list)",
+      "vi": "{model}: người bán phải là {ref} (danh mục)",
+      "note_en": "Reference: the selling column of the company master list (Excel); the B/L shipper may also be the factory. If the list is wrong, correct the Excel",
+      "note_vi": "Căn cứ: cột người bán trong danh mục Excel của công ty; người gửi hàng trên B/L cũng có thể là nhà máy. Nếu danh mục sai, hãy sửa file Excel"
+    },
     "HS_CODE": {
       "en": "Form D item {no}: HS {hs} is not under B/L HS {hs_bl}",
       "vi": "C/O mục {no}: mã HS {hs} không thuộc nhóm HS {hs_bl} trên B/L"
@@ -803,6 +829,12 @@
       "note_en": "A different origin can lose the Form D preferential tariff",
       "note_vi": "Xuất xứ khác nhau có thể mất ưu đãi thuế theo C/O mẫu D"
     },
+    "CO_ROUTE": {
+      "en": "Form D box 3: {what} {port} ≠ B/L {ref}",
+      "vi": "C/O ô 3: {what} {port} ≠ B/L {ref}",
+      "note_en": "Box 3 (means of transport and route): the port of discharge and 'FROM … TO …' must be the B/L's port of loading and port of discharge",
+      "note_vi": "Ô 3 (phương tiện vận tải và lộ trình): cảng dỡ hàng và 'FROM … TO …' phải là cảng xếp hàng và cảng dỡ hàng trên B/L"
+    },
     "CO_IMPORT_COUNTRY": {
       "en": "Form D importing country {country} ≠ destination {ref} on the B/L",
       "vi": "Nước nhập khẩu trên C/O {country} ≠ nơi đến {ref} trên B/L"
@@ -870,8 +902,46 @@
   },
   "units": {
     "SET": ["SETS", "SET(S)", "BỘ"],
-    "PCS": ["PC", "PIECE", "PIECES", "PIECE(S)", "CÁI", "CHIẾC"],
+    "PCS": ["PC", "PCE", "PIECE", "PIECES", "PIECE(S)", "CÁI", "CHIẾC"],
     "UNIT": ["UNITS"]
+  },
+  "master_columns": {
+    "name": "^\\s*t[eê]n\\b|name|description|m[oô] t[aả]",
+    "unit": "[dđ][oơ]n\\s*v[iị]|\\b[dđ]vt\\b|\\bunit\\b",
+    "origin": "orig|xu[aấ]t\\s*x[uứ]",
+    "factory": "factory|manufactur|maker|nh[aà]\\s*m[aá]y",
+    "selling": "sell|vendor|ng[uư][oờ]i\\s*b[aá]n"
+  },
+  "master_fields": {
+    "_doc": "document field -> the list columns its value must be (any of them, for every model of the invoice)",
+    "MASTER_ORIGIN": {
+      "CI.origin": "origin",
+      "CI.pl_origin": "origin",
+      "SC.origin": "origin",
+      "CO.origin": "origin",
+      "BL.origin": "origin"
+    },
+    "MASTER_FACTORY": {
+      "CO.exporter": "factory",
+      "SC.made_by": "factory",
+      "SC.co_issuer": "factory"
+    },
+    "MASTER_SELLER": {
+      "CI.shipper": "selling",
+      "CI.pl_shipper": "selling",
+      "SC.seller": "selling",
+      "CO.third_party": "selling",
+      "SC.co_for": "selling",
+      "BL.shipper": "selling factory"
+    }
+  },
+  "name_words": {
+    "_doc": "words that mean the same in a company name (compared word by word, in any order)",
+    "CO": ["COMPANY"],
+    "LTD": ["LIMITED"],
+    "CORP": ["CORPORATION"],
+    "MANUFACTURING": ["MFG"],
+    "GUANGDONG": ["GD"]
   },
   "cities": {
     "HO CHI MINH CITY": [
@@ -1410,6 +1480,18 @@
       "en": "Units = master list",
       "vi": "Đơn vị = danh mục"
     },
+    "MASTER_ORIGIN": {
+      "en": "Origin = master list",
+      "vi": "Xuất xứ = danh mục"
+    },
+    "MASTER_FACTORY": {
+      "en": "Factory = master list",
+      "vi": "Nhà máy = danh mục"
+    },
+    "MASTER_SELLER": {
+      "en": "Seller = master list",
+      "vi": "Người bán = danh mục"
+    },
     "CO_HS": {
       "en": "Form D HS codes = HS master list / B/L heading",
       "vi": "Mã HS trên Form D = danh mục HS / nhóm HS trên B/L"
@@ -1586,6 +1668,10 @@
       "en": "Country of origin the same on every document",
       "vi": "Xuất xứ giống nhau trên mọi chứng từ"
     },
+    "CO_ROUTE": {
+      "en": "Form D route (box 3) = B/L ports",
+      "vi": "Lộ trình trên Form D (ô 3) = cảng trên B/L"
+    },
     "CO_IMPORT_COUNTRY": {
       "en": "Form D importing country = B/L destination country",
       "vi": "Nước nhập khẩu trên Form D = nước đến trên B/L"
@@ -1737,6 +1823,7 @@
     "CO_SUM",
     "CO_MODEL",
     "CO_IMPORT_COUNTRY",
+    "CO_ROUTE",
     "DOC_PAIRING",
     "HS_MASTER",
     "CO_HS",

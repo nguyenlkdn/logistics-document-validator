@@ -140,7 +140,8 @@ def r_master_goods(ci, scs, co, bl, out):
     parts = _all_parts(ci)
     models = list(dict.fromkeys(m for it in ci.items if (m := _model(it))))
     ref = {m: r for m in models if (r := master.row_for(m))}
-    for cid, col in (("MASTER_NAME", "name"), ("MASTER_UNIT", "unit")):
+    checks = [("MASTER_NAME", "name"), ("MASTER_UNIT", "unit")] + [(k, None) for k in CONFIG["master_fields"] if k != "_doc"]
+    for cid, col in checks:
         ck = begin(cid, out)
         if parts:
             ck.na(evidence="items_are_parts")
@@ -148,7 +149,9 @@ def r_master_goods(ci, scs, co, bl, out):
             ck.need_items(ci)
             for it in ci.items:
                 ck.need_item(ci, it, "model")
-            if not master.has_column(col):            # the Excel has no such column: nothing to check against
+            if col is None:
+                _fields(ck, cid, models, ref, ci, scs, co, bl)
+            elif not master.has_column(col):          # the Excel has no such column: nothing to check against
                 ck.na(evidence="master_no_column")
             else:
                 for m in models:
@@ -191,6 +194,57 @@ def _locs(hits) -> list:
     return out
 
 
+def _company(t) -> list:
+    """A company name or a country, word by word in any order: punctuation and the words of config "name_words" that
+    mean the same ignored ('CO.,LTD.' = 'COMPANY LIMITED', 'TRADING (ASIA)' = '(TRADING) ASIA')."""
+    same = {w: k for k, ws in CONFIG.get("name_words", {}).items() if k != "_doc" for w in [k, *ws]}
+    return sorted(same.get(w, w) for w in re.findall(r"[A-Z0-9]+", _text(t)))
+
+
+def _choices(value) -> list:
+    """The values one cell allows: 'A OR B' (one per line in the Excel) is either of them."""
+    return [x for x in re.split(r"\s+OR\s+", _text(value)) if x]
+
+
+def _fields(ck, cid, models, ref, ci, scs, co, bl):
+    """The document fields of config "master_fields"[cid] against the list columns they name, for every model."""
+    spec = {k: v.split() for k, v in CONFIG["master_fields"][cid].items()}
+    cols = list(dict.fromkeys(c for v in spec.values() for c in v))
+    if not any(master.has_column(c) for c in cols):
+        ck.na(evidence="master_no_column")
+        return
+    for m in models:
+        if not all((ref.get(m) or {}).get(c) for c in cols):
+            ck.master_missing(m)
+    docs = {"CI": [ci], "SC": list(scs), "CO": [co] if co else [], "BL": [bl] if bl else []}
+    for src, want_cols in spec.items():
+        kind, name = src.split(".")
+        want = {m: [x for c in want_cols for x in _choices(r.get(c))] for m, r in ref.items()
+                if all(r.get(c) for c in want_cols)}
+        if not want:
+            continue
+        bad = {}
+        for doc in docs.get(kind, []):
+            vals = doc.lists.get(name) or [doc.f.get(name)]
+            seen = set()
+            for f in vals:
+                if not isinstance(f, Field) or not _text(f.value) or tuple(_company(f.value)) in seen:
+                    continue
+                seen.add(tuple(_company(f.value)))
+                for m, ok in want.items():
+                    ck.compared()
+                    if _company(f.value) not in [_company(x) for x in ok]:
+                        bad.setdefault((m, "".join(_company(f.value))), []).append((doc, f, _text(f.value)))
+        _report(ck, cid, bad, {m: " / ".join(ok) for m, ok in want.items()})
+    # a contract's ORIGINAL clause always names both: the factory (maker / C/O issuer) and the seller (on behalf of)
+    part = {"MASTER_FACTORY": ("made_by", "co_issuer"), "MASTER_SELLER": ("co_for",)}.get(cid, ())
+    for s in docs["SC"] if part else ():
+        head = s.f.get("origin_clause")
+        if head is not None and not any(s.f.get(k) for k in part):
+            ck.add(Finding("SC_ORIGIN_PART", "WARNING", [s], dict(part="@factory" if cid == "MASTER_FACTORY" else "@seller"),
+                           head.raw, "", at(s, head)))
+
+
 def _report(ck, key, bad: dict, want: dict):
     """bad: {(model, printed key): [(doc, Field, shown)]}"""
     same = {}                                     # one wrong heading for several models: one finding naming them
@@ -199,7 +253,7 @@ def _report(ck, key, bad: dict, want: dict):
         same.setdefault((place, k, _text(want[m])), []).append(m)
     for (_p, k, _r), ms in same.items():
         m, hits = ms[0], bad[(ms[0], k)]
-        sev = "ERROR" if key == "MASTER_NAME" and not _listed(hits[0][2]) else "WARNING"
+        sev = "WARNING" if key == "MASTER_NAME" and _listed(hits[0][2]) else "ERROR"   # the unit too must be the list's
         ck.add(Finding(key, sev, _docs(hits), dict(model=", ".join(ms), ref=_text(want[m])), hits[0][2], _text(want[m]), _locs(hits)))
 
 
@@ -299,9 +353,11 @@ def _units(ck, ci, scs, co, bl, want):
             if m not in want:
                 continue
             u = _line_unit(it) or ((head.value, head) if head is not None and not pl else None)
-            if u and (m, unit_key(u[0])) not in done:
-                done.add((m, unit_key(u[0])))
-                check(doc, m, *u)
+            pu = it.get("per_unit")                   # C/O '1 CARTON = 4 SET': the unit of the sets per carton too
+            for u in [u, (pu.value, pu) if isinstance(pu, Field) else None]:
+                if u and (m, unit_key(u[0]), id(u[1].line)) not in done:
+                    done.add((m, unit_key(u[0]), id(u[1].line)))
+                    check(doc, m, *u)
     blk = _bl_block(bl, ci) if bl else None
     f = blk.unit if blk is not None else bl.f.get("bl_unit") if bl else None
     if f and len({unit_key(u) for u in want.values()}) == 1:      # one unit on the B/L for all goods of the invoice

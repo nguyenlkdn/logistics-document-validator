@@ -1,4 +1,5 @@
-"""HS master list: the company's own Excel (model -> HS code, goods name, unit) converted to LDV's internal tracking file.
+"""HS master list: the company's own Excel (model -> HS code and the columns of config "master_columns": goods name, unit,
+origin, factory, seller) converted to LDV's internal tracking file.
 
 The Excel stays wherever the user keeps it and can be edited any time. LDV remembers its path and
 re-imports it automatically when it changes (checked before every shipment check). Nothing is stored in
@@ -24,9 +25,9 @@ from pathlib import Path
 
 _CFG = json.loads((Path(__file__).resolve().parent.parent / "config.json").read_text(encoding="utf-8"))
 MODEL_HEAD = re.compile(r"m[aã]\s*(npl|sp)|model|item\s*code|part", re.I)
-NAME_HEAD = re.compile(r"^\s*t[eê]n\b|name|description|m[oô] t[aả]", re.I)
-UNIT_HEAD = re.compile(r"[dđ][oơ]n\s*v[iị]|\b[dđ]vt\b|\bunit\b", re.I)
-FORMAT = 2                                   # of master_hs.json; an older one is imported again (2: name and unit)
+# the other columns, found by their titles (config "master_columns": column -> title pattern, in this order)
+COLUMNS = {c: re.compile(rx, re.I) for c, rx in _CFG["master_columns"].items()}
+FORMAT = 3                                   # of master_hs.json; an older one is imported again (3: every column)
 HS_HEAD = re.compile(r"\bhs\b|m[aã]\s*hs", re.I)
 _cache = {"key": None, "data": None}
 
@@ -67,9 +68,10 @@ def read_xlsx(path: Path) -> tuple[dict, list]:
                 hc = next((i for i, c in enumerate(cells) if HS_HEAD.search(c) and i != mc), None)
                 if mc is None or hc is None:
                     continue
-                other = [i for i in range(len(cells)) if i not in (mc, hc)]
-                nc = next((i for i in other if NAME_HEAD.search(cells[i])), None)
-                uc = next((i for i in other if i != nc and UNIT_HEAD.search(cells[i])), None)
+                cols = {}
+                for c, rx in COLUMNS.items():
+                    cols[c] = next((i for i in range(len(cells)) if i not in (mc, hc, *cols.values()) and rx.search(cells[i])),
+                                   None)
                 text = lambda r, c: re.sub(r"\s+", " ", str(r[c])).strip() if c is not None and c < len(r) and r[c] is not None else ""
                 items, skipped = {}, []
                 for n, r in enumerate(rows[h + 1:], start=h + 2):
@@ -89,12 +91,12 @@ def read_xlsx(path: Path) -> tuple[dict, list]:
                                             reason=f"listed twice with different HS (row {items[key(model)]['row']})"))
                     elif key(model) in items and any(
                             text(r, c) and items[key(model)][k] and text(r, c).upper() != items[key(model)][k].upper()
-                            for k, c in (("name", nc), ("unit", uc))):
+                            for k, c in cols.items()):
                         skipped.append(dict(row=n, model=str(model).strip(), hs=d,
-                                            reason=f"listed twice with different name / unit (row {items[key(model)]['row']})"))
+                                            reason=f"listed twice with different {' / '.join(cols)} (row {items[key(model)]['row']})"))
                     else:
-                        items.setdefault(key(model), dict(model=str(model).strip(), hs=d, name=text(r, nc), unit=text(r, uc),
-                                                          row=n))
+                        items.setdefault(key(model), dict(model=str(model).strip(), hs=d, row=n,
+                                                          **{k: text(r, c) for k, c in cols.items()}))
                 return items, skipped
         raise ValueError("No header row with a model column (e.g. 'Mã NPL/SP') and an HS column (e.g. 'Mã HS') found")
     finally:
@@ -111,7 +113,7 @@ def import_xlsx(path) -> dict:
     changed = [dict(model=k, old=old[k]["hs"], new=items[k]["hs"]) for k in sorted(items) if k in old and old[k]["hs"] != items[k]["hs"]]
     if (load() or {}).get("format") == FORMAT:             # the first import with names and units is no change of them
         changed += [dict(model=k, field=c, old=old[k].get(c, ""), new=items[k][c]) for k in sorted(items) if k in old
-                    for c in ("name", "unit") if old[k].get(c, "") != items[k][c]]
+                    for c in COLUMNS if old[k].get(c, "") != items[k].get(c, "")]
     now = datetime.now().isoformat(timespec="seconds")
     data = dict(format=FORMAT, source=str(path), source_mtime=path.stat().st_mtime,
                 source_sha1=hashlib.sha1(path.read_bytes()).hexdigest(), imported_at=now, items=items, skipped=skipped)
@@ -237,7 +239,7 @@ def names() -> list:
 
 
 def has_column(col: str) -> bool:
-    """The list gives this ("name" / "unit") for at least one model."""
+    """The list gives this column (config "master_columns") for at least one model."""
     return any(r.get(col) for r in [*((load() or {}).get("items", {})).values(), *added().values()])
 
 
